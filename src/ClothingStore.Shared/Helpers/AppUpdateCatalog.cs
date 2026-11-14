@@ -29,7 +29,7 @@ public sealed record AppUpdateReleaseInfo(
 /// </summary>
 public static class AppUpdateCatalog
 {
-    public const string CurrentAppVersion = "1.0.24";
+    public const string CurrentAppVersion = "1.0.25";
     public const string DefaultCentralPlatformServerUrl = "https://youlink-loja.onrender.com";
     public const string GitHubOwner = "giovannipieronisleal-pixel";
     public const string GitHubRepo = "yourlink";
@@ -747,6 +747,56 @@ public static class AppUpdateCatalog
         }
 
         return fallbackName;
+    }
+
+    /// <summary>
+    /// Resolve a versão efetiva do aplicativo em execução, priorizando o AssemblyInformationalVersion /
+    /// AssemblyVersion quando builds Windows unpackaged deixam AppInfo.Current.VersionString em "1.0.0.1".
+    /// </summary>
+    public static string ResolveEffectiveCurrentVersion(
+        System.Reflection.Assembly? assembly,
+        string? appInfoVersion,
+        string fallbackVersion = CurrentAppVersion)
+    {
+        string? infoVersion = null;
+        string? asmVersion = null;
+        if (assembly is not null)
+        {
+            try
+            {
+                var attrs = assembly.GetCustomAttributes(typeof(System.Reflection.AssemblyInformationalVersionAttribute), false);
+                if (attrs.Length > 0 && attrs[0] is System.Reflection.AssemblyInformationalVersionAttribute infoAttr)
+                    infoVersion = infoAttr.InformationalVersion;
+
+                asmVersion = assembly.GetName().Version?.ToString();
+            }
+            catch
+            {
+            }
+        }
+
+        return ResolveEffectiveCurrentVersion(infoVersion, asmVersion, appInfoVersion, fallbackVersion);
+    }
+
+    public static string ResolveEffectiveCurrentVersion(
+        string? informationalVersion,
+        string? assemblyVersion,
+        string? appInfoVersion,
+        string fallbackVersion = CurrentAppVersion)
+    {
+        var fromAssembly = new[] { informationalVersion, assemblyVersion }
+            .Select(NormalizeVersion)
+            .FirstOrDefault(v => !string.IsNullOrWhiteSpace(v) && Version.TryParse(v, out _));
+
+        if (!string.IsNullOrWhiteSpace(fromAssembly))
+            return fromAssembly;
+
+        var fromAppInfo = NormalizeVersion(appInfoVersion);
+        if (!string.IsNullOrWhiteSpace(fromAppInfo) && Version.TryParse(fromAppInfo, out _))
+            return fromAppInfo;
+
+        var normalizedFallback = NormalizeVersion(fallbackVersion);
+        return string.IsNullOrWhiteSpace(normalizedFallback) ? CurrentAppVersion : normalizedFallback;
     }
 
     private static string EscapePowerShellSingleQuoted(string value) =>

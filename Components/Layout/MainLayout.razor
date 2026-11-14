@@ -333,7 +333,13 @@
 
     private void OnUpdateStateChanged()
     {
-        InvokeAsync(StateHasChanged);
+        try
+        {
+            _ = InvokeAsync(StateHasChanged);
+        }
+        catch
+        {
+        }
     }
 
     private async Task OpenBrowserAsync()

@@ -33,6 +33,32 @@ public static class LocalWebServerLauncher
             _orderService = orderService;
     }
 
+    public static void Stop()
+    {
+        try
+        {
+            _embeddedListener?.Stop();
+        }
+        catch
+        {
+        }
+        finally
+        {
+            _embeddedListener = null;
+        }
+
+        try
+        {
+            if (_webServerProcess is { HasExited: false } proc)
+            {
+                proc.Kill(entireProcessTree: true);
+            }
+        }
+        catch
+        {
+        }
+    }
+
     public static async Task OpenCatalogInBrowserAsync(string url, string? localStoreSlug = null)
     {
         await EnsureWebCatalogRunningAsync();

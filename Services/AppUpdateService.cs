@@ -24,6 +24,7 @@ public sealed class AppUpdateService
     private readonly SemaphoreSlim _checkLock = new(1, 1);
 
     private DateTimeOffset _lastCheckedAt = DateTimeOffset.MinValue;
+    private DateTimeOffset _lastAttemptAt = DateTimeOffset.MinValue;
     private bool _sessionPopupShown;
     private string? _lastAutoPromptedVersion;
     private int _monitorStarted;
@@ -59,18 +60,18 @@ public sealed class AppUpdateService
         _ = Task.Run(async () =>
         {
             using var timer = new PeriodicTimer(PeriodicMonitorInterval);
-            try
+            while (await timer.WaitForNextTickAsync())
             {
-                while (await timer.WaitForNextTickAsync())
+                try
                 {
                     if (IsChecking || IsDownloading || IsApplyingUpdate || IsPopupOpen)
                         continue;
 
                     await CheckForUpdatesAsync(manualTrigger: false, forceBypassCache: true);
                 }
-            }
-            catch
-            {
+                catch
+                {
+                }
             }
         });
     }
@@ -98,16 +99,18 @@ public sealed class AppUpdateService
     {
         if (!manualTrigger &&
             !forceBypassCache &&
-            AvailableRelease is not null &&
-            DateTimeOffset.UtcNow - _lastCheckedAt < AutoCheckCooldown)
+            DateTimeOffset.UtcNow - _lastAttemptAt < AutoCheckCooldown)
         {
-            var isUnprompted = !string.Equals(_lastAutoPromptedVersion, AvailableRelease.LatestVersion, StringComparison.OrdinalIgnoreCase);
-            if (ShouldAutoPrompt(AvailableRelease) && (!_sessionPopupShown || isUnprompted))
+            if (AvailableRelease is not null)
             {
-                _lastAutoPromptedVersion = AvailableRelease.LatestVersion;
-                _sessionPopupShown = true;
-                IsPopupOpen = true;
-                NotifyChanged();
+                var isUnprompted = !string.Equals(_lastAutoPromptedVersion, AvailableRelease.LatestVersion, StringComparison.OrdinalIgnoreCase);
+                if (ShouldAutoPrompt(AvailableRelease) && (!_sessionPopupShown || isUnprompted))
+                {
+                    _lastAutoPromptedVersion = AvailableRelease.LatestVersion;
+                    _sessionPopupShown = true;
+                    IsPopupOpen = true;
+                    NotifyChanged();
+                }
             }
             return AvailableRelease;
         }
@@ -117,11 +120,12 @@ public sealed class AppUpdateService
         {
             if (!manualTrigger &&
                 !forceBypassCache &&
-                AvailableRelease is not null &&
-                DateTimeOffset.UtcNow - _lastCheckedAt < AutoCheckCooldown)
+                DateTimeOffset.UtcNow - _lastAttemptAt < AutoCheckCooldown)
             {
                 return AvailableRelease;
             }
+
+            _lastAttemptAt = DateTimeOffset.UtcNow;
 
             IsChecking = true;
             ErrorMessage = null;
@@ -142,7 +146,9 @@ public sealed class AppUpdateService
             {
                 using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
                 cts.CancelAfter(TimeSpan.FromSeconds(12));
-                using var resp = await DownloadHttpClient.GetAsync(AppUpdateCatalog.GitHubLatestReleaseApiUrl, cts.Token);
+                using var req = new HttpRequestMessage(HttpMethod.Get, AppUpdateCatalog.GitHubLatestReleaseApiUrl);
+                req.Headers.CacheControl = new CacheControlHeaderValue { NoCache = true };
+                using var resp = await DownloadHttpClient.SendAsync(req, cts.Token);
                 if (resp.IsSuccessStatusCode)
                 {
                     var json = await resp.Content.ReadAsStringAsync(cts.Token);
@@ -534,6 +540,7 @@ public sealed class AppUpdateService
             psi.Verb = "runas";
         }
 
+        LocalWebServerLauncher.Stop();
         Process.Start(psi);
         StatusMessage = $"Aplicando atualização v{targetVersion} e reiniciando o YouLink...";
         NotifyChanged();
@@ -550,6 +557,9 @@ public sealed class AppUpdateService
                 Environment.Exit(0);
             }
         });
+
+        await Task.Delay(1200, CancellationToken.None);
+        Environment.Exit(0);
     }
 
     private async Task LaunchAndroidInstallerAsync(string apkPath, string targetVersion)
@@ -615,18 +625,19 @@ public sealed class AppUpdateService
 
     private static string ResolveCurrentVersion()
     {
+        string? appInfoVersion = null;
         try
         {
-            var v = AppInfo.Current.VersionString;
-            var normalized = AppUpdateCatalog.NormalizeVersion(v);
-            if (!string.IsNullOrWhiteSpace(normalized))
-                return normalized;
+            appInfoVersion = AppInfo.Current.VersionString;
         }
         catch
         {
         }
 
-        return AppUpdateCatalog.CurrentAppVersion;
+        return AppUpdateCatalog.ResolveEffectiveCurrentVersion(
+            typeof(AppUpdateService).Assembly,
+            appInfoVersion,
+            AppUpdateCatalog.CurrentAppVersion);
     }
 
     private static bool TryProbeDirectoryWritable(string dirPath)
@@ -671,6 +682,7 @@ public sealed class AppUpdateService
         CancellationToken ct)
     {
         using var req = new HttpRequestMessage(HttpMethod.Get, AppUpdateCatalog.ReleasesPageUrl);
+        req.Headers.CacheControl = new CacheControlHeaderValue { NoCache = true };
         using var resp = await RedirectProbeHttpClient.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, ct);
 
         string? location = resp.Headers.Location?.ToString();

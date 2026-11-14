@@ -20,18 +20,19 @@ public sealed class MauiAdminGateway
     private const string PendingPlanOrderPreferenceKey = "youlink_pending_plan_order_v1";
     private static string ResolveCurrentClientAppVersion()
     {
+        string? appInfoVersion = null;
         try
         {
-            var version = AppInfo.Current.VersionString;
-            var normalized = AppUpdateCatalog.NormalizeVersion(version);
-            if (!string.IsNullOrWhiteSpace(normalized))
-                return normalized;
+            appInfoVersion = AppInfo.Current.VersionString;
         }
         catch
         {
         }
 
-        return AppUpdateCatalog.CurrentAppVersion;
+        return AppUpdateCatalog.ResolveEffectiveCurrentVersion(
+            typeof(MauiAdminGateway).Assembly,
+            appInfoVersion,
+            AppUpdateCatalog.CurrentAppVersion);
     }
 
     private static readonly HttpClient FallbackDnsHttpClient = new() { Timeout = TimeSpan.FromSeconds(6) };

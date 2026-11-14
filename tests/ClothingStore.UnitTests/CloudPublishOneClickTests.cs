@@ -753,4 +753,58 @@ public sealed class CloudPublishOneClickTests
         Assert.IsFalse(publicCatalog.Contains("ClothingStore.AdminApp", StringComparison.OrdinalIgnoreCase));
         Assert.IsFalse(publicCatalog.Contains("YouLinkAdmin", StringComparison.OrdinalIgnoreCase));
     }
+
+    [TestMethod]
+    public void AutoUpdateHardening_VersionResolution_TimerResilience_And_AndroidIntentQueries_ShouldWork()
+    {
+        // Unpackaged Windows builds podem ter AppInfo preso em 1.0.0.1; o Assembly version real deve prevalecer.
+        Assert.AreEqual("1.0.25",
+            AppUpdateCatalog.ResolveEffectiveCurrentVersion("1.0.25+abc123", "1.0.25.0", "1.0.0.1", "1.0.25"));
+        Assert.AreEqual("1.0.25",
+            AppUpdateCatalog.ResolveEffectiveCurrentVersion(null, "1.0.25.0", "1.0.0.1", "1.0.25"));
+        Assert.AreEqual("1.0.24",
+            AppUpdateCatalog.ResolveEffectiveCurrentVersion(null, null, "1.0.24", "1.0.25"));
+        Assert.AreEqual("1.0.25",
+            AppUpdateCatalog.ResolveEffectiveCurrentVersion(null, null, null, "1.0.25"));
+
+        var root = ResolveRepoRoot();
+        var clientUpdater = File.ReadAllText(Path.Combine(root, "Services", "AppUpdateService.cs"));
+        var clientLayout = File.ReadAllText(Path.Combine(root, "Components", "Layout", "MainLayout.razor"));
+        var clientGateway = File.ReadAllText(Path.Combine(root, "Services", "MauiAdminGateway.cs"));
+        var clientManifest = File.ReadAllText(Path.Combine(root, "Platforms", "Android", "AndroidManifest.xml"));
+
+        Assert.IsTrue(clientUpdater.Contains("ResolveEffectiveCurrentVersion", StringComparison.Ordinal));
+        Assert.IsTrue(clientGateway.Contains("ResolveEffectiveCurrentVersion", StringComparison.Ordinal));
+        Assert.IsTrue(clientUpdater.Contains("LocalWebServerLauncher.Stop()", StringComparison.Ordinal));
+        Assert.IsTrue(clientUpdater.Contains("Environment.Exit(0)", StringComparison.Ordinal));
+        Assert.IsTrue(clientUpdater.Contains("NoCache = true", StringComparison.Ordinal));
+        Assert.IsTrue(clientManifest.Contains("application/vnd.android.package-archive", StringComparison.Ordinal));
+
+        var timerWhileIdx = clientUpdater.IndexOf("while (await timer.WaitForNextTickAsync())", StringComparison.Ordinal);
+        var checkUpdatesCallIdx = clientUpdater.IndexOf("await CheckForUpdatesAsync", timerWhileIdx, StringComparison.Ordinal);
+        var insideTryIdx = clientUpdater.IndexOf("try", timerWhileIdx, checkUpdatesCallIdx - timerWhileIdx, StringComparison.Ordinal);
+        Assert.IsTrue(timerWhileIdx > 0 && insideTryIdx > timerWhileIdx && insideTryIdx < checkUpdatesCallIdx,
+            "PeriodicTimer do YouLink deve abrir try/catch dentro do while para nunca morrer após falha transitória.");
+
+        var stateChangedIdx = clientLayout.IndexOf("private void OnUpdateStateChanged()", StringComparison.Ordinal);
+        var stateChangedBlock = clientLayout.Substring(stateChangedIdx, Math.Min(180, clientLayout.Length - stateChangedIdx));
+        Assert.IsTrue(stateChangedBlock.Contains("try", StringComparison.Ordinal) && stateChangedBlock.Contains("catch", StringComparison.Ordinal));
+
+        var adminRoot = Path.Combine(root, "src", "ClothingStore.AdminApp");
+        if (Directory.Exists(adminRoot))
+        {
+            var adminUpdater = File.ReadAllText(Path.Combine(adminRoot, "Services", "AdminUpdateService.cs"));
+            var adminManifest = File.ReadAllText(Path.Combine(adminRoot, "Platforms", "Android", "AndroidManifest.xml"));
+            var adminLogin = File.ReadAllText(Path.Combine(adminRoot, "Components", "Pages", "AdminLogin.razor"));
+
+            var adminTimerIdx = adminUpdater.IndexOf("while (await timer.WaitForNextTickAsync())", StringComparison.Ordinal);
+            var adminCheckIdx = adminUpdater.IndexOf("await CheckForUpdatesAsync", adminTimerIdx, StringComparison.Ordinal);
+            var adminTryIdx = adminUpdater.IndexOf("try", adminTimerIdx, adminCheckIdx - adminTimerIdx, StringComparison.Ordinal);
+            Assert.IsTrue(adminTimerIdx > 0 && adminTryIdx > adminTimerIdx && adminTryIdx < adminCheckIdx,
+                "PeriodicTimer do YouLink Admin deve abrir try/catch dentro do while.");
+            Assert.IsTrue(adminUpdater.Contains("NoCache = true", StringComparison.Ordinal));
+            Assert.IsTrue(adminManifest.Contains("application/vnd.android.package-archive", StringComparison.Ordinal));
+            Assert.IsTrue(adminLogin.Contains("Atualizar Agora", StringComparison.Ordinal));
+        }
+    }
 }
