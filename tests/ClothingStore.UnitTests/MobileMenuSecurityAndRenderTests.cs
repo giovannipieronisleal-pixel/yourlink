@@ -283,4 +283,47 @@ public class MobileMenuSecurityAndRenderTests
         Assert.IsTrue(loginRazor.Contains("CheckUpdatesFromLoginAsync", StringComparison.Ordinal));
         Assert.IsTrue(loginRazor.Contains("UpdateService.OpenPopup", StringComparison.Ordinal));
     }
+
+    [TestMethod]
+    public void DesktopSidebarLayout_ShouldStackBrandVertically_PreventHorizontalOverflow_AndLockIndependentScroll()
+    {
+        var root = FindRepoRoot();
+        var mainLayout = File.ReadAllText(Path.Combine(root, "Components", "Layout", "MainLayout.razor"), Encoding.UTF8);
+        var navCss = File.ReadAllText(Path.Combine(root, "Components", "Layout", "NavMenu.razor.css"), Encoding.UTF8);
+        var appCss = File.ReadAllText(Path.Combine(root, "wwwroot", "app.css"), Encoding.UTF8);
+
+        Assert.IsTrue(mainLayout.Contains("adm-brand-top", StringComparison.Ordinal));
+        Assert.IsTrue(mainLayout.Contains("adm-brand-store-name", StringComparison.Ordinal));
+        Assert.IsTrue(mainLayout.Contains("adm-brand-slug", StringComparison.Ordinal));
+
+        Assert.IsTrue(appCss.Contains("flex-direction: column;", StringComparison.Ordinal));
+        Assert.IsTrue(appCss.Contains("overflow-wrap: anywhere;", StringComparison.Ordinal));
+        Assert.IsTrue(appCss.Contains("@media (min-width: 821px)", StringComparison.Ordinal));
+        Assert.IsTrue(appCss.Contains("height: 100dvh;", StringComparison.Ordinal));
+        Assert.IsTrue(appCss.Contains("overflow-x: hidden;", StringComparison.Ordinal));
+        Assert.IsTrue(appCss.Contains("overflow-y: auto;", StringComparison.Ordinal));
+
+        Assert.IsTrue(navCss.Contains("white-space: nowrap;", StringComparison.Ordinal));
+        Assert.IsTrue(navCss.Contains("text-overflow: ellipsis;", StringComparison.Ordinal));
+        Assert.IsTrue(navCss.Contains("grid-template-columns: repeat(2, minmax(0, 1fr));", StringComparison.Ordinal));
+    }
+
+    [TestMethod]
+    public void StockControl_ShouldRenderProductPhotos_OnCardsSelectionPreviewAndHistory()
+    {
+        var root = FindRepoRoot();
+        var razor = File.ReadAllText(Path.Combine(root, "Components", "Pages", "StockControl.razor"), Encoding.UTF8);
+        var css = File.ReadAllText(Path.Combine(root, "Components", "Pages", "StockControl.razor.css"), Encoding.UTF8);
+
+        Assert.IsTrue(razor.Contains("ResolveProductCoverUrl", StringComparison.Ordinal));
+        Assert.IsTrue(razor.Contains("TryResolveProductCoverUrl", StringComparison.Ordinal));
+        Assert.IsTrue(razor.Contains("stk-thumb-wrap", StringComparison.Ordinal));
+        Assert.IsTrue(razor.Contains("stk-selected-preview", StringComparison.Ordinal));
+        Assert.IsTrue(razor.Contains("stk-hist-thumb", StringComparison.Ordinal));
+        Assert.IsTrue(razor.Contains("Retirar", StringComparison.Ordinal));
+
+        Assert.IsTrue(css.Contains(".stk-thumb", StringComparison.Ordinal));
+        Assert.IsTrue(css.Contains("object-fit: cover;", StringComparison.Ordinal));
+        Assert.IsTrue(css.Contains(".stk-actions-row", StringComparison.Ordinal));
+    }
 }

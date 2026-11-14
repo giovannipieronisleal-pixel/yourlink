@@ -42,7 +42,7 @@
             <div>
                 <h2 style="font-size: 1.12rem; font-weight: 800; margin: 0;">⚡ Movimentar em 1 Toque (@visibleRows.Count itens)</h2>
                 <p style="font-size: 0.82rem; color: var(--adm-muted); margin: 0.2rem 0 0;">
-                    Busque pelo nome, cor, tamanho ou SKU e toque em <strong>−1</strong>, <strong>+1</strong>, <strong>+5</strong> ou <strong>+10</strong>.
+                    Identifique a peça pela foto, nome, cor, tamanho ou SKU e toque em <strong>−1 Retirar</strong> para dar baixa ou em <strong>+1 / +5 / +10</strong> para repor.
                 </p>
             </div>
         </div>
@@ -107,71 +107,88 @@
         }
         else
         {
-            <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr)); gap: 0.75rem;">
+            <div class="stk-grid">
                 @foreach (var item in visibleRows.Take(40))
                 {
                     var isSelected = item.Variant.Id == _movementRequest.ProductVariantId;
                     var isZero = item.Variant.StockQuantity <= 0;
                     var isLow = item.Variant.IsLowStock && !isZero;
+                    var coverUrl = ResolveProductCoverUrl(item.Product);
 
-                    <div style="border: 1.5px solid @(isSelected ? "var(--adm-primary)" : "var(--adm-border)"); background: var(--adm-input-bg); border-radius: 12px; padding: 0.8rem 0.9rem; display: flex; flex-direction: column; gap: 0.65rem;">
-                        <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 0.6rem;">
-                            <div style="min-width: 0;">
-                                <div style="font-weight: 800; font-size: 0.96rem; line-height: 1.25;">@item.Product.Name</div>
-                                <div style="display: flex; align-items: center; gap: 0.4rem; margin-top: 0.25rem; flex-wrap: wrap; font-size: 0.8rem; color: var(--adm-muted);">
+                    <div class="stk-item-card @(isSelected ? "selected" : null)">
+                        <div class="stk-card-head">
+                            <button type="button"
+                                    class="stk-thumb-wrap"
+                                    title="Selecionar este item para retirada ou ajuste detalhado"
+                                    @onclick="() => SelectVariantForDetailedForm(item.Product, item.Variant)">
+                                @if (!string.IsNullOrWhiteSpace(coverUrl))
+                                {
+                                    <img src="@coverUrl" alt="@item.Product.Name" class="stk-thumb" loading="lazy" />
+                                }
+                                else
+                                {
+                                    <div class="stk-thumb-placeholder">Sem foto</div>
+                                }
+                            </button>
+
+                            <div class="stk-card-info">
+                                <div class="stk-card-title-row">
+                                    <div class="stk-card-title">@item.Product.Name</div>
+                                    <span class="pill-badge @(isZero ? "pill-red" : isLow ? "pill-amber" : "pill-green") stk-qty-pill">
+                                        @item.Variant.StockQuantity un.
+                                    </span>
+                                </div>
+
+                                <div class="stk-variant-meta">
                                     @if (!string.IsNullOrWhiteSpace(item.Variant.ColorHex))
                                     {
-                                        <span style="width: 11px; height: 11px; border-radius: 999px; display: inline-block; background: @item.Variant.ColorHex; border: 1px solid rgba(0,0,0,0.2);"></span>
+                                        <span class="stk-color-dot" style="background: @item.Variant.ColorHex;"></span>
                                     }
                                     <strong>@item.Variant.Color</strong> &bull; Tam <strong>@item.Variant.Size</strong>
-                                    <span style="font-family: monospace; font-size: 0.74rem;">(@item.Variant.Sku)</span>
+                                    <span class="stk-sku">(@item.Variant.Sku)</span>
                                 </div>
                             </div>
-
-                            <span class="pill-badge @(isZero ? "pill-red" : isLow ? "pill-amber" : "pill-green")" style="white-space: nowrap; font-size: 0.8rem;">
-                                @item.Variant.StockQuantity un.
-                            </span>
                         </div>
 
-                        <div style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 0.35rem;">
+                        <div class="stk-actions-row">
                             <button type="button"
-                                    class="adm-btn adm-btn-danger"
-                                    style="padding: 0.45rem 0.2rem; font-size: 0.84rem; font-weight: 800; min-height: 38px;"
+                                    class="adm-btn adm-btn-danger stk-op-btn"
                                     disabled="@(_isSubmitting || isZero)"
-                                    title="Baixar 1 unidade do estoque"
+                                    title="Retirar 1 unidade do estoque"
                                     @onclick='() => QuickMoveAsync(item.Product, item.Variant, "OUT", 1, "Saída rápida (-1 un.)")'>
-                                −1
+                                <span class="stk-op-num">−1</span>
+                                <span class="stk-op-sub">Retirar</span>
                             </button>
                             <button type="button"
-                                    class="adm-btn adm-btn-success"
-                                    style="padding: 0.45rem 0.2rem; font-size: 0.84rem; font-weight: 800; min-height: 38px;"
+                                    class="adm-btn adm-btn-success stk-op-btn"
                                     disabled="@_isSubmitting"
                                     title="Adicionar 1 unidade ao estoque"
                                     @onclick='() => QuickMoveAsync(item.Product, item.Variant, "IN", 1, "Entrada rápida (+1 un.)")'>
-                                +1
+                                <span class="stk-op-num">+1</span>
+                                <span class="stk-op-sub">Entrar</span>
                             </button>
                             <button type="button"
-                                    class="adm-btn adm-btn-success"
-                                    style="padding: 0.45rem 0.2rem; font-size: 0.84rem; font-weight: 800; min-height: 38px;"
+                                    class="adm-btn adm-btn-success stk-op-btn"
                                     disabled="@_isSubmitting"
                                     title="Adicionar 5 unidades"
                                     @onclick='() => QuickMoveAsync(item.Product, item.Variant, "IN", 5, "Reposição rápida (+5 un.)")'>
-                                +5
+                                <span class="stk-op-num">+5</span>
+                                <span class="stk-op-sub">Repor</span>
                             </button>
                             <button type="button"
-                                    class="adm-btn adm-btn-outline"
-                                    style="padding: 0.45rem 0.2rem; font-size: 0.84rem; font-weight: 800; min-height: 38px;"
+                                    class="adm-btn adm-btn-outline stk-op-btn"
                                     disabled="@_isSubmitting"
                                     title="Adicionar 10 unidades"
                                     @onclick='() => QuickMoveAsync(item.Product, item.Variant, "IN", 10, "Reposição rápida (+10 un.)")'>
-                                +10
+                                <span class="stk-op-num">+10</span>
+                                <span class="stk-op-sub">Lote</span>
                             </button>
                             <button type="button"
-                                    class="adm-btn @(isSelected ? "adm-btn-primary" : "adm-btn-outline")"
-                                    style="padding: 0.45rem 0.25rem; font-size: 0.78rem; min-height: 38px;"
-                                    title="Ajustar outra quantidade abaixo"
+                                    class="adm-btn @(isSelected ? "adm-btn-primary" : "adm-btn-outline") stk-op-btn"
+                                    title="Retirar outra quantidade ou ajustar saldo"
                                     @onclick="() => SelectVariantForDetailedForm(item.Product, item.Variant)">
-                                ✎ Mais
+                                <span class="stk-op-num">✎</span>
+                                <span class="stk-op-sub">Mais</span>
                             </button>
                         </div>
                     </div>
@@ -185,6 +202,40 @@
         <h2 style="font-size: 1.08rem; font-weight: 700; margin-top: 0; margin-bottom: 0.9rem;">
             🎛️ Movimentação Personalizada (Outra Quantidade / Novo Saldo)
         </h2>
+
+        @{
+            var selectedProduct = GetSelectedProduct();
+            var selectedVariant = GetSelectedVariant(selectedProduct);
+            var selectedCoverUrl = ResolveProductCoverUrl(selectedProduct);
+        }
+        @if (selectedProduct is not null)
+        {
+            <div class="stk-selected-preview">
+                <div class="stk-thumb-wrap">
+                    @if (!string.IsNullOrWhiteSpace(selectedCoverUrl))
+                    {
+                        <img src="@selectedCoverUrl" alt="@selectedProduct.Name" class="stk-thumb" />
+                    }
+                    else
+                    {
+                        <div class="stk-thumb-placeholder">Sem foto</div>
+                    }
+                </div>
+                <div class="stk-selected-preview-meta">
+                    <div class="stk-selected-preview-title">@selectedProduct.Name</div>
+                    <div class="stk-selected-preview-sub">
+                        @if (selectedVariant is not null)
+                        {
+                            <span>@selectedVariant.Color &bull; Tam @selectedVariant.Size &bull; Saldo atual: <strong>@selectedVariant.StockQuantity un.</strong></span>
+                        }
+                        else
+                        {
+                            <span>Selecione uma variante ao lado para retirar ou ajustar.</span>
+                        }
+                    </div>
+                </div>
+            </div>
+        }
 
         <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 210px), 1fr)); gap: 0.9rem; align-items: end;">
             <div>
@@ -323,11 +374,24 @@
             }
             @foreach (var m in _movements)
             {
+                var histCoverUrl = TryResolveProductCoverUrl(m.ProductId);
                 <tr>
                     <td data-label="Data/Hora" style="font-size: 0.84rem;">
                         @m.CreatedAt.ToLocalTime().ToString("dd/MM/yyyy HH:mm")
                     </td>
-                    <td data-label="Produto" style="font-weight: 700;">@m.ProductName</td>
+                    <td data-label="Produto" style="font-weight: 700;">
+                        <div class="stk-hist-prod">
+                            @if (!string.IsNullOrWhiteSpace(histCoverUrl))
+                            {
+                                <img src="@histCoverUrl" alt="@m.ProductName" class="stk-hist-thumb" loading="lazy" />
+                            }
+                            else
+                            {
+                                <div class="stk-hist-thumb-placeholder">Sem</div>
+                            }
+                            <span>@m.ProductName</span>
+                        </div>
+                    </td>
                     <td data-label="Variante">
                         <div>
                             <span>@m.Color / <strong>@m.Size</strong></span>
@@ -549,11 +613,26 @@
         }
     }
 
+    private ProductDetailDto? GetSelectedProduct()
+        => _products.FirstOrDefault(p => p.Id == _selectedProductId);
+
+    private ProductVariantDto? GetSelectedVariant(ProductDetailDto? product)
+        => product?.Variants.FirstOrDefault(v => v.Id == _movementRequest.ProductVariantId);
+
     private IEnumerable<ProductVariantDto> GetVariantsOfSelectedProduct()
+        => GetSelectedProduct()?.Variants ?? [];
+
+    private static string? ResolveProductCoverUrl(ProductDetailDto? product)
     {
-        var prod = _products.FirstOrDefault(p => p.Id == _selectedProductId);
-        return prod?.Variants ?? [];
+        if (product?.Images is null || product.Images.Count == 0)
+            return null;
+
+        return product.Images.FirstOrDefault(i => i.IsPrimary && !string.IsNullOrWhiteSpace(i.PublicUrl))?.PublicUrl
+            ?? product.Images.FirstOrDefault(i => !string.IsNullOrWhiteSpace(i.PublicUrl))?.PublicUrl;
     }
+
+    private string? TryResolveProductCoverUrl(Guid productId)
+        => ResolveProductCoverUrl(_products.FirstOrDefault(p => p.Id == productId));
 
     private async Task LoadMovementsAsync()
     {

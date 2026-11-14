@@ -27,8 +27,6 @@ services:
       # Opcional (recomendado): chave fixa base64/texto para criptografia OAuth entre redeploys
       - key: YOULINK_TOKEN_ENCRYPTION_KEY
         sync: false
-      - key: YOULINK_TOKEN_ENCRYPTION_KEY
-        sync: false
       - key: MP_CLIENT_ID
         sync: false
       - key: MP_CLIENT_SECRET

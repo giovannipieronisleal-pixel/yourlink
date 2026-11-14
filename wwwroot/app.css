@@ -196,6 +196,7 @@ html, body {
     top: 0;
     height: 100vh;
     overflow-y: auto;
+    overflow-x: hidden;
     width: 268px;
     flex-shrink: 0;
     background-color: var(--adm-sidebar, #141416);
@@ -203,16 +204,58 @@ html, body {
     border-right: 1px solid rgba(182, 145, 88, 0.22);
     display: flex;
     flex-direction: column;
-    padding: 1.35rem 1rem;
-    gap: 1.25rem;
+    padding: 1.25rem 0.95rem;
+    gap: 1.15rem;
+    scrollbar-width: thin;
 }
 
 .adm-brand {
     display: flex;
-    align-items: center;
-    gap: 0.78rem;
-    padding: 0.35rem 0.45rem 1rem;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.38rem;
+    min-width: 0;
+    padding: 0.2rem 0.35rem 0.9rem;
     border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.adm-brand-top {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding-bottom: 0.5rem;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.09);
+}
+
+.adm-brand-mark {
+    width: 24px;
+    height: 24px;
+    border-radius: 6px;
+    flex-shrink: 0;
+}
+
+.adm-brand-wordmark {
+    font-size: 0.92rem;
+    font-weight: 800;
+    letter-spacing: 0.04em;
+    color: #FAF8F5;
+}
+
+.adm-brand-store-name {
+    font-size: 0.88rem;
+    font-weight: 700;
+    line-height: 1.32;
+    letter-spacing: 0.02em;
+    color: #FAF8F5;
+    overflow-wrap: anywhere;
+}
+
+.adm-brand-slug {
+    font-size: 0.74rem;
+    font-weight: 500;
+    color: var(--adm-sidebar-muted, #B8B2A8);
+    overflow-wrap: anywhere;
+    line-height: 1.3;
 }
 
 .adm-brand-badge {
@@ -265,6 +308,7 @@ html, body {
     text-decoration: none;
     font-size: 0.9rem;
     font-weight: 500;
+    min-width: 0;
     border-left: 2.5px solid transparent;
     transition: background-color 0.18s ease, color 0.18s ease, border-color 0.18s ease;
 }
@@ -304,6 +348,7 @@ html, body {
     display: flex;
     flex-direction: column;
     gap: 0.5rem;
+    min-width: 0;
 }
 
 .adm-main {
@@ -852,6 +897,27 @@ html, body {
     .adm-login-wrapper {
         padding-top: max(1rem, env(safe-area-inset-top, 0px));
         padding-bottom: max(1rem, env(safe-area-inset-bottom, 0px));
+    }
+}
+
+@media (min-width: 821px) {
+    .adm-shell {
+        height: 100vh;
+        height: 100dvh;
+        overflow: hidden;
+    }
+
+    .adm-sidebar {
+        height: 100%;
+        flex-shrink: 0;
+        overflow-y: auto;
+        overflow-x: hidden;
+    }
+
+    .adm-main {
+        height: 100%;
+        overflow-y: auto;
+        overflow-x: hidden;
     }
 }
 
