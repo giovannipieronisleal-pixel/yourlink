@@ -1,6 +1,7 @@
 using System.Text.Json;
 using ClothingStore.Application.Services;
 using ClothingStore.Domain.Exceptions;
+using ClothingStore.Infrastructure.Persistence;
 using ClothingStore.Shared.Clients;
 using ClothingStore.Shared.DTOs;
 using ClothingStore.Shared.Helpers;
@@ -18,6 +19,7 @@ public sealed class MauiAdminGateway
     private const string ServerUrlPreferenceKey = "youlink_api_base_url_v1";
     private const string PendingAccountSyncPreferenceKey = "youlink_pending_account_sync_v1";
     private const string PendingPlanOrderPreferenceKey = "youlink_pending_plan_order_v1";
+    private sealed record PersistedAuthSession(LoginResponse Login, string? WorkspaceId);
     private static string ResolveCurrentClientAppVersion()
     {
         string? appInfoVersion = null;
@@ -46,6 +48,7 @@ public sealed class MauiAdminGateway
     private readonly GoogleCloudSyncService? _cloudSyncService;
     private readonly OrderAndShippingService? _orderAndShippingService;
     private readonly PlatformSubscriptionService? _subscriptionService;
+    private readonly SwitchableClothingStoreRepository? _workspaceRepository;
 
     private DateTimeOffset _skipRemoteApiUntil = DateTimeOffset.MinValue;
     private DateTimeOffset _lastCentralCatalogCheckAt = DateTimeOffset.MinValue;
@@ -61,6 +64,10 @@ public sealed class MauiAdminGateway
     public bool LastAccountActionWasLocalOnly { get; private set; }
     public int LastSyncedAccountsCount { get; private set; }
     public string? LastSyncedAccountsMessage { get; private set; }
+    public string CurrentWorkspaceId =>
+        _workspaceRepository?.ActiveWorkspaceId ?? SwitchableClothingStoreRepository.DefaultWorkspaceId;
+    private bool IsIsolatedSecondaryWorkspace =>
+        _workspaceRepository is not null && !_workspaceRepository.IsDefaultWorkspace;
     public bool IsRemoteApiOnline => DateTimeOffset.UtcNow >= _skipRemoteApiUntil;
     public string? LatestAdminCentralServerUrl { get; private set; }
     public PlatformPlanCatalogDto? LatestPlatformCatalog { get; private set; }
@@ -78,7 +85,8 @@ public sealed class MauiAdminGateway
         EmployeeAndSettingsService employeeAndSettingsService,
         GoogleCloudSyncService? cloudSyncService = null,
         OrderAndShippingService? orderAndShippingService = null,
-        PlatformSubscriptionService? subscriptionService = null)
+        PlatformSubscriptionService? subscriptionService = null,
+        SwitchableClothingStoreRepository? workspaceRepository = null)
     {
         _apiClient = apiClient;
         _authService = authService;
@@ -88,15 +96,42 @@ public sealed class MauiAdminGateway
         _cloudSyncService = cloudSyncService;
         _orderAndShippingService = orderAndShippingService;
         _subscriptionService = subscriptionService;
+        _workspaceRepository = workspaceRepository;
 
         LoadSavedServerUrl();
+    }
+
+    private string ResolveWorkspacePreferenceKey(string baseKey) =>
+        _workspaceRepository is not null
+            ? _workspaceRepository.ResolveScopedPreferenceKey(baseKey)
+            : baseKey;
+
+    private void RefreshActiveWorkspaceState(bool resetCloudStatus = true)
+    {
+        _skipRemoteApiUntil = DateTimeOffset.MinValue;
+        _lastCentralCatalogCheckAt = DateTimeOffset.MinValue;
+        _lastOrdersCloudPullAt = DateTimeOffset.MinValue;
+        LatestAdminCentralServerUrl = null;
+        LatestPlatformCatalog = null;
+        LatestCompatibilityStatus = null;
+        LastSyncedAccountsCount = 0;
+        LastSyncedAccountsMessage = null;
+
+        _apiClient.UpdateBaseAddress(null);
+        HasCustomServerUrl = false;
+        LoadSavedServerUrl();
+
+        if (resetCloudStatus)
+        {
+            _cloudSyncService?.ResetTransientSyncStatus();
+        }
     }
 
     private void LoadSavedServerUrl()
     {
         try
         {
-            var savedUrl = Preferences.Default.Get(ServerUrlPreferenceKey, string.Empty);
+            var savedUrl = Preferences.Default.Get(ResolveWorkspacePreferenceKey(ServerUrlPreferenceKey), string.Empty);
             if (!string.IsNullOrWhiteSpace(savedUrl) && _apiClient.UpdateBaseAddress(savedUrl))
             {
                 HasCustomServerUrl = true;
@@ -119,7 +154,7 @@ public sealed class MauiAdminGateway
             HasCustomServerUrl = false;
             try
             {
-                Preferences.Default.Remove(ServerUrlPreferenceKey);
+                Preferences.Default.Remove(ResolveWorkspacePreferenceKey(ServerUrlPreferenceKey));
             }
             catch
             {
@@ -141,7 +176,7 @@ public sealed class MauiAdminGateway
             HasCustomServerUrl = true;
             try
             {
-                Preferences.Default.Set(ServerUrlPreferenceKey, probe.NormalizedUrl);
+                Preferences.Default.Set(ResolveWorkspacePreferenceKey(ServerUrlPreferenceKey), probe.NormalizedUrl);
             }
             catch
             {
@@ -161,11 +196,11 @@ public sealed class MauiAdminGateway
         return probe;
     }
 
-    private static bool GetPendingAccountSync()
+    private bool GetPendingAccountSync()
     {
         try
         {
-            return Preferences.Default.Get(PendingAccountSyncPreferenceKey, false);
+            return Preferences.Default.Get(ResolveWorkspacePreferenceKey(PendingAccountSyncPreferenceKey), false);
         }
         catch
         {
@@ -173,14 +208,15 @@ public sealed class MauiAdminGateway
         }
     }
 
-    private static void SetPendingAccountSync(bool pending)
+    private void SetPendingAccountSync(bool pending)
     {
         try
         {
+            var key = ResolveWorkspacePreferenceKey(PendingAccountSyncPreferenceKey);
             if (pending)
-                Preferences.Default.Set(PendingAccountSyncPreferenceKey, true);
+                Preferences.Default.Set(key, true);
             else
-                Preferences.Default.Remove(PendingAccountSyncPreferenceKey);
+                Preferences.Default.Remove(key);
         }
         catch
         {
@@ -267,7 +303,9 @@ public sealed class MauiAdminGateway
         }
     }
 
-    private bool ShouldTryRemoteApi => DateTimeOffset.UtcNow >= _skipRemoteApiUntil;
+    private bool ShouldTryRemoteApi =>
+        DateTimeOffset.UtcNow >= _skipRemoteApiUntil &&
+        (!IsIsolatedSecondaryWorkspace || HasCustomServerUrl);
 
     private static bool IsConnectionOrTimeoutError(Exception ex) =>
         ex is HttpRequestException or TaskCanceledException or OperationCanceledException or TimeoutException;
@@ -335,11 +373,36 @@ public sealed class MauiAdminGateway
             if (string.IsNullOrWhiteSpace(rawJson))
                 return;
 
-            var saved = JsonSerializer.Deserialize<LoginResponse>(rawJson);
+            string? persistedWorkspaceId = null;
+            LoginResponse? saved = null;
+
+            try
+            {
+                var wrapper = JsonSerializer.Deserialize<PersistedAuthSession>(rawJson);
+                if (wrapper?.Login is not null)
+                {
+                    saved = wrapper.Login;
+                    persistedWorkspaceId = wrapper.WorkspaceId;
+                }
+            }
+            catch
+            {
+            }
+
+            saved ??= JsonSerializer.Deserialize<LoginResponse>(rawJson);
             if (saved is null || saved.ExpiresAt <= DateTimeOffset.UtcNow || IsLegacyDefaultAdminProfile(saved.Employee))
             {
                 ClearSavedSession();
                 return;
+            }
+
+            if (_workspaceRepository is not null)
+            {
+                await _workspaceRepository.SwitchToWorkspaceByIdAsync(
+                    persistedWorkspaceId,
+                    saved.Employee.UserId,
+                    saved.Employee.Email);
+                RefreshActiveWorkspaceState(resetCloudStatus: true);
             }
 
             _apiClient.SetSession(saved.AccessToken, saved.Employee);
@@ -385,6 +448,39 @@ public sealed class MauiAdminGateway
 
     public async Task<LoginResponse> RegisterUserAccountAsync(RegisterUserAccountRequest request)
     {
+        if (_workspaceRepository is not null)
+        {
+            var provisioned = await _workspaceRepository.ProvisionIsolatedWorkspaceForNewAccountAsync(
+                request.Email,
+                request.Username);
+
+            try
+            {
+                RefreshActiveWorkspaceState(resetCloudStatus: true);
+                var localResp = await _authService.RegisterUserAccountAsync(request);
+                _apiClient.SetSession(localResp.AccessToken, localResp.Employee);
+
+                LastAccountActionWasLocalOnly = !IsIsolatedSecondaryWorkspace && !ShouldTryRemoteApi;
+                if (!IsIsolatedSecondaryWorkspace)
+                {
+                    SetPendingAccountSync(true);
+                    _ = TrySyncLocalAccountsQuietlyAsync();
+                }
+
+                await PersistSessionAsync(localResp);
+                return localResp;
+            }
+            catch
+            {
+                await _workspaceRepository.RollbackProvisionedWorkspaceAsync(
+                    provisioned,
+                    request.Email,
+                    request.Username);
+                RefreshActiveWorkspaceState(resetCloudStatus: true);
+                throw;
+            }
+        }
+
         var usedFallback = false;
         var response = await ExecuteWithFallbackAsync(
             async () =>
@@ -430,8 +526,27 @@ public sealed class MauiAdminGateway
         return response;
     }
 
+    private async Task SwitchWorkspaceForIdentifierAsync(string? loginOrEmail)
+    {
+        if (_workspaceRepository is null || string.IsNullOrWhiteSpace(loginOrEmail))
+            return;
+
+        var matchedWorkspace = await _workspaceRepository.SwitchToWorkspaceForAccountAsync(loginOrEmail);
+        if (!string.IsNullOrWhiteSpace(matchedWorkspace))
+        {
+            RefreshActiveWorkspaceState(resetCloudStatus: true);
+        }
+        else if (!_workspaceRepository.IsDefaultWorkspace)
+        {
+            _workspaceRepository.ResetToDefaultWorkspace();
+            RefreshActiveWorkspaceState(resetCloudStatus: true);
+        }
+    }
+
     public async Task<LoginChallengeResponse> LoginWithChallengeAsync(LoginRequest request, bool rememberMe = true)
     {
+        await SwitchWorkspaceForIdentifierAsync(request.Email);
+
         var usedFallback = false;
         var challenge = await ExecuteWithFallbackAsync(
             async () =>
@@ -463,6 +578,8 @@ public sealed class MauiAdminGateway
 
     public async Task<LoginResponse> VerifyTwoFactorLoginAsync(VerifyTwoFactorLoginRequest request, bool rememberMe = true)
     {
+        await SwitchWorkspaceForIdentifierAsync(request.Email);
+
         var usedFallback = false;
         var response = await ExecuteWithFallbackAsync(
             async () =>
@@ -488,6 +605,8 @@ public sealed class MauiAdminGateway
 
     public async Task<LoginResponse> LoginAsync(LoginRequest request, bool rememberMe = true)
     {
+        await SwitchWorkspaceForIdentifierAsync(request.Email);
+
         var response = await ExecuteWithFallbackAsync(
             () => _apiClient.LoginAsync(request),
             async () =>
@@ -501,13 +620,18 @@ public sealed class MauiAdminGateway
         return response;
     }
 
-    public Task<RequestEmailLoginCodeResponse> RequestEmailLoginCodeAsync(RequestEmailLoginCodeRequest request) =>
-        ExecuteWithFallbackAsync(
+    public async Task<RequestEmailLoginCodeResponse> RequestEmailLoginCodeAsync(RequestEmailLoginCodeRequest request)
+    {
+        await SwitchWorkspaceForIdentifierAsync(request.Email);
+        return await ExecuteWithFallbackAsync(
             () => _apiClient.RequestEmailLoginCodeAsync(request),
             () => _authService.RequestEmailLoginCodeAsync(request));
+    }
 
     public async Task<LoginResponse> LoginWithEmailCodeAsync(VerifyEmailLoginCodeRequest request, bool rememberMe = true)
     {
+        await SwitchWorkspaceForIdentifierAsync(request.Email);
+
         var response = await ExecuteWithFallbackAsync(
             () => _apiClient.LoginWithEmailCodeAsync(request),
             async () =>
@@ -526,11 +650,19 @@ public sealed class MauiAdminGateway
         AccessToken = response.AccessToken;
         CurrentEmployee = response.Employee;
 
+        if (_workspaceRepository is not null)
+        {
+            await _workspaceRepository.IndexAccountAsync(
+                CurrentWorkspaceId,
+                response.Employee.Email,
+                response.Employee.Username);
+        }
+
         try
         {
             if (rememberMe)
             {
-                var serialized = JsonSerializer.Serialize(response);
+                var serialized = JsonSerializer.Serialize(new PersistedAuthSession(response, CurrentWorkspaceId));
                 try
                 {
                     await SecureStorage.Default.SetAsync(SessionStorageKey, serialized);
@@ -576,18 +708,25 @@ public sealed class MauiAdminGateway
         CurrentEmployee = null;
         _apiClient.ClearSession();
         ClearSavedSession();
+        RefreshActiveWorkspaceState(resetCloudStatus: true);
         AuthStateChanged?.Invoke();
     }
 
-    public Task<ForgotPasswordResponse> ForgotPasswordAsync(ForgotPasswordRequest request) =>
-        ExecuteWithFallbackAsync(
+    public async Task<ForgotPasswordResponse> ForgotPasswordAsync(ForgotPasswordRequest request)
+    {
+        await SwitchWorkspaceForIdentifierAsync(request.Email);
+        return await ExecuteWithFallbackAsync(
             () => _apiClient.ForgotPasswordAsync(request),
             () => _authService.RequestPasswordResetAsync(request));
+    }
 
-    public Task ResetPasswordAsync(ResetPasswordRequest request) =>
-        ExecuteWithFallbackAsync(
+    public async Task ResetPasswordAsync(ResetPasswordRequest request)
+    {
+        await SwitchWorkspaceForIdentifierAsync(request.Email);
+        await ExecuteWithFallbackAsync(
             () => _apiClient.ResetPasswordAsync(request),
             () => _authService.ResetPasswordAsync(request));
+    }
 
     public async Task ChangePasswordAsync(ChangePasswordRequest request)
     {
@@ -1167,22 +1306,22 @@ public sealed class MauiAdminGateway
         CancellationToken ct = default)
     {
         if (!force && DateTimeOffset.UtcNow - _lastCentralCatalogCheckAt < TimeSpan.FromSeconds(45))
-            return LatestAdminCentralServerUrl ?? GoogleCloudSyncService.GetCachedCentralCatalogUrl();
+            return LatestAdminCentralServerUrl ?? GoogleCloudSyncService.GetCachedCentralCatalogUrl(CurrentWorkspaceId);
 
         _lastCentralCatalogCheckAt = DateTimeOffset.UtcNow;
 
         if (!ShouldTryRemoteApi)
-            return GoogleCloudSyncService.GetCachedCentralCatalogUrl();
+            return GoogleCloudSyncService.GetCachedCentralCatalogUrl(CurrentWorkspaceId);
 
         try
         {
             var catalog = await _apiClient.GetPlatformPlanCatalogAsync(ct);
             await ApplyCatalogCentralServerUrlAsync(catalog.CentralCatalogServerUrl, ct);
-            return LatestAdminCentralServerUrl ?? GoogleCloudSyncService.GetCachedCentralCatalogUrl();
+            return LatestAdminCentralServerUrl ?? GoogleCloudSyncService.GetCachedCentralCatalogUrl(CurrentWorkspaceId);
         }
         catch
         {
-            return LatestAdminCentralServerUrl ?? GoogleCloudSyncService.GetCachedCentralCatalogUrl();
+            return LatestAdminCentralServerUrl ?? GoogleCloudSyncService.GetCachedCentralCatalogUrl(CurrentWorkspaceId);
         }
     }
 
@@ -1480,7 +1619,7 @@ public sealed class MauiAdminGateway
     {
         try
         {
-            Preferences.Default.Remove(PendingPlanOrderPreferenceKey);
+            Preferences.Default.Remove(ResolveWorkspacePreferenceKey(PendingPlanOrderPreferenceKey));
         }
         catch
         {
@@ -1491,7 +1630,7 @@ public sealed class MauiAdminGateway
     {
         try
         {
-            var json = Preferences.Default.Get(PendingPlanOrderPreferenceKey, string.Empty);
+            var json = Preferences.Default.Get(ResolveWorkspacePreferenceKey(PendingPlanOrderPreferenceKey), string.Empty);
             if (string.IsNullOrWhiteSpace(json))
                 return null;
             return JsonSerializer.Deserialize<PendingPlanOrderTicket>(json);
@@ -1502,7 +1641,7 @@ public sealed class MauiAdminGateway
         }
     }
 
-    private static void SavePendingPlanOrderTicket(PlatformSubscriptionOrderDto order, string? billingServerUrl = null)
+    private void SavePendingPlanOrderTicket(PlatformSubscriptionOrderDto order, string? billingServerUrl = null)
     {
         try
         {
@@ -1526,7 +1665,7 @@ public sealed class MauiAdminGateway
                 order.MercadoPagoPaymentId,
                 order.MercadoPagoPreapprovalId,
                 billingServerUrl);
-            Preferences.Default.Set(PendingPlanOrderPreferenceKey, JsonSerializer.Serialize(ticket));
+            Preferences.Default.Set(ResolveWorkspacePreferenceKey(PendingPlanOrderPreferenceKey), JsonSerializer.Serialize(ticket));
         }
         catch
         {
@@ -1546,7 +1685,7 @@ public sealed class MauiAdminGateway
         {
             HasCustomServerUrl ? WhatsAppLinkBuilder.NormalizePublicServerUrl(_apiClient.CurrentBaseAddress) : null,
             LatestAdminCentralServerUrl,
-            GoogleCloudSyncService.GetCachedCentralCatalogUrl(),
+            GoogleCloudSyncService.GetCachedCentralCatalogUrl(CurrentWorkspaceId),
             settings?.CentralCatalogBaseUrl
         };
 

@@ -61,8 +61,10 @@ public static class MauiProgram
             new JwtTokenService(sp.GetRequiredService<IConfiguration>()));
         builder.Services.AddSingleton<IEmailService>(sp =>
             new SmtpEmailService(sp.GetRequiredService<IConfiguration>(), outboxFilePath));
+        builder.Services.AddSingleton(sp =>
+            new SwitchableClothingStoreRepository(sp.GetRequiredService<IPasswordHasher>(), dbFilePath));
         builder.Services.AddSingleton<IClothingStoreRepository>(sp =>
-            new ClothingStoreRepository(sp.GetRequiredService<IPasswordHasher>(), dbFilePath));
+            sp.GetRequiredService<SwitchableClothingStoreRepository>());
 
         builder.Services.AddSingleton<IImageStorageService>(sp =>
         {

@@ -2,6 +2,7 @@
 @using ClothingStore.Application.Services
 @inject MauiAdminGateway Gateway
 @inject CatalogService CatalogService
+@inject StoreBrandStateService BrandState
 @inject NavigationManager Navigation
 @inject AppUpdateService UpdateService
 @implements IDisposable
@@ -14,7 +15,7 @@
             <span style="font-size: 1.15rem; font-weight: 800; letter-spacing: -0.02em; color: var(--adm-text);">YouLink</span>
         </div>
         <div style="font-size: 0.78rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.12em; color: var(--adm-accent);">
-            @_storeName &bull; Catálogo &amp; Gestão
+            @(_activeTab == "register" ? "Nova Conta • Sua Loja Independente" : $"{_storeName} • Catálogo & Gestão")
         </div>
 
         @if (_is2FaStep)
@@ -571,10 +572,6 @@
             var store = await CatalogService.GetPublicStoreSettingsAsync();
             _storeName = store.StoreName;
             _storeSlug = store.StoreSlug;
-            _initStoreName = store.StoreName;
-            _initStoreBio = store.StoreDescription;
-            _initStoreWhatsapp = store.WhatsappNumber;
-            SyncInitStoreDomain();
         }
         catch
         {
@@ -734,6 +731,25 @@
             _setupSyncNotice = Gateway.LastAccountActionWasLocalOnly
                 ? "ℹ️ Conta criada neste dispositivo! Ela já funciona na hora aqui. Para que apareça também no YouLink Admin em outro computador, conecte o endereço do YouLink Admin em Loja & Visual → Sincronizar Celular."
                 : null;
+
+            // Garante que o assistente da nova loja comece 100% em branco, sem herdar dados de outra conta.
+            _initStoreName = string.Empty;
+            _initStoreBio = "Catálogo oficial com novidades e tendências de moda.";
+            _initStoreWhatsapp = string.Empty;
+            _initStoreDomain = string.Empty;
+            _domainCheckResult = null;
+            _setupErrorMessage = null;
+
+            await BrandState.ReloadAsync();
+            try
+            {
+                var freshStore = await CatalogService.GetPublicStoreSettingsAsync();
+                _storeName = freshStore.StoreName;
+                _storeSlug = freshStore.StoreSlug;
+            }
+            catch
+            {
+            }
 
             // Conta criada com sucesso! Abre o pop-up de configuração inicial da loja
             _showInitialSetupModal = true;
@@ -904,6 +920,7 @@
             };
 
             await Gateway.UpdateStoreSettingsAsync(updateRequest);
+            await BrandState.ReloadAsync();
             _showInitialSetupModal = false;
             Navigation.NavigateTo("/");
         }

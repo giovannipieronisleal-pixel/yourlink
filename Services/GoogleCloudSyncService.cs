@@ -8,6 +8,7 @@ using ClothingStore.Application.Interfaces;
 using ClothingStore.Application.Services;
 using ClothingStore.Domain.Entities;
 using ClothingStore.Domain.Enums;
+using ClothingStore.Infrastructure.Persistence;
 using ClothingStore.Shared.Clients;
 using ClothingStore.Shared.DTOs;
 using ClothingStore.Shared.Helpers;
@@ -25,6 +26,7 @@ public sealed class GoogleCloudSyncService
     public const string HostingModePlatformShared = "PlatformShared";
 
     private readonly IClothingStoreRepository _repository;
+    private readonly SwitchableClothingStoreRepository? _switchableRepository;
     private readonly AdminApiClient _adminApiClient;
     private readonly HttpClient _httpClient;
     private readonly OrderAndShippingService? _orderAndShippingService;
@@ -48,17 +50,64 @@ public sealed class GoogleCloudSyncService
         HttpClient? externalHttpClient = null)
     {
         _repository = repository;
+        _switchableRepository = repository as SwitchableClothingStoreRepository;
         _adminApiClient = adminApiClient;
         _httpClient = httpClient;
         _orderAndShippingService = orderAndShippingService;
         _externalHttpClient = externalHttpClient ?? ExternalHttpClient;
+
+        if (_switchableRepository is not null)
+        {
+            _switchableRepository.WorkspaceChanged += HandleWorkspaceChanged;
+        }
     }
 
-    public static string? GetCachedCentralCatalogUrl()
+    private void HandleWorkspaceChanged(string _)
+    {
+        ResetTransientSyncStatus();
+    }
+
+    public void ResetTransientSyncStatus()
+    {
+        IsCloudOnline = null;
+        LastSyncError = null;
+        LastSyncTime = null;
+        LastOrdersSyncTime = null;
+        OnSyncStatusChanged?.Invoke();
+    }
+
+    private string CurrentWorkspaceId =>
+        _switchableRepository?.ActiveWorkspaceId ?? SwitchableClothingStoreRepository.DefaultWorkspaceId;
+
+    private static string ResolveCentralUrlKey(string? workspaceId)
+    {
+        if (string.IsNullOrWhiteSpace(workspaceId) ||
+            string.Equals(workspaceId.Trim(), SwitchableClothingStoreRepository.DefaultWorkspaceId, StringComparison.OrdinalIgnoreCase))
+        {
+            return CentralUrlPreferenceKey;
+        }
+
+        return $"{CentralUrlPreferenceKey}__{workspaceId.Trim()}";
+    }
+
+    private static string ResolvePublishTokenKey(string storeSlug, string? workspaceId)
+    {
+        var cleanSlug = storeSlug.Trim().ToLowerInvariant();
+        if (string.IsNullOrWhiteSpace(workspaceId) ||
+            string.Equals(workspaceId.Trim(), SwitchableClothingStoreRepository.DefaultWorkspaceId, StringComparison.OrdinalIgnoreCase))
+        {
+            return $"{PublishTokenPreferencePrefix}{cleanSlug}";
+        }
+
+        return $"{PublishTokenPreferencePrefix}{workspaceId.Trim()}_{cleanSlug}";
+    }
+
+    public static string? GetCachedCentralCatalogUrl(string? workspaceId = null)
     {
         try
         {
-            var value = Preferences.Default.Get(CentralUrlPreferenceKey, string.Empty);
+            var key = ResolveCentralUrlKey(workspaceId);
+            var value = Preferences.Default.Get(key, string.Empty);
             var normalized = NormalizePublicServerUrl(value);
             return string.IsNullOrWhiteSpace(normalized) ? null : normalized;
         }
@@ -68,29 +117,30 @@ public sealed class GoogleCloudSyncService
         }
     }
 
-    public static void SaveCachedCentralCatalogUrl(string? url)
+    public static void SaveCachedCentralCatalogUrl(string? url, string? workspaceId = null)
     {
         try
         {
+            var key = ResolveCentralUrlKey(workspaceId);
             var normalized = NormalizePublicServerUrl(url);
             if (string.IsNullOrWhiteSpace(normalized))
-                Preferences.Default.Remove(CentralUrlPreferenceKey);
+                Preferences.Default.Remove(key);
             else
-                Preferences.Default.Set(CentralUrlPreferenceKey, normalized);
+                Preferences.Default.Set(key, normalized);
         }
         catch
         {
         }
     }
 
-    private static string? GetCachedPublishToken(string? storeSlug)
+    private string? GetCachedPublishToken(string? storeSlug)
     {
         if (string.IsNullOrWhiteSpace(storeSlug))
             return null;
 
         try
         {
-            var key = $"{PublishTokenPreferencePrefix}{storeSlug.Trim().ToLowerInvariant()}";
+            var key = ResolvePublishTokenKey(storeSlug, CurrentWorkspaceId);
             var value = Preferences.Default.Get(key, string.Empty);
             return string.IsNullOrWhiteSpace(value) ? null : value.Trim();
         }
@@ -100,14 +150,14 @@ public sealed class GoogleCloudSyncService
         }
     }
 
-    private static void SaveCachedPublishToken(string? storeSlug, string? token)
+    private void SaveCachedPublishToken(string? storeSlug, string? token)
     {
         if (string.IsNullOrWhiteSpace(storeSlug) || string.IsNullOrWhiteSpace(token))
             return;
 
         try
         {
-            var key = $"{PublishTokenPreferencePrefix}{storeSlug.Trim().ToLowerInvariant()}";
+            var key = ResolvePublishTokenKey(storeSlug, CurrentWorkspaceId);
             Preferences.Default.Set(key, token.Trim());
         }
         catch
@@ -120,7 +170,10 @@ public sealed class GoogleCloudSyncService
             ? WhatsAppLinkBuilder.GenerateStoreSlug(settings.StoreName)
             : WhatsAppLinkBuilder.GenerateStoreSlug(settings.StoreSlug);
 
-    public static string ResolveCentralServerBaseUrl(StoreSettings settings, string? explicitUrl = null)
+    public static string ResolveCentralServerBaseUrl(
+        StoreSettings settings,
+        string? explicitUrl = null,
+        string? workspaceId = null)
     {
         var explicitNormalized = NormalizePublicServerUrl(explicitUrl);
         if (!string.IsNullOrWhiteSpace(explicitNormalized))
@@ -130,7 +183,7 @@ public sealed class GoogleCloudSyncService
         if (!string.IsNullOrWhiteSpace(settingsCentral))
             return settingsCentral;
 
-        var cachedCentral = GetCachedCentralCatalogUrl();
+        var cachedCentral = GetCachedCentralCatalogUrl(workspaceId);
         if (!string.IsNullOrWhiteSpace(cachedCentral))
             return cachedCentral;
 
@@ -149,7 +202,7 @@ public sealed class GoogleCloudSyncService
         return string.Empty;
     }
 
-    private static string? ResolvePublishToken(StoreSettings settings, string effectiveSlug) =>
+    private string? ResolvePublishToken(StoreSettings settings, string effectiveSlug) =>
         !string.IsNullOrWhiteSpace(settings.CentralPublishToken)
             ? settings.CentralPublishToken.Trim()
             : GetCachedPublishToken(effectiveSlug);
@@ -678,7 +731,7 @@ public sealed class GoogleCloudSyncService
         if (string.IsNullOrWhiteSpace(normalized))
             return;
 
-        SaveCachedCentralCatalogUrl(normalized);
+        SaveCachedCentralCatalogUrl(normalized, CurrentWorkspaceId);
         var settings = await _repository.GetStoreSettingsAsync(ct);
 
         if (string.IsNullOrWhiteSpace(settings.CentralCatalogBaseUrl) ||
@@ -708,7 +761,7 @@ public sealed class GoogleCloudSyncService
             OnSyncStatusChanged?.Invoke();
 
             var settings = await _repository.GetStoreSettingsAsync(ct);
-            var targetBase = ResolveCentralServerBaseUrl(settings, centralServerUrl);
+            var targetBase = ResolveCentralServerBaseUrl(settings, centralServerUrl, CurrentWorkspaceId);
             if (string.IsNullOrWhiteSpace(targetBase))
             {
                 const string missingMsg = "Informe o endereço do Servidor Central YouLink (ou conecte ao YouLink Admin para recebê-lo automaticamente).";
@@ -722,7 +775,7 @@ public sealed class GoogleCloudSyncService
                 settings.StoreSlug = WhatsAppLinkBuilder.GenerateStoreSlug(settings.StoreName);
             }
 
-            SaveCachedCentralCatalogUrl(targetBase);
+            SaveCachedCentralCatalogUrl(targetBase, CurrentWorkspaceId);
             settings.ConfigureCentralPublishing(targetBase, settings.CentralPublishToken, preserveExistingToken: true);
             await _repository.UpdateStoreSettingsAsync(settings, ct);
 
@@ -771,7 +824,7 @@ public sealed class GoogleCloudSyncService
                 HostingModePlatformShared,
                 StringComparison.OrdinalIgnoreCase);
 
-            var centralBase = ResolveCentralServerBaseUrl(settings);
+            var centralBase = ResolveCentralServerBaseUrl(settings, workspaceId: CurrentWorkspaceId);
             var shouldUseCentralPublish =
                 isSharedMode ||
                 !string.IsNullOrWhiteSpace(publishToken) ||
@@ -1245,7 +1298,7 @@ public sealed class GoogleCloudSyncService
         if (!string.IsNullOrWhiteSpace(online))
             return online;
 
-        return ResolveCentralServerBaseUrl(settings);
+        return ResolveCentralServerBaseUrl(settings, workspaceId: CurrentWorkspaceId);
     }
 
     private async Task<string?> ResolveOwnerEmailAsync(
