@@ -519,9 +519,11 @@ public sealed class MultiTenantStoreManager : IMultiTenantStoreResolver
         if (!Directory.Exists(_rootDirectory))
             Directory.CreateDirectory(_rootDirectory);
 
+        var json = JsonSerializer.Serialize(state, JsonOptions);
         var tempPath = $"{_indexFilePath}.{Guid.NewGuid():N}.tmp";
-        File.WriteAllText(tempPath, JsonSerializer.Serialize(state, JsonOptions), Encoding.UTF8);
+        File.WriteAllText(tempPath, json, Encoding.UTF8);
         File.Move(tempPath, _indexFilePath, overwrite: true);
+        CloudAppDataMirrorRegistry.TryNotifySaved(_indexFilePath, json);
     }
 
     private static string GenerateSecretToken() =>

@@ -231,6 +231,7 @@ public sealed class ClothingStoreRepository : IClothingStoreRepository
             {
                 var json = JsonSerializer.Serialize(state, JsonOptions);
                 WriteFileAtomicWithRetry(_storageFilePath, json);
+                CloudAppDataMirrorRegistry.TryNotifySaved(_storageFilePath, json);
                 _lastLoadedUtc = File.GetLastWriteTimeUtc(_storageFilePath);
                 return true;
             });

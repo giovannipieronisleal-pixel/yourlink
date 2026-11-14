@@ -973,3 +973,406 @@ img {
 html.pwa-can-install .lux-pwa-install-btn {
     display: inline-flex;
 }
+
+/* ======================== YOULINK PORTAL CENTRAL (/) ======================== */
+.ylk-portal-loading {
+    text-align: center;
+    padding: 4rem 1.5rem;
+    background: var(--brand-surface, #ffffff);
+    border: 1px solid var(--brand-border, #e6e2dc);
+    border-radius: 20px;
+    margin: 2rem 0;
+}
+
+.ylk-portal-hero {
+    display: grid;
+    grid-template-columns: minmax(0, 1.45fr) minmax(0, 0.95fr);
+    gap: 1.75rem;
+    align-items: stretch;
+    margin-top: 1.25rem;
+    margin-bottom: 3rem;
+}
+
+.ylk-portal-hero-main {
+    background: linear-gradient(135deg, #121826 0%, #1f2937 55%, #2a2138 100%);
+    color: #f8fafc;
+    border-radius: 24px;
+    padding: clamp(1.75rem, 3.6vw, 3rem);
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 1.15rem;
+    box-shadow: 0 22px 48px rgba(15, 23, 42, 0.16);
+}
+
+.ylk-portal-badge {
+    display: inline-flex;
+    align-self: flex-start;
+    align-items: center;
+    gap: 0.45rem;
+    font-size: 0.78rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    padding: 0.38rem 0.85rem;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.12);
+    border: 1px solid rgba(255, 255, 255, 0.22);
+    color: #e2e8f0;
+}
+
+.ylk-portal-title {
+    margin: 0;
+    font-size: clamp(1.75rem, 3.4vw, 2.75rem);
+    line-height: 1.12;
+    font-weight: 800;
+    color: #ffffff;
+}
+
+.ylk-portal-subtitle {
+    margin: 0;
+    font-size: 1.02rem;
+    line-height: 1.65;
+    color: #cbd5e1;
+    max-width: 62ch;
+}
+
+.ylk-portal-hero-main .lux-btn-primary {
+    background: #ffffff;
+    color: #111827;
+    border-color: #ffffff;
+}
+
+.ylk-portal-hero-main .lux-btn-outline {
+    background: rgba(255, 255, 255, 0.08);
+    color: #f8fafc;
+    border-color: rgba(255, 255, 255, 0.28);
+}
+
+.ylk-portal-cta-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.7rem;
+    margin-top: 0.35rem;
+}
+
+.ylk-portal-highlights {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem 1.25rem;
+    margin-top: 0.35rem;
+    font-size: 0.86rem;
+    font-weight: 600;
+    color: #cbd5e1;
+}
+
+.ylk-portal-aside-card {
+    background: var(--brand-surface, #ffffff);
+    border: 1px solid var(--brand-border, #e6e2dc);
+    border-radius: 24px;
+    padding: 1.75rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.85rem;
+    justify-content: center;
+    box-shadow: 0 12px 30px rgba(15, 23, 42, 0.05);
+}
+
+.ylk-portal-aside-tag {
+    font-size: 0.74rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--brand-accent, #111827);
+}
+
+.ylk-portal-aside-card h2 {
+    margin: 0;
+    font-size: 1.3rem;
+    color: var(--brand-text, #171717);
+}
+
+.ylk-portal-aside-card p {
+    margin: 0;
+    font-size: 0.92rem;
+    line-height: 1.55;
+    color: var(--brand-text-muted, #5c5c5c);
+}
+
+.ylk-portal-lookup-form {
+    display: flex;
+    flex-direction: column;
+    gap: 0.65rem;
+    margin-top: 0.25rem;
+}
+
+.ylk-portal-slug-input-wrap {
+    display: flex;
+    align-items: center;
+    border: 1.5px solid var(--brand-border, #d8d2c9);
+    border-radius: 12px;
+    background: #fafafa;
+    overflow: hidden;
+}
+
+.ylk-portal-slug-prefix {
+    padding: 0.65rem 0.75rem;
+    font-size: 0.88rem;
+    font-weight: 700;
+    color: var(--brand-text-muted, #5c5c5c);
+    background: #f1efe9;
+    border-right: 1px solid var(--brand-border, #d8d2c9);
+}
+
+.ylk-portal-slug-input {
+    flex: 1;
+    min-width: 0;
+    border: none;
+    background: transparent;
+    padding: 0.65rem 0.8rem;
+    font-size: 0.95rem;
+    color: var(--brand-text, #171717);
+    outline: none;
+}
+
+.ylk-portal-lookup-btn {
+    width: 100%;
+    justify-content: center;
+}
+
+.ylk-portal-lookup-hint {
+    color: #b45309 !important;
+    font-weight: 600;
+    font-size: 0.84rem !important;
+}
+
+.ylk-portal-aside-divider {
+    height: 1px;
+    background: var(--brand-border, #e6e2dc);
+    margin: 0.25rem 0;
+}
+
+.ylk-portal-aside-foot {
+    font-size: 0.83rem !important;
+}
+
+.ylk-portal-section {
+    margin: 3.25rem 0;
+}
+
+.ylk-portal-section-head {
+    max-width: 68ch;
+    margin-bottom: 1.5rem;
+}
+
+.ylk-portal-section-head h2 {
+    margin: 0.35rem 0 0.5rem;
+    font-size: clamp(1.45rem, 2.5vw, 2rem);
+    color: var(--brand-text, #171717);
+}
+
+.ylk-portal-section-head p {
+    margin: 0;
+    color: var(--brand-text-muted, #5c5c5c);
+    line-height: 1.6;
+}
+
+.ylk-portal-feature-grid,
+.ylk-portal-download-grid,
+.ylk-portal-plans-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 275px), 1fr));
+    gap: 1.15rem;
+}
+
+.ylk-portal-steps-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 230px), 1fr));
+    gap: 1.05rem;
+}
+
+.ylk-portal-card,
+.ylk-portal-download-card,
+.ylk-portal-step-card,
+.ylk-portal-plan-card {
+    background: var(--brand-surface, #ffffff);
+    border: 1px solid var(--brand-border, #e6e2dc);
+    border-radius: 18px;
+    padding: 1.4rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.65rem;
+}
+
+.ylk-portal-icon {
+    font-size: 1.65rem;
+    line-height: 1;
+}
+
+.ylk-portal-card h3,
+.ylk-portal-download-card h3,
+.ylk-portal-step-card h3 {
+    margin: 0;
+    font-size: 1.08rem;
+    color: var(--brand-text, #171717);
+}
+
+.ylk-portal-card p,
+.ylk-portal-download-card p,
+.ylk-portal-step-card p {
+    margin: 0;
+    font-size: 0.92rem;
+    line-height: 1.58;
+    color: var(--brand-text-muted, #5c5c5c);
+}
+
+.ylk-portal-downloads-wrap {
+    background: #f8f6f2;
+    border: 1px solid var(--brand-border, #e6e2dc);
+    border-radius: 24px;
+    padding: clamp(1.35rem, 3vw, 2.25rem);
+}
+
+.ylk-portal-download-featured,
+.ylk-portal-plan-featured {
+    border: 2px solid #111827;
+    box-shadow: 0 14px 32px rgba(15, 23, 42, 0.08);
+    position: relative;
+}
+
+.ylk-portal-dl-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+}
+
+.ylk-portal-dl-pill {
+    font-size: 0.74rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    padding: 0.25rem 0.65rem;
+    border-radius: 999px;
+    background: #111827;
+    color: #ffffff;
+}
+
+.ylk-portal-dl-pill-alt {
+    background: #e5e7eb;
+    color: #1f2937;
+}
+
+.ylk-portal-dl-ver {
+    font-size: 0.8rem;
+    font-weight: 700;
+    color: var(--brand-text-muted, #5c5c5c);
+}
+
+.ylk-portal-dl-meta {
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+    font-size: 0.82rem;
+    color: var(--brand-text-muted, #5c5c5c);
+    margin-top: auto;
+    padding-top: 0.35rem;
+}
+
+.ylk-portal-dl-btn {
+    width: 100%;
+    justify-content: center;
+    margin-top: 0.35rem;
+}
+
+.ylk-portal-install-notes {
+    margin-top: 1.35rem;
+    background: #ffffff;
+    border: 1px solid var(--brand-border, #e6e2dc);
+    border-radius: 14px;
+    padding: 1rem 1.2rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    font-size: 0.87rem;
+    line-height: 1.55;
+    color: var(--brand-text-muted, #5c5c5c);
+}
+
+.ylk-portal-releases-link-row a {
+    font-weight: 700;
+    color: var(--brand-text, #171717);
+    text-decoration: underline;
+}
+
+.ylk-portal-step-num {
+    display: inline-flex;
+    align-self: flex-start;
+    font-size: 0.82rem;
+    font-weight: 800;
+    letter-spacing: 0.06em;
+    padding: 0.28rem 0.65rem;
+    border-radius: 999px;
+    background: #111827;
+    color: #ffffff;
+}
+
+.ylk-portal-plan-badge {
+    align-self: flex-start;
+    font-size: 0.72rem;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    padding: 0.24rem 0.6rem;
+    border-radius: 999px;
+    background: #111827;
+    color: #ffffff;
+}
+
+.ylk-portal-plan-tier {
+    font-size: 0.92rem;
+    font-weight: 700;
+    color: var(--brand-text-muted, #5c5c5c);
+}
+
+.ylk-portal-plan-price {
+    font-size: 2rem;
+    font-weight: 800;
+    color: var(--brand-text, #171717);
+    line-height: 1.1;
+}
+
+.ylk-portal-plan-price span {
+    font-size: 0.95rem;
+    font-weight: 600;
+    color: var(--brand-text-muted, #5c5c5c);
+}
+
+.ylk-portal-plan-desc {
+    margin: 0;
+    font-size: 0.9rem;
+    color: var(--brand-text-muted, #5c5c5c);
+}
+
+.ylk-portal-plan-list {
+    margin: 0.25rem 0 auto;
+    padding-left: 1.15rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.42rem;
+    font-size: 0.89rem;
+    color: var(--brand-text, #171717);
+}
+
+.ylk-portal-plans-footnote {
+    margin-top: 1rem;
+    font-size: 0.85rem;
+    color: var(--brand-text-muted, #5c5c5c);
+    text-align: center;
+}
+
+@media (max-width: 900px) {
+    .ylk-portal-hero {
+        grid-template-columns: 1fr;
+    }
+}

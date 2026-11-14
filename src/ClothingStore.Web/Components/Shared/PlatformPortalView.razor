@@ -1,0 +1,334 @@
+@using System.Globalization
+@using ClothingStore.Domain.Entities
+@inject PlatformPortalService PortalService
+@inject NavigationManager Navigation
+
+@if (_snapshot is null)
+{
+    <section class="ylk-portal-loading">
+        <span class="lux-hero-eyebrow">YouLink • Plataforma para Lojas</span>
+        <h2>Carregando central de downloads e informações...</h2>
+    </section>
+}
+else
+{
+    <section id="o-que-e" class="ylk-portal-hero">
+        <div class="ylk-portal-hero-main">
+            <span class="ylk-portal-badge">
+                Versão Oficial v@_snapshot.AppVersion • Windows &amp; Android
+            </span>
+            <h1 class="ylk-portal-title">
+                Crie sua loja online em minutos e venda pelo WhatsApp e Pix
+            </h1>
+            <p class="ylk-portal-subtitle">
+                O <strong>YouLink</strong> é um aplicativo completo e gratuito para você baixar no computador (Windows) ou celular (Android), cadastrar suas roupas com estoque por cor e tamanho e publicar sua vitrine na internet em 1 clique — sem precisar programar nada.
+            </p>
+
+            <div class="ylk-portal-cta-row">
+                <a href="#downloads" class="lux-btn lux-btn-primary">⬇️ Baixar YouLink Grátis</a>
+                <a href="#como-usar" class="lux-btn lux-btn-outline">📖 Ver Como Usar</a>
+                <a href="#planos" class="lux-btn lux-btn-outline">💎 Ver Planos</a>
+            </div>
+
+            <div class="ylk-portal-highlights">
+                <span>✓ Vitrine pronta 24h</span>
+                <span>✓ Pix direto na sua conta</span>
+                <span>✓ Estoque por cor e tamanho</span>
+                <span>✓ Windows + Android</span>
+            </div>
+        </div>
+
+        <aside class="ylk-portal-aside-card" aria-label="Acessar loja publicada">
+            <span class="ylk-portal-aside-tag">Acesso Rápido a Lojas</span>
+            <h2>Já tem uma loja publicada?</h2>
+            <p>
+                Digite o nome curto (slug) da sua loja para abrir a vitrine direto no navegador:
+            </p>
+
+            <form class="ylk-portal-lookup-form" @onsubmit="OpenMerchantStore" @onsubmit:preventDefault>
+                <div class="ylk-portal-slug-input-wrap">
+                    <span class="ylk-portal-slug-prefix">/loja/</span>
+                    <input type="text"
+                           class="ylk-portal-slug-input"
+                           placeholder="ex: minha-boutique"
+                           aria-label="Nome ou slug da loja"
+                           @bind="_storeSlugInput" />
+                </div>
+                <button type="submit" class="lux-btn lux-btn-primary ylk-portal-lookup-btn">
+                    Abrir Vitrine da Loja →
+                </button>
+            </form>
+
+            @if (!string.IsNullOrWhiteSpace(_lookupHint))
+            {
+                <p class="ylk-portal-lookup-hint">@_lookupHint</p>
+            }
+
+            <div class="ylk-portal-aside-divider"></div>
+            <p class="ylk-portal-aside-foot">
+                Ainda não publicou sua loja? Baixe o aplicativo abaixo e clique em <strong>Publicar Loja</strong> dentro do app.
+            </p>
+        </aside>
+    </section>
+
+    <section class="ylk-portal-section">
+        <div class="ylk-portal-section-head">
+            <span class="lux-hero-eyebrow">O que é o YouLink</span>
+            <h2>Tudo que sua loja precisa em um só aplicativo</h2>
+            <p>Feito para lojistas de moda e varejo que querem controle real de estoque e uma loja bonita na internet sem mensalidades abusivas.</p>
+        </div>
+
+        <div class="ylk-portal-feature-grid">
+            <article class="ylk-portal-card">
+                <span class="ylk-portal-icon">🛍️</span>
+                <h3>Vitrine Online em 1 Clique</h3>
+                <p>Publique seu catálogo em segundos com endereço próprio (<code>/loja/sua-loja</code>) para colocar na bio do Instagram e enviar no WhatsApp.</p>
+            </article>
+
+            <article class="ylk-portal-card">
+                <span class="ylk-portal-icon">🎨</span>
+                <h3>Grade de Cores e Tamanhos</h3>
+                <p>Cadastre peças com variações de tamanho, cor, SKU, fotos e alerta automático quando o estoque estiver acabando.</p>
+            </article>
+
+            <article class="ylk-portal-card">
+                <span class="ylk-portal-icon">💠</span>
+                <h3>Pix Automático na Sua Conta</h3>
+                <p>Conecte seu Mercado Pago dentro do próprio app com 1 clique e receba pedidos por Pix com confirmação automática e sem taxas ocultas da plataforma.</p>
+            </article>
+
+            <article class="ylk-portal-card">
+                <span class="ylk-portal-icon">💻</span>
+                <h3>Computador Windows e Android</h3>
+                <p>Use no balcão pelo Windows ou no celular Android em qualquer lugar. Você gerencia produtos, pedidos e caixa com rapidez.</p>
+            </article>
+
+            <article class="ylk-portal-card">
+                <span class="ylk-portal-icon">🧾</span>
+                <h3>Caixa, Frete e Relatórios</h3>
+                <p>Registre vendas presenciais e pedidos vindos do site, calcule frete para entrega e acompanhe o resumo financeiro do negócio.</p>
+            </article>
+
+            <article class="ylk-portal-card">
+                <span class="ylk-portal-icon">🔒</span>
+                <h3>Zero Configuração Técnica</h3>
+                <p>Você não precisa saber configurar servidores ou programar. Baixe o aplicativo oficial, monte sua vitrine e comece a vender.</p>
+            </article>
+        </div>
+    </section>
+
+    <section id="downloads" class="ylk-portal-section ylk-portal-downloads-wrap">
+        <div class="ylk-portal-section-head">
+            <span class="lux-hero-eyebrow">Downloads Oficiais • v@_snapshot.AppVersion</span>
+            <h2>Baixe o YouLink para Windows ou Android</h2>
+            <p>
+                Escolha a versão ideal para o seu aparelho. Arquivos oficiais compilados diretamente do repositório oficial do YouLink.
+            </p>
+        </div>
+
+        <div class="ylk-portal-download-grid">
+            <article class="ylk-portal-download-card ylk-portal-download-featured">
+                <div class="ylk-portal-dl-top">
+                    <span class="ylk-portal-dl-pill">Recomendado para PC</span>
+                    <span class="ylk-portal-dl-ver">v@_snapshot.AppVersion</span>
+                </div>
+                <h3>🪟 Windows — Instalador (.exe)</h3>
+                <p>
+                    Assistente completo em português: cria atalho na área de trabalho e atualiza o aplicativo com 1 clique sempre que sair versão nova.
+                </p>
+                <div class="ylk-portal-dl-meta">
+                    <span>Arquivo: <code>@_snapshot.WindowsSetupAssetName</code></span>
+                    @if (!string.IsNullOrWhiteSpace(_snapshot.WindowsSetupSizeLabel))
+                    {
+                        <span>Tamanho: <strong>@_snapshot.WindowsSetupSizeLabel</strong></span>
+                    }
+                </div>
+                <a href="@_snapshot.WindowsSetupDownloadUrl"
+                   download="@_snapshot.WindowsSetupAssetName"
+                   rel="noopener noreferrer"
+                   class="lux-btn lux-btn-primary ylk-portal-dl-btn">
+                    ⬇️ Baixar Instalador Windows
+                </a>
+            </article>
+
+            <article class="ylk-portal-download-card">
+                <div class="ylk-portal-dl-top">
+                    <span class="ylk-portal-dl-pill ylk-portal-dl-pill-alt">Portável</span>
+                    <span class="ylk-portal-dl-ver">v@_snapshot.AppVersion</span>
+                </div>
+                <h3>📦 Windows — Versão ZIP</h3>
+                <p>
+                    Ideal se você preferir não instalar no sistema: extraia os arquivos em uma pasta no computador ou pendrive e abra <code>YouLink.exe</code>.
+                </p>
+                <div class="ylk-portal-dl-meta">
+                    <span>Arquivo: <code>@_snapshot.WindowsZipAssetName</code></span>
+                    @if (!string.IsNullOrWhiteSpace(_snapshot.WindowsZipSizeLabel))
+                    {
+                        <span>Tamanho: <strong>@_snapshot.WindowsZipSizeLabel</strong></span>
+                    }
+                </div>
+                <a href="@_snapshot.WindowsZipDownloadUrl"
+                   download="@_snapshot.WindowsZipAssetName"
+                   rel="noopener noreferrer"
+                   class="lux-btn lux-btn-outline ylk-portal-dl-btn">
+                    ⬇️ Baixar ZIP Portável (.zip)
+                </a>
+            </article>
+
+            <article class="ylk-portal-download-card">
+                <div class="ylk-portal-dl-top">
+                    <span class="ylk-portal-dl-pill ylk-portal-dl-pill-alt">Celular / Tablet</span>
+                    <span class="ylk-portal-dl-ver">v@_snapshot.AppVersion</span>
+                </div>
+                <h3>🤖 Android — Aplicativo (.apk)</h3>
+                <p>
+                    Cadastre novos produtos direto pela câmera do celular, acompanhe pedidos online e controle seu estoque na palma da mão.
+                </p>
+                <div class="ylk-portal-dl-meta">
+                    <span>Arquivo: <code>@_snapshot.AndroidApkAssetName</code></span>
+                    @if (!string.IsNullOrWhiteSpace(_snapshot.AndroidApkSizeLabel))
+                    {
+                        <span>Tamanho: <strong>@_snapshot.AndroidApkSizeLabel</strong></span>
+                    }
+                </div>
+                <a href="@_snapshot.AndroidApkDownloadUrl"
+                   download="@_snapshot.AndroidApkAssetName"
+                   rel="noopener noreferrer"
+                   class="lux-btn lux-btn-outline ylk-portal-dl-btn">
+                    ⬇️ Baixar App Android (.apk)
+                </a>
+            </article>
+        </div>
+
+        <div class="ylk-portal-install-notes">
+            <div>
+                <strong>Dica rápida no Windows:</strong> Caso o Windows Defender SmartScreen exiba um aviso por ser um instalador independente recente, clique em <em>Mais informações</em> e depois em <em>Executar assim mesmo</em>.
+            </div>
+            <div>
+                <strong>Dica rápida no Android:</strong> Após baixar o arquivo <code>.apk</code>, toque nele e habilite a permissão "Instalar apps desconhecidos" para o seu navegador caso solicitado.
+            </div>
+            <div class="ylk-portal-releases-link-row">
+                <a href="@_snapshot.ReleasesAllUrl" target="_blank" rel="noopener noreferrer">
+                    ↗ Ver notas da versão e histórico completo de lançamentos no GitHub
+                </a>
+            </div>
+        </div>
+    </section>
+
+    <section id="como-usar" class="ylk-portal-section">
+        <div class="ylk-portal-section-head">
+            <span class="lux-hero-eyebrow">Passo a Passo</span>
+            <h2>Como começar a usar o YouLink hoje</h2>
+            <p>Em apenas 4 passos simples sua loja sai do papel e passa a atender clientes com vitrine própria.</p>
+        </div>
+
+        <div class="ylk-portal-steps-grid">
+            <article class="ylk-portal-step-card">
+                <span class="ylk-portal-step-num">01</span>
+                <h3>Baixe e configure sua loja</h3>
+                <p>Instale o YouLink no Windows ou Android. No primeiro acesso, defina o nome da loja, o slug do link (<code>/loja/sua-loja</code>), logotipo e seu número de WhatsApp.</p>
+            </article>
+
+            <article class="ylk-portal-step-card">
+                <span class="ylk-portal-step-num">02</span>
+                <h3>Cadastre categorias e produtos</h3>
+                <p>Adicione fotos das peças, preço de venda, descrição e as quantidades reais por cor e tamanho para nunca vender o que acabou.</p>
+            </article>
+
+            <article class="ylk-portal-step-card">
+                <span class="ylk-portal-step-num">03</span>
+                <h3>Publique sua loja em 1 clique</h3>
+                <p>No menu da loja, clique em <strong>Publicar Loja</strong>. O aplicativo envia sua vitrine automaticamente para o ar em segundos — pronta para compartilhar.</p>
+            </article>
+
+            <article class="ylk-portal-step-card">
+                <span class="ylk-portal-step-num">04</span>
+                <h3>Receba no WhatsApp ou Pix</h3>
+                <p>Conecte seu Mercado Pago nas configurações do app para aceitar Pix direto na sua conta e acompanhar novos pedidos e assinatura de planos sem sair do YouLink.</p>
+            </article>
+        </div>
+    </section>
+
+    <section id="planos" class="ylk-portal-section">
+        <div class="ylk-portal-section-head">
+            <span class="lux-hero-eyebrow">Planos do YouLink</span>
+            <h2>Escolha o plano ideal para o momento da sua loja</h2>
+            <p>Comece montando sua vitrine e escolha seu plano diretamente dentro do aplicativo (via Pix ou Assinatura Mercado Pago).</p>
+        </div>
+
+        <div class="ylk-portal-plans-grid">
+            <article class="ylk-portal-plan-card">
+                <span class="ylk-portal-plan-tier">Plano Básico</span>
+                <div class="ylk-portal-plan-price">@FormatBrl(_snapshot.BasicPlanMonthlyPrice)<span>/mês</span></div>
+                <p class="ylk-portal-plan-desc">Ideal para começar a vender online rapidamente e organizar seu estoque.</p>
+                <ul class="ylk-portal-plan-list">
+                    <li>Vitrine Minimalista Luxo publicada 24h</li>
+                    <li>Link próprio <code>/loja/sua-loja</code></li>
+                    <li>Pedidos diretos no WhatsApp</li>
+                    <li>Controle de estoque e variações</li>
+                </ul>
+                <a href="#downloads" class="lux-btn lux-btn-outline ylk-portal-dl-btn">Baixar e Assinar no App</a>
+            </article>
+
+            <article class="ylk-portal-plan-card ylk-portal-plan-featured">
+                <div class="ylk-portal-plan-badge">Mais Escolhido</div>
+                <span class="ylk-portal-plan-tier">Plano Intermediário</span>
+                <div class="ylk-portal-plan-price">@FormatBrl(_snapshot.IntermediaryPlanMonthlyPrice)<span>/mês</span></div>
+                <p class="ylk-portal-plan-desc">Para lojas em crescimento com catálogo amplo e mais opções de visual.</p>
+                <ul class="ylk-portal-plan-list">
+                    <li>Tudo do Plano Básico incluído</li>
+                    <li>Produtos ilimitados no catálogo</li>
+                    <li>Layouts extras e personalização de vitrine</li>
+                    <li>Relatórios financeiros e controle de equipe</li>
+                </ul>
+                <a href="#downloads" class="lux-btn lux-btn-primary ylk-portal-dl-btn">Baixar e Assinar no App</a>
+            </article>
+
+            <article class="ylk-portal-plan-card">
+                <span class="ylk-portal-plan-tier">Plano Premium</span>
+                <div class="ylk-portal-plan-price">@FormatBrl(_snapshot.PremiumPlanMonthlyPrice)<span>/mês</span></div>
+                <p class="ylk-portal-plan-desc">Experiência completa com checkout Pix automatizado e visual editorial sob medida.</p>
+                <ul class="ylk-portal-plan-list">
+                    <li>Tudo do Plano Intermediário incluído</li>
+                    <li>Pix integrado direto na sua conta Mercado Pago</li>
+                    <li>Design editorial exclusivo para a marca</li>
+                    <li>Recursos prioritários e sincronização completa</li>
+                </ul>
+                <a href="#downloads" class="lux-btn lux-btn-outline ylk-portal-dl-btn">Baixar e Assinar no App</a>
+            </article>
+        </div>
+
+        <p class="ylk-portal-plans-footnote">
+            Valores atualizados diretamente da plataforma oficial. A ativação por Pix avulso, assinatura recorrente ou código promocional acontece dentro do próprio aplicativo YouLink.
+        </p>
+    </section>
+}
+
+@code {
+    private static readonly CultureInfo PtBr = CultureInfo.GetCultureInfo("pt-BR");
+
+    private PlatformPortalSnapshot? _snapshot;
+    private string? _storeSlugInput;
+    private string? _lookupHint;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _snapshot = await PortalService.GetPortalSnapshotAsync(fetchLiveRelease: true);
+    }
+
+    private void OpenMerchantStore()
+    {
+        var normalized = Category.GenerateSlug(_storeSlugInput ?? string.Empty);
+        if (string.IsNullOrWhiteSpace(normalized))
+        {
+            _lookupHint = "Informe o nome curto da loja (por exemplo: minha-boutique).";
+            return;
+        }
+
+        _lookupHint = null;
+        Navigation.NavigateTo($"/loja/{Uri.EscapeDataString(normalized)}");
+    }
+
+    private static string FormatBrl(decimal value) =>
+        value.ToString("C", PtBr);
+}

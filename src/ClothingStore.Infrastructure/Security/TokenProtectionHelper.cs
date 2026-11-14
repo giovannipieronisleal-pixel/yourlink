@@ -35,9 +35,11 @@ public static class TokenProtectionHelper
             Directory.CreateDirectory(dir);
 
         var generated = RandomNumberGenerator.GetBytes(32);
+        var b64 = Convert.ToBase64String(generated);
         var temp = $"{keyStoreFilePath}.{Guid.NewGuid():N}.tmp";
-        File.WriteAllText(temp, Convert.ToBase64String(generated), Encoding.UTF8);
+        File.WriteAllText(temp, b64, Encoding.UTF8);
         File.Move(temp, keyStoreFilePath, overwrite: true);
+        ClothingStore.Infrastructure.Persistence.CloudAppDataMirrorRegistry.TryNotifySaved(keyStoreFilePath, b64);
         return generated;
     }
 

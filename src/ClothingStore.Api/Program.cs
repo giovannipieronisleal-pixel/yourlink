@@ -88,7 +88,23 @@ builder.Services.AddRateLimiter(options =>
 var sharedDbPath = builder.Configuration["Database:FilePath"]
     ?? Path.GetFullPath(Path.Combine(builder.Environment.ContentRootPath, "..", "..", "App_Data", "clothingstore_db.json"));
 
-var outboxPath = Path.Combine(Path.GetDirectoryName(sharedDbPath) ?? builder.Environment.ContentRootPath, "email_outbox.txt");
+var appDataRoot = Path.GetDirectoryName(sharedDbPath) ?? builder.Environment.ContentRootPath;
+var outboxPath = Path.Combine(appDataRoot, "email_outbox.txt");
+
+var cloudMirror = CloudAppDataMirrorRegistry.ConfigureFromEnvironment(appDataRoot, builder.Configuration);
+if (cloudMirror is not null)
+{
+    try
+    {
+        using var hydrateCts = new CancellationTokenSource(TimeSpan.FromSeconds(25));
+        await cloudMirror.HydrateToDiskAsync(hydrateCts.Token);
+    }
+    catch (Exception ex)
+    {
+        Console.Error.WriteLine($"[CloudAppDataMirror] Falha na hidratação inicial ({cloudMirror.ProviderName}): {ex.Message}");
+    }
+    builder.Services.AddSingleton(cloudMirror);
+}
 
 builder.Services.AddSingleton<IPasswordHasher, Pbkdf2PasswordHasher>();
 builder.Services.AddSingleton<IJwtTokenService, JwtTokenService>();
@@ -171,6 +187,13 @@ builder.Services.AddAuthorizationBuilder()
             ctx.User.HasClaim("can_manage_stock", "true")));
 
 var app = builder.Build();
+if (cloudMirror is not null)
+{
+    app.Lifetime.ApplicationStopping.Register(() =>
+    {
+        try { cloudMirror.Dispose(); } catch { }
+    });
+}
 
 // Tratamento Global de Erros e Validações de Domínio (sem vazamento de stacktrace ou detalhes internos)
 app.UseExceptionHandler(errApp =>
@@ -231,6 +254,7 @@ app.MapGet("/health", () => Results.Ok(new
 {
     status = "healthy",
     service = "ClothingStore.Api",
+    persistence = cloudMirror?.ProviderName ?? "LocalDisk",
     timestamp = DateTimeOffset.UtcNow
 }));
 

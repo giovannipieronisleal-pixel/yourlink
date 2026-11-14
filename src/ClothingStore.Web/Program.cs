@@ -37,7 +37,23 @@ builder.Services.AddScoped(sp => new HttpClient(new SocketsHttpHandler
 builder.Services.AddScoped<CatalogApiClient>();
 
 var sharedDbPath = ResolveDatabasePath(builder.Configuration, builder.Environment.ContentRootPath);
-var outboxPath = Path.Combine(Path.GetDirectoryName(sharedDbPath) ?? builder.Environment.ContentRootPath, "email_outbox.txt");
+var appDataRoot = Path.GetDirectoryName(sharedDbPath) ?? builder.Environment.ContentRootPath;
+var outboxPath = Path.Combine(appDataRoot, "email_outbox.txt");
+
+var cloudMirror = CloudAppDataMirrorRegistry.ConfigureFromEnvironment(appDataRoot, builder.Configuration);
+if (cloudMirror is not null)
+{
+    try
+    {
+        using var hydrateCts = new CancellationTokenSource(TimeSpan.FromSeconds(25));
+        await cloudMirror.HydrateToDiskAsync(hydrateCts.Token);
+    }
+    catch (Exception ex)
+    {
+        Console.Error.WriteLine($"[CloudAppDataMirror] Falha na hidratação inicial ({cloudMirror.ProviderName}): {ex.Message}");
+    }
+    builder.Services.AddSingleton(cloudMirror);
+}
 
 builder.Services.AddHttpClient();
 builder.Services.AddHttpContextAccessor();
@@ -96,8 +112,16 @@ builder.Services.AddScoped<PlatformSubscriptionService>(sp =>
         sp.GetRequiredService<IMercadoPagoPixService>(),
         sp.GetRequiredService<IPlatformMercadoPagoTokenStore>()));
 builder.Services.AddScoped<CatalogDataGateway>();
+builder.Services.AddScoped<PlatformPortalService>();
 
 var app = builder.Build();
+if (cloudMirror is not null)
+{
+    app.Lifetime.ApplicationStopping.Register(() =>
+    {
+        try { cloudMirror.Dispose(); } catch { }
+    });
+}
 
 if (!app.Environment.IsDevelopment())
 {
@@ -121,6 +145,7 @@ app.MapGet("/health", () => Results.Ok(new
 {
     status = "healthy",
     service = "ClothingStore.Web",
+    persistence = cloudMirror?.ProviderName ?? "LocalDisk",
     timestamp = DateTimeOffset.UtcNow
 }));
 

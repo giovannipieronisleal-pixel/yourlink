@@ -1,16 +1,21 @@
 @page "/"
 @page "/loja/{StoreSlug}"
 @inject CatalogDataGateway CatalogDataGateway
+@inject PlatformPortalService PortalService
 @inject NavigationManager Navigation
 
-<PageTitle>@(_store?.StoreName ?? "Loja Online") — Roupas &amp; Catálogo</PageTitle>
+<PageTitle>@(_isPortalHome ? "YouLink — Crie sua Loja Online, Baixe o App e Venda pelo WhatsApp e Pix" : $"{(_store?.StoreName ?? "Loja Online")} — Roupas & Catálogo")</PageTitle>
 
 @if (_loading)
 {
     <div class="lux-empty-card">
-        <p class="lux-hero-eyebrow">Carregando Loja</p>
+        <p class="lux-hero-eyebrow">@(_isPortalHome ? "YouLink" : "Carregando Loja")</p>
         <h2>Preparando as novidades para você...</h2>
     </div>
+}
+else if (_isPortalHome)
+{
+    <PlatformPortalView />
 }
 else if (_storeNotFound)
 {
@@ -197,6 +202,7 @@ else
     private IReadOnlyList<CategoryDto> _categories = [];
     private IReadOnlyList<CatalogProductCardDto> _featuredProducts = [];
     private bool _loading = true;
+    private bool _isPortalHome;
     private bool _storeNotFound;
     private string? _quickSearch;
 
@@ -223,9 +229,16 @@ else
     protected override async Task OnParametersSetAsync()
     {
         _loading = true;
+        _isPortalHome = false;
         _storeNotFound = false;
         try
         {
+            if (await PortalService.IsPortalHomeAsync(StoreSlug))
+            {
+                _isPortalHome = true;
+                return;
+            }
+
             _store = await CatalogDataGateway.GetStoreInfoOrNullAsync(StoreSlug);
             if (!string.IsNullOrWhiteSpace(StoreSlug) && _store is null)
             {

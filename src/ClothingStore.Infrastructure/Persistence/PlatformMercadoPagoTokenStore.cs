@@ -176,6 +176,7 @@ public sealed class PlatformMercadoPagoTokenStore : IPlatformMercadoPagoTokenSto
         {
             if (File.Exists(_storeFilePath))
                 File.Delete(_storeFilePath);
+            CloudAppDataMirrorRegistry.TryNotifyDeleted(_storeFilePath);
         }
         finally
         {
@@ -205,9 +206,11 @@ public sealed class PlatformMercadoPagoTokenStore : IPlatformMercadoPagoTokenSto
         if (!string.IsNullOrWhiteSpace(dir) && !Directory.Exists(dir))
             Directory.CreateDirectory(dir);
 
+        var json = JsonSerializer.Serialize(doc, JsonOptions);
         var temp = $"{_storeFilePath}.{Guid.NewGuid():N}.tmp";
-        File.WriteAllText(temp, JsonSerializer.Serialize(doc, JsonOptions), Encoding.UTF8);
+        File.WriteAllText(temp, json, Encoding.UTF8);
         File.Move(temp, _storeFilePath, overwrite: true);
+        CloudAppDataMirrorRegistry.TryNotifySaved(_storeFilePath, json);
     }
 
     private sealed class StoredCredentials

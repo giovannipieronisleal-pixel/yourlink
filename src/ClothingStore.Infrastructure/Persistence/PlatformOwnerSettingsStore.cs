@@ -98,9 +98,11 @@ public static class PlatformOwnerSettingsStore
                 Directory.CreateDirectory(dir);
             }
 
+            var json = JsonSerializer.Serialize(snapshot, JsonOptions);
             var tempPath = $"{path}.{Guid.NewGuid():N}.tmp";
-            File.WriteAllText(tempPath, JsonSerializer.Serialize(snapshot, JsonOptions), System.Text.Encoding.UTF8);
+            File.WriteAllText(tempPath, json, System.Text.Encoding.UTF8);
             File.Move(tempPath, path, overwrite: true);
+            CloudAppDataMirrorRegistry.TryNotifySaved(path, json);
         }
         catch
         {

@@ -1,46 +1,73 @@
 @inherits LayoutComponentBase
 @implements IDisposable
 @inject CatalogDataGateway CatalogDataGateway
+@inject PlatformPortalService PortalService
 @inject NavigationManager Navigation
 
-<StoreDesignStyleInjector Design="@_store?.Design" />
+@if (!_isPortalMode)
+{
+    <StoreDesignStyleInjector Design="@_store?.Design" />
+}
 
 <div class="lux-shell">
     <header class="lux-header">
         <div class="lux-container lux-header-inner">
-            <a href="@HomeHref" class="lux-brand-link">
-                @if (WhatsAppLinkBuilder.IsSafeMediaUrl(_store?.LogoPublicUrl))
-                {
-                    <img src="@WhatsAppLinkBuilder.SanitizeMediaUrl(_store?.LogoPublicUrl)" alt="@_store?.StoreName" class="lux-brand-logo" />
-                }
-                else
-                {
-                    <span class="lux-brand-mark">@BrandInitial</span>
-                }
+            @if (_isPortalMode)
+            {
+                <a href="/" class="lux-brand-link">
+                    <span class="lux-brand-mark">YL</span>
+                    <span>
+                        <span class="lux-brand-title">YouLink</span>
+                        <span class="lux-brand-sub">Plataforma para Lojas Digitais</span>
+                    </span>
+                </a>
 
-                <span>
-                    <span class="lux-brand-title">@(_store?.StoreName ?? "YouLink Loja")</span>
-                    <span class="lux-brand-sub">@BrandSubtitle</span>
-                </span>
-            </a>
-
-            <nav class="lux-nav" aria-label="Navegação principal">
-                <NavLink href="@HomeHref" Match="NavLinkMatch.All" class="lux-nav-link">Início</NavLink>
-                <NavLink href="@CatalogHref" class="lux-nav-link">Ver Roupas</NavLink>
-                <button type="button" class="lux-btn lux-btn-outline lux-btn-sm lux-pwa-install-btn" data-pwa-install>
-                    📲 Instalar App
-                </button>
-
-                @if (_store is { IsSiteActive: true } && !string.IsNullOrWhiteSpace(_store.WhatsappNumber))
-                {
-                    <a href="@WhatsAppLinkBuilder.BuildGeneralStoreLink(_store.WhatsappNumber, _store.StoreName)"
-                       target="_blank"
-                       rel="noopener noreferrer"
-                       class="lux-btn lux-btn-whatsapp lux-btn-sm">
-                        💬 Comprar no WhatsApp
+                <nav class="lux-nav" aria-label="Navegação do portal YouLink">
+                    <a href="/#o-que-e" class="lux-nav-link">O que é</a>
+                    <a href="/#downloads" class="lux-nav-link">Baixar App</a>
+                    <a href="/#como-usar" class="lux-nav-link">Como Usar</a>
+                    <a href="/#planos" class="lux-nav-link">Planos</a>
+                    <a href="/#downloads" class="lux-btn lux-btn-primary lux-btn-sm">
+                        ⬇️ Baixar Grátis
                     </a>
-                }
-            </nav>
+                </nav>
+            }
+            else
+            {
+                <a href="@HomeHref" class="lux-brand-link">
+                    @if (WhatsAppLinkBuilder.IsSafeMediaUrl(_store?.LogoPublicUrl))
+                    {
+                        <img src="@WhatsAppLinkBuilder.SanitizeMediaUrl(_store?.LogoPublicUrl)" alt="@_store?.StoreName" class="lux-brand-logo" />
+                    }
+                    else
+                    {
+                        <span class="lux-brand-mark">@BrandInitial</span>
+                    }
+
+                    <span>
+                        <span class="lux-brand-title">@(_store?.StoreName ?? "YouLink Loja")</span>
+                        <span class="lux-brand-sub">@BrandSubtitle</span>
+                    </span>
+                </a>
+
+                <nav class="lux-nav" aria-label="Navegação principal">
+                    <NavLink href="@HomeHref" Match="NavLinkMatch.All" class="lux-nav-link">Início</NavLink>
+                    <NavLink href="@CatalogHref" class="lux-nav-link">Ver Roupas</NavLink>
+                    <button type="button" class="lux-btn lux-btn-outline lux-btn-sm lux-pwa-install-btn" data-pwa-install>
+                        📲 Instalar App
+                    </button>
+
+                    @if (_store is { IsSiteActive: true } && !string.IsNullOrWhiteSpace(_store.WhatsappNumber))
+                    {
+                        <a href="@WhatsAppLinkBuilder.BuildGeneralStoreLink(_store.WhatsappNumber, _store.StoreName)"
+                           target="_blank"
+                           rel="noopener noreferrer"
+                           class="lux-btn lux-btn-whatsapp lux-btn-sm">
+                            💬 Comprar no WhatsApp
+                        </a>
+                    }
+                </nav>
+            }
         </div>
     </header>
 
@@ -52,24 +79,41 @@
 
     <footer class="lux-footer">
         <div class="lux-container lux-footer-inner">
-            <div>
-                <strong>@(_store?.StoreName ?? "Loja Online")</strong> — @(_store?.StoreDescription ?? "Moda selecionada com atendimento direto.")
-            </div>
-            <div>
-                @if (_store is not null && !string.IsNullOrWhiteSpace(_store.WhatsappNumber))
-                {
-                    <a href="@WhatsAppLinkBuilder.BuildGeneralStoreLink(_store.WhatsappNumber, _store.StoreName)"
+            @if (_isPortalMode)
+            {
+                <div>
+                    <strong>YouLink</strong> — Plataforma gratuita para criar, gerenciar e publicar sua loja online.
+                </div>
+                <div>
+                    <a href="@AppUpdateCatalog.ReleasesPageUrl"
                        target="_blank"
                        rel="noopener noreferrer"
                        style="font-weight: 600; color: var(--brand-accent);">
-                        💬 Atendimento rápido pelo WhatsApp
+                        ⬇️ Versões Oficiais (Windows &amp; Android)
                     </a>
-                }
-            </div>
+                </div>
+            }
+            else
+            {
+                <div>
+                    <strong>@(_store?.StoreName ?? "Loja Online")</strong> — @(_store?.StoreDescription ?? "Moda selecionada com atendimento direto.")
+                </div>
+                <div>
+                    @if (_store is not null && !string.IsNullOrWhiteSpace(_store.WhatsappNumber))
+                    {
+                        <a href="@WhatsAppLinkBuilder.BuildGeneralStoreLink(_store.WhatsappNumber, _store.StoreName)"
+                           target="_blank"
+                           rel="noopener noreferrer"
+                           style="font-weight: 600; color: var(--brand-accent);">
+                            💬 Atendimento rápido pelo WhatsApp
+                        </a>
+                    }
+                </div>
+            }
         </div>
     </footer>
 
-    @if (_store is { IsSiteActive: true } && !string.IsNullOrWhiteSpace(_store.WhatsappNumber))
+    @if (!_isPortalMode && _store is { IsSiteActive: true } && !string.IsNullOrWhiteSpace(_store.WhatsappNumber))
     {
         <div class="lux-mobile-wa-bar">
             <a href="@CatalogHref" class="lux-btn lux-btn-outline lux-btn-sm" style="flex: 1;">
@@ -89,6 +133,8 @@
 @code {
     private PublicStoreSettingsDto? _store;
     private string? _activeStoreSlug;
+    private bool _isPortalMode;
+    private bool _lastWasRootHome;
 
     private string HomeHref =>
         string.IsNullOrWhiteSpace(_activeStoreSlug) ? "/" : $"/loja/{Uri.EscapeDataString(_activeStoreSlug)}";
@@ -112,25 +158,48 @@
     {
         Navigation.LocationChanged += HandleLocationChanged;
         _activeStoreSlug = ExtractStoreSlugFromUri(Navigation.Uri);
-        await LoadStoreAsync();
+        _lastWasRootHome = IsRootHomeUri(Navigation.Uri);
+        await LoadStoreAsync(Navigation.Uri);
     }
 
     private async void HandleLocationChanged(object? sender, Microsoft.AspNetCore.Components.Routing.LocationChangedEventArgs e)
     {
         var nextSlug = ExtractStoreSlugFromUri(e.Location);
-        if (string.Equals(nextSlug, _activeStoreSlug, StringComparison.OrdinalIgnoreCase))
+        var nextIsRoot = IsRootHomeUri(e.Location);
+        if (string.Equals(nextSlug, _activeStoreSlug, StringComparison.OrdinalIgnoreCase) &&
+            nextIsRoot == _lastWasRootHome)
+        {
             return;
+        }
 
         _activeStoreSlug = nextSlug;
+        _lastWasRootHome = nextIsRoot;
         await InvokeAsync(async () =>
         {
-            await LoadStoreAsync();
+            await LoadStoreAsync(e.Location);
             StateHasChanged();
         });
     }
 
-    private async Task LoadStoreAsync()
+    private async Task LoadStoreAsync(string currentUri)
     {
+        try
+        {
+            _isPortalMode = string.IsNullOrWhiteSpace(_activeStoreSlug) &&
+                            IsRootHomeUri(currentUri) &&
+                            await PortalService.IsPortalHomeAsync(_activeStoreSlug);
+        }
+        catch
+        {
+            _isPortalMode = false;
+        }
+
+        if (_isPortalMode)
+        {
+            _store = null;
+            return;
+        }
+
         try
         {
             _store = await CatalogDataGateway.GetStoreInfoOrNullAsync(_activeStoreSlug);
@@ -138,6 +207,19 @@
         catch
         {
             _store = null;
+        }
+    }
+
+    private bool IsRootHomeUri(string uri)
+    {
+        try
+        {
+            var rel = Navigation.ToBaseRelativePath(uri).Split(['?', '#'], 2)[0].Trim('/');
+            return string.IsNullOrEmpty(rel);
+        }
+        catch
+        {
+            return false;
         }
     }
 

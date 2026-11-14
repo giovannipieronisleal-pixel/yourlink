@@ -9,8 +9,24 @@ services:
     envVars:
       - key: ASPNETCORE_ENVIRONMENT
         value: Production
+      - key: YOULINK_PORTAL_HOME
+        value: "true"
       - key: YOULINK_SYNC_SECRET
         generateValue: true
+      # Alternativa gratuita de persistência permanente (escolha UMA opção no painel Render -> Environment):
+      # Opção A (Recomendada): PostgreSQL gratuito em neon.tech -> DATABASE_URL=postgresql://...
+      - key: YOULINK_DATABASE_URL
+        sync: false
+      - key: DATABASE_URL
+        sync: false
+      # Opção B: Supabase Storage/REST gratuito -> SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      # Opcional (recomendado): chave fixa base64/texto para criptografia OAuth entre redeploys
+      - key: YOULINK_TOKEN_ENCRYPTION_KEY
+        sync: false
       - key: YOULINK_TOKEN_ENCRYPTION_KEY
         sync: false
       - key: MP_CLIENT_ID
