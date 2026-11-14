@@ -4,7 +4,7 @@
 @inject PlatformPortalService PortalService
 @inject NavigationManager Navigation
 
-<PageTitle>@(_isPortalHome ? "YouLink — Crie sua Loja Online, Baixe o App e Venda pelo WhatsApp e Pix" : $"{(_store?.StoreName ?? "Loja Online")} — Roupas & Catálogo")</PageTitle>
+<PageTitle>@(_isPortalHome ? "YouLink — Crie sua Loja Online, Baixe o App e Venda pelo WhatsApp e Pix" : $"{(_store?.StoreName ?? "Loja Online")} — Catálogo de Produtos")</PageTitle>
 
 @if (_loading)
 {
@@ -33,7 +33,7 @@ else if (_store is { IsSiteActive: false })
         <span class="lux-hero-eyebrow">Loja em Atualização</span>
         <h1 class="lux-hero-title">@_store.StoreName</h1>
         <p class="lux-hero-subtitle" style="margin-left: auto; margin-right: auto;">
-            @(_store.DeactivationReason ?? "Estamos atualizando nossa vitrine com novas peças. Você já pode falar direto com nossa equipe pelo WhatsApp!")
+            @(_store.DeactivationReason ?? "Estamos atualizando nossa vitrine com novos produtos. Você já pode falar direto com nossa equipe pelo WhatsApp!")
         </p>
 
         @if (!string.IsNullOrWhiteSpace(_store.WhatsappNumber))
@@ -57,10 +57,10 @@ else
             }
 
             <h1 class="lux-hero-title">@HeroHeadlineText</h1>
-            <p class="lux-hero-subtitle">@(_store?.StoreDescription ?? "Escolha suas peças favoritas, confira cores e tamanhos disponíveis e faça seu pedido direto pelo WhatsApp.")</p>
+            <p class="lux-hero-subtitle">@(_store?.StoreDescription ?? "Escolha seus produtos favoritos, confira variações disponíveis e faça seu pedido direto pelo WhatsApp.")</p>
 
             <div class="lux-hero-actions">
-                <a href="@CatalogHref()" class="lux-btn lux-btn-primary">Ver Todas as Roupas</a>
+                <a href="@CatalogHref()" class="lux-btn lux-btn-primary">Ver Todos os Produtos</a>
 
                 @if (_store is not null && !string.IsNullOrWhiteSpace(_store.WhatsappNumber))
                 {
@@ -76,7 +76,7 @@ else
             <form class="lux-quick-search" @onsubmit="GoSearch" @onsubmit:preventDefault="true">
                 <input type="text"
                        class="lux-input"
-                       placeholder="O que você procura? Ex.: Vestido, Calça, Camisa..."
+                       placeholder="O que você procura? Pesquise por nome, categoria..."
                        @bind="_quickSearch" />
                 <button type="submit" class="lux-btn lux-btn-outline">
                     Buscar
@@ -91,14 +91,14 @@ else
                 <div class="lux-concierge-step">
                     <span class="lux-step-num">1</span>
                     <div>
-                        <strong>Escolha a sua roupa</strong>
-                        <span>Veja as fotos, o preço e toque na peça que mais combina com você.</span>
+                        <strong>Escolha o produto</strong>
+                        <span>Veja as fotos, o preço e toque no item que mais combina com você.</span>
                     </div>
                 </div>
                 <div class="lux-concierge-step">
                     <span class="lux-step-num">2</span>
                     <div>
-                        <strong>Toque na cor e no tamanho</strong>
+                        <strong>Escolha a variação</strong>
                         <span>Você vê na hora o que temos disponível antes de chamar a loja.</span>
                     </div>
                 </div>
@@ -118,7 +118,7 @@ else
         <section class="lux-section">
             <div class="lux-section-head">
                 <div>
-                    <span class="lux-section-kicker">Escolha por Estilo</span>
+                    <span class="lux-section-kicker">Explore por Categoria</span>
                     <h2 class="lux-section-title">Categorias da Loja</h2>
                 </div>
                 <a href="@CatalogHref()" class="lux-link-arrow">Ver tudo &rarr;</a>
@@ -126,7 +126,7 @@ else
 
             <div class="lux-category-rail">
                 <a href="@CatalogHref()" class="lux-category-pill active">
-                    <span>Todas as roupas</span>
+                    <span>Todos os produtos</span>
                 </a>
                 @foreach (var cat in _categories)
                 {
@@ -143,7 +143,7 @@ else
         <div class="lux-section-head">
             <div>
                 <span class="lux-section-kicker">Novidades &amp; Destaques</span>
-                <h2 class="lux-section-title">Peças para Você Escolher</h2>
+                <h2 class="lux-section-title">Produtos para Você Escolher</h2>
             </div>
             <a href="@CatalogHref()" class="lux-link-arrow">Ver Todas (@_featuredProducts.Count+) &rarr;</a>
         </div>
@@ -151,9 +151,9 @@ else
         @if (_featuredProducts.Count == 0)
         {
             <div class="lux-empty-card">
-                <h3>Em breve novas peças!</h3>
+                <h3>Em breve novos produtos!</h3>
                 <p class="lux-hero-subtitle" style="margin-left: auto; margin-right: auto;">
-                    Novos looks estão sendo preparados. Fale com nossa equipe no WhatsApp para saber o que acaba de chegar.
+                    Novos produtos estão sendo preparados. Fale com nossa equipe no WhatsApp para saber o que acaba de chegar.
                 </p>
             </div>
         }
@@ -173,7 +173,7 @@ else
             <span>🛍️</span>
             <div>
                 <strong>Compra Fácil e Direta</strong>
-                <span>Sem cadastro complicado: gostou da peça, é só pedir no WhatsApp.</span>
+                <span>Sem cadastro complicado: gostou do produto, é só pedir no WhatsApp.</span>
             </div>
         </div>
         <div class="lux-trust-card">
@@ -187,7 +187,7 @@ else
             <span>💬</span>
             <div>
                 <strong>Atendimento Humano</strong>
-                <span>Tire dúvidas sobre tecido, caimento e entrega direto com quem atende na loja.</span>
+                <span>Tire dúvidas sobre especificações, detalhes e entrega direto com quem atende na loja.</span>
             </div>
         </div>
     </section>
@@ -219,7 +219,7 @@ else
     private string HeroEyebrowText =>
         !string.IsNullOrWhiteSpace(_design.HeroEyebrow)
             ? _design.HeroEyebrow
-            : "Nova Coleção Disponível";
+            : "Novidades Disponíveis";
 
     private string HeroHeadlineText =>
         !string.IsNullOrWhiteSpace(_design.HeroHeadline)

@@ -6,7 +6,7 @@ using ClothingStore.Domain.Exceptions;
 namespace ClothingStore.Domain.Entities;
 
 /// <summary>
-/// Categoria de roupas do catálogo (ex.: Camisetas, Calças, Vestidos, Casacos).
+/// Categoria de produtos do catálogo (ex.: Eletrônicos, Casa, Cosméticos, Moda).
 /// </summary>
 public sealed class Category
 {

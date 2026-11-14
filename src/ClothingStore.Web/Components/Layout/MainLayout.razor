@@ -52,7 +52,7 @@
 
                 <nav class="lux-nav" aria-label="Navegação principal">
                     <NavLink href="@HomeHref" Match="NavLinkMatch.All" class="lux-nav-link">Início</NavLink>
-                    <NavLink href="@CatalogHref" class="lux-nav-link">Ver Roupas</NavLink>
+                    <NavLink href="@CatalogHref" class="lux-nav-link">Ver Produtos</NavLink>
                     <button type="button" class="lux-btn lux-btn-outline lux-btn-sm lux-pwa-install-btn" data-pwa-install>
                         📲 Instalar App
                     </button>
@@ -96,7 +96,7 @@
             else
             {
                 <div>
-                    <strong>@(_store?.StoreName ?? "Loja Online")</strong> — @(_store?.StoreDescription ?? "Moda selecionada com atendimento direto.")
+                    <strong>@(_store?.StoreName ?? "Loja Online")</strong> — @(_store?.StoreDescription ?? "Produtos selecionados com atendimento direto.")
                 </div>
                 <div>
                     @if (_store is not null && !string.IsNullOrWhiteSpace(_store.WhatsappNumber))
@@ -117,7 +117,7 @@
     {
         <div class="lux-mobile-wa-bar">
             <a href="@CatalogHref" class="lux-btn lux-btn-outline lux-btn-sm" style="flex: 1;">
-                Ver Roupas
+                Ver Produtos
             </a>
             <a href="@WhatsAppLinkBuilder.BuildGeneralStoreLink(_store.WhatsappNumber, _store.StoreName)"
                target="_blank"
@@ -150,7 +150,7 @@
     private string BrandSubtitle => _store?.PlanTier switch
     {
         StoreDesignPresets.PlanPremium => "Loja Oficial • Sob Medida",
-        StoreDesignPresets.PlanIntermediate => "Loja Oficial • Coleção Selecionada",
+        StoreDesignPresets.PlanIntermediate => "Loja Oficial • Catálogo Selecionado",
         _ => "Catálogo Online Oficial"
     };
 

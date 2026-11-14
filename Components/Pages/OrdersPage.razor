@@ -12,7 +12,7 @@
     <div>
         <h1 class="adm-page-title" style="margin: 0;">🧾 Pedidos Pix &amp; Envios</h1>
         <p class="adm-page-subtitle" style="margin: 0.25rem 0 0;">
-            Confira pagamentos via Pix, veja o endereço e distância do comprador, calcule os Correios e organize o envio de cada peça.
+            Confira pagamentos via Pix, veja o endereço e distância do comprador, calcule os Correios e organize o envio de cada pedido.
         </p>
     </div>
 
@@ -246,7 +246,7 @@ else
                             <div style="display: flex; justify-content: space-between; gap: 0.5rem; flex-wrap: wrap; font-size: 0.9rem;">
                                 <div>
                                     <strong>@item.Quantity x @item.ProductName</strong>
-                                    <span style="color: var(--adm-muted);"> — Cor: @item.Color · Tam: @item.Size (SKU: @item.Sku)</span>
+                                    <span style="color: var(--adm-muted);"> — Opção: @item.Color · @item.Size (SKU: @item.Sku)</span>
                                 </div>
                                 <strong>@item.Subtotal.ToString("C", PtBr)</strong>
                             </div>

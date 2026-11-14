@@ -27,10 +27,10 @@ public sealed class CatalogApiClient
     {
         var result = await _httpClient.GetFromJsonAsync<PublicStoreSettingsDto>($"{BuildStorePrefix(storeSlug)}/store-info", ct);
         return result ?? new PublicStoreSettingsDto(
-            "Aura Vestuário",
-            "aura-vestuario",
+            "YouLink Loja",
+            "youlink-loja",
             "5511999999999",
-            "Catálogo digital de moda contemporânea.",
+            "Catálogo digital de produtos com atendimento direto.",
             null,
             DateTimeOffset.UtcNow);
     }

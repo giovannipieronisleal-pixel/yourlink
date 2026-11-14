@@ -77,7 +77,7 @@ else
                 <span class="pill-badge pill-slate">Plano Atual: @_report.EffectivePlanTier</span>
             </div>
 
-            <h2 class="sales-lock-title">Veja exatamente quanto você vendeu — peça por peça e dia a dia</h2>
+            <h2 class="sales-lock-title">Veja exatamente quanto você vendeu — produto por produto e dia a dia</h2>
             <p class="sales-lock-copy">
                 @_report.LockMessage
                 No <strong>Plano Básico</strong> sua vitrine funciona normalmente com pedidos diretos no WhatsApp; a partir da <strong>Meia Versão</strong> e do <strong>Plano Premium</strong>, você desbloqueia o painel financeiro completo da sua loja.
@@ -86,7 +86,7 @@ else
             <div class="sales-lock-features">
                 <div class="sales-lock-feature">💵 Quanto vendeu hoje, em 7 dias, 30 dias e total histórico</div>
                 <div class="sales-lock-feature">📊 Gráfico diário e Ticket Médio automático por pedido</div>
-                <div class="sales-lock-feature">🏆 Ranking das roupas mais vendidas e faturamento por peça</div>
+                <div class="sales-lock-feature">🏆 Ranking dos produtos mais vendidos e faturamento por item</div>
                 <div class="sales-lock-feature">📝 Registro rápido de vendas pelo WhatsApp / balcão com baixa no estoque</div>
             </div>
 
@@ -169,7 +169,7 @@ else
 
                 <div class="sales-manual-grid">
                     <div>
-                        <label class="adm-label">Peça / Produto</label>
+                        <label class="adm-label">Produto</label>
                         <select class="adm-input" @bind="_selectedProductId" @bind:after="OnProductChanged">
                             <option value="">Selecione um produto...</option>
                             @foreach (var product in _products)
@@ -283,7 +283,7 @@ else
                 <div class="kpi-label">Quanto Vendeu (@GetPeriodFriendlyName())</div>
                 <div class="kpi-value sales-value-green">@_report.SelectedPeriodConfirmedRevenue.ToString("C", PtBr)</div>
                 <div class="sales-kpi-sub">
-                    @_report.SelectedPeriodOrdersCount venda(s) confirmada(s) &bull; @_report.TotalUnitsSold peça(s)
+                    @_report.SelectedPeriodOrdersCount venda(s) confirmada(s) &bull; @_report.TotalUnitsSold unidade(s)
                 </div>
             </div>
 
@@ -348,17 +348,17 @@ else
                 }
             </section>
 
-            <!-- Top Peças Mais Vendidas -->
+            <!-- Top Produtos Mais Vendidas -->
             <section class="adm-card">
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem;">
-                    <h2 style="font-size: 1.05rem; font-weight: 800; margin: 0;">🏆 Roupas Mais Vendidas</h2>
+                    <h2 style="font-size: 1.05rem; font-weight: 800; margin: 0;">🏆 Produtos Mais Vendidos</h2>
                     <span style="font-size: 0.8rem; color: var(--adm-muted);">@_report.TopProducts.Count produto(s)</span>
                 </div>
 
                 @if (_report.TopProducts.Count == 0)
                 {
                     <p style="color: var(--adm-muted); font-size: 0.9rem; margin: 0;">
-                        As peças com maior faturamento e saída aparecerão automaticamente aqui assim que houver vendas confirmadas.
+                        Os produtos com maior faturamento e saída aparecerão automaticamente aqui assim que houver vendas confirmadas.
                     </p>
                 }
                 else
@@ -366,7 +366,7 @@ else
                     <table class="adm-table">
                         <thead>
                             <tr>
-                                <th>Peça</th>
+                                <th>Produto</th>
                                 <th>Unid.</th>
                                 <th>Vendido</th>
                             </tr>
@@ -375,7 +375,7 @@ else
                             @foreach (var item in _report.TopProducts)
                             {
                                 <tr>
-                                    <td data-label="Peça">
+                                    <td data-label="Produto">
                                         <div style="font-weight: 700;">@item.ProductName</div>
                                         <div class="sales-share-track">
                                             <div class="sales-share-fill" style="width: @($"{Math.Clamp(item.SharePercent, 3m, 100m).ToString(CultureInfo.InvariantCulture)}%")"></div>
@@ -418,7 +418,7 @@ else
                             <th>Pedido</th>
                             <th>Data</th>
                             <th>Cliente</th>
-                            <th>Peças</th>
+                            <th>Produtos</th>
                             <th>Pagamento</th>
                             <th>Valor</th>
                         </tr>
@@ -431,7 +431,7 @@ else
                                 <td data-label="Pedido" style="font-weight: 800;">@sale.OrderNumber</td>
                                 <td data-label="Data" style="font-size: 0.82rem; color: var(--adm-muted);">@saleDate.ToString("dd/MM HH:mm")</td>
                                 <td data-label="Cliente">@sale.CustomerName</td>
-                                <td data-label="Peças" style="font-size: 0.84rem;">
+                                <td data-label="Produtos" style="font-size: 0.84rem;">
                                     @string.Join(", ", sale.Items.Select(i => $"{i.Quantity}x {i.ProductName} ({i.Color}/{i.Size})"))
                                 </td>
                                 <td data-label="Pagamento">
@@ -612,7 +612,7 @@ else
         {
             if (!Guid.TryParse(_selectedProductId, out var productId) || !Guid.TryParse(_selectedVariantId, out var variantId))
             {
-                _error = "Selecione o produto e a variante (cor/tamanho) vendidos.";
+                _error = "Selecione o produto e a variação (cor/opção) vendidos.";
                 return;
             }
 

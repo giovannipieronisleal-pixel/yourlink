@@ -123,7 +123,7 @@ public static class StoreDesignPresets
             StoreDesignDto.CreateMinimalistaLuxo()),
         new(
             "editorial-vogue",
-            "Editorial Vogue",
+            "Editorial Clássico",
             "Contraste agudo de passarela com cantos retos.",
             new StoreDesignDto
             {
@@ -148,7 +148,7 @@ public static class StoreDesignPresets
             }),
         new(
             "boutique-rose",
-            "Boutique Rosé",
+            "Rosé Suave",
             "Curadoria suave em marfim rosado e bordô atemporal.",
             new StoreDesignDto
             {
@@ -173,8 +173,8 @@ public static class StoreDesignPresets
             }),
         new(
             "urban-sartorial",
-            "Urban Sartorial",
-            "Alfaiataria contemporânea com estética clean de galeria.",
+            "Urbano Clean",
+            "Linhas contemporâneas com estética clean de vitrine.",
             new StoreDesignDto
             {
                 PresetKey = "urban-sartorial",

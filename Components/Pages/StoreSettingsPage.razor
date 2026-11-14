@@ -223,7 +223,7 @@
                 @if (isPlaceholderOrLocal)
                 {
                     <span>
-                        Sua vitrine já funciona <strong>direto aqui no aplicativo</strong> para cadastrar peças e vender no Pix pelo celular! Quando quiser divulgar um link na internet (Instagram/Bio), <a href="#publicar-site-24h" style="color: var(--adm-accent); font-weight: 700;">publique seu site grátis em 3 passos logo abaixo</a>.
+                        Sua vitrine já funciona <strong>direto aqui no aplicativo</strong> para cadastrar produtos e vender no Pix pelo celular! Quando quiser divulgar um link na internet (Instagram/Bio), <a href="#publicar-site-24h" style="color: var(--adm-accent); font-weight: 700;">publique seu site grátis em 3 passos logo abaixo</a>.
                     </span>
                 }
                 else
@@ -275,7 +275,7 @@
                 <div style="flex: 1; min-width: 170px;">
                     <div style="font-weight: 800; font-size: 0.95rem; color: var(--adm-text);">📱 QR Code do Balcão &amp; Sacolas</div>
                     <div style="font-size: 0.8rem; color: var(--adm-muted); margin-top: 0.25rem; line-height: 1.4;">
-                        Imprima e coloque no balcão ou nas etiquetas das roupas: suas clientes apontam a câmera do celular e abrem o catálogo na hora!
+                        Imprima e coloque no balcão ou nas sacolas ou balcão: seus clientes apontam a câmera do celular e abrem o catálogo na hora!
                     </div>
                 </div>
             </div>
@@ -435,7 +435,7 @@
 
                 <label style="display: flex; align-items: center; gap: 0.5rem; font-weight: 600; cursor: pointer;">
                     <input type="checkbox" @bind="_form.AutoSyncOnlineOnSave" />
-                    <span>Sincronizar dados automaticamente ao salvar roupas ou categorias</span>
+                    <span>Sincronizar dados automaticamente ao salvar produtos ou categorias</span>
                 </label>
 
                 @if (_form.LastOnlineSyncAt.HasValue)
@@ -874,7 +874,7 @@
                         </div>
                     </div>
                     <div>
-                        <label class="adm-label">Peso Médio por Peça (g)</label>
+                        <label class="adm-label">Peso Médio por Produto (g)</label>
                         <input type="number" min="100" max="30000" class="adm-input" @bind="_defaultPackageWeightGrams" />
                         <span style="font-size: 0.72rem; color: var(--adm-muted);">Usado na estimativa dos Correios (padrão 450 g).</span>
                     </div>
@@ -1449,7 +1449,7 @@
     {
         try
         {
-            var text = $"Olá! Confira as novidades e peças disponíveis no nosso catálogo oficial: {url}";
+            var text = $"Olá! Confira as novidades e produtos disponíveis no nosso catálogo oficial: {url}";
             var shareUrl = $"https://wa.me/?text={Uri.EscapeDataString(text)}";
             await Browser.Default.OpenAsync(new Uri(shareUrl), BrowserLaunchMode.External);
         }

@@ -21,7 +21,7 @@ else
                 Crie sua loja online em minutos e venda pelo WhatsApp e Pix
             </h1>
             <p class="ylk-portal-subtitle">
-                O <strong>YouLink</strong> é um aplicativo completo e gratuito para você baixar no computador (Windows) ou celular (Android), cadastrar suas roupas com estoque por cor e tamanho e publicar sua vitrine na internet em 1 clique — sem precisar programar nada.
+                O <strong>YouLink</strong> é um aplicativo completo e gratuito para você baixar no computador (Windows) ou celular (Android), cadastrar seus produtos com fotos, variações e controle de estoque e publicar sua vitrine na internet em 1 clique — sem precisar programar nada.
             </p>
 
             <div class="ylk-portal-cta-row">
@@ -50,7 +50,7 @@ else
                     <span class="ylk-portal-slug-prefix">/loja/</span>
                     <input type="text"
                            class="ylk-portal-slug-input"
-                           placeholder="ex: minha-boutique"
+                           placeholder="ex: minha-loja"
                            aria-label="Nome ou slug da loja"
                            @bind="_storeSlugInput" />
                 </div>
@@ -75,7 +75,7 @@ else
         <div class="ylk-portal-section-head">
             <span class="lux-hero-eyebrow">O que é o YouLink</span>
             <h2>Tudo que sua loja precisa em um só aplicativo</h2>
-            <p>Feito para lojistas de moda e varejo que querem controle real de estoque e uma loja bonita na internet sem mensalidades abusivas.</p>
+            <p>Feito para lojistas e empreendedores que querem controle real de estoque e uma loja bonita na internet sem mensalidades abusivas.</p>
         </div>
 
         <div class="ylk-portal-feature-grid">
@@ -88,7 +88,7 @@ else
             <article class="ylk-portal-card">
                 <span class="ylk-portal-icon">🎨</span>
                 <h3>Grade de Cores e Tamanhos</h3>
-                <p>Cadastre peças com variações de tamanho, cor, SKU, fotos e alerta automático quando o estoque estiver acabando.</p>
+                <p>Cadastre produtos com variações de cor, tamanho ou modelo, SKU, fotos e alerta automático quando o estoque estiver acabando.</p>
             </article>
 
             <article class="ylk-portal-card">
@@ -232,7 +232,7 @@ else
             <article class="ylk-portal-step-card">
                 <span class="ylk-portal-step-num">02</span>
                 <h3>Cadastre categorias e produtos</h3>
-                <p>Adicione fotos das peças, preço de venda, descrição e as quantidades reais por cor e tamanho para nunca vender o que acabou.</p>
+                <p>Adicione fotos dos produtos, preço de venda, descrição e as quantidades reais por variação para nunca vender o que acabou.</p>
             </article>
 
             <article class="ylk-portal-step-card">
@@ -321,7 +321,7 @@ else
         var normalized = Category.GenerateSlug(_storeSlugInput ?? string.Empty);
         if (string.IsNullOrWhiteSpace(normalized))
         {
-            _lookupHint = "Informe o nome curto da loja (por exemplo: minha-boutique).";
+            _lookupHint = "Informe o nome curto da loja (por exemplo: minha-loja).";
             return;
         }
 

@@ -470,7 +470,7 @@ public static class LocalWebServerLauncher
             _ => "hero"
         };
         var eyebrow = string.IsNullOrWhiteSpace(design.HeroEyebrow)
-            ? "Nova Coleção Disponível"
+            ? "Novidades Disponíveis"
             : H(design.HeroEyebrow);
         var headline = string.IsNullOrWhiteSpace(design.HeroHeadline)
             ? H(store.StoreName)
@@ -505,8 +505,8 @@ public static class LocalWebServerLauncher
         sb.AppendLine($"<p class=\"hero-desc\">{H(store.StoreDescription)}</p>");
 
         sb.AppendLine($"<form method=\"get\" action=\"{storeHomeUrl}\" class=\"filter-bar\">");
-        sb.AppendLine("<div><label>Buscar peça</label>");
-        sb.AppendLine($"<input type=\"text\" name=\"q\" value=\"{H(search)}\" placeholder=\"Ex.: Camiseta, Vestido...\"/></div>");
+        sb.AppendLine("<div><label>Buscar produto</label>");
+        sb.AppendLine($"<input type=\"text\" name=\"q\" value=\"{H(search)}\" placeholder=\"Ex.: Nome, marca ou modelo...\"/></div>");
 
         sb.AppendLine("<div><label>Categoria</label><select name=\"cat\" onchange=\"this.form.submit()\">");
         sb.AppendLine("<option value=\"\">Todas as categorias</option>");
@@ -517,8 +517,8 @@ public static class LocalWebServerLauncher
         }
         sb.AppendLine("</select></div>");
 
-        sb.AppendLine("<div><label>Tamanho</label><select name=\"size\" onchange=\"this.form.submit()\">");
-        sb.AppendLine("<option value=\"\">Todos</option>");
+        sb.AppendLine("<div><label>Tamanho / Opção</label><select name=\"size\" onchange=\"this.form.submit()\">");
+        sb.AppendLine("<option value=\"\">Todas</option>");
         foreach (var s in filters.Sizes)
         {
             var sel = string.Equals(s, size, StringComparison.OrdinalIgnoreCase) ? " selected" : "";
@@ -526,7 +526,7 @@ public static class LocalWebServerLauncher
         }
         sb.AppendLine("</select></div>");
 
-        sb.AppendLine("<div><label>Cor</label><select name=\"color\" onchange=\"this.form.submit()\">");
+        sb.AppendLine("<div><label>Cor / Modelo</label><select name=\"color\" onchange=\"this.form.submit()\">");
         sb.AppendLine("<option value=\"\">Todas</option>");
         foreach (var c in filters.Colors)
         {
@@ -547,7 +547,7 @@ public static class LocalWebServerLauncher
         {
             sb.AppendLine("<div style=\"display:flex;flex-wrap:wrap;gap:0.5rem;margin-bottom:1.15rem;\">");
             var allClass = string.IsNullOrWhiteSpace(categorySlug) ? "btn-dark" : "btn-outline";
-            sb.AppendLine($"<a href=\"{storeHomeUrl}\" class=\"{allClass}\">Todas as peças</a>");
+            sb.AppendLine($"<a href=\"{storeHomeUrl}\" class=\"{allClass}\">Todos os produtos</a>");
             foreach (var c in filters.Categories)
             {
                 var cClass = string.Equals(c.Slug, categorySlug, StringComparison.OrdinalIgnoreCase) ? "btn-dark" : "btn-outline";
@@ -558,10 +558,10 @@ public static class LocalWebServerLauncher
 
         // Products Grid
         sb.AppendLine("<main class=\"container main-section\">");
-        sb.AppendLine($"<h2 class=\"section-title\">Roupas Disponíveis ({products.Count})</h2>");
+        sb.AppendLine($"<h2 class=\"section-title\">Produtos Disponíveis ({products.Count})</h2>");
         if (products.Count == 0)
         {
-            sb.AppendLine("<div class=\"empty-box\">Nenhuma peça encontrada com os filtros selecionados.</div>");
+            sb.AppendLine("<div class=\"empty-box\">Nenhum produto encontrado com os filtros selecionados.</div>");
         }
         else
         {
@@ -583,7 +583,7 @@ public static class LocalWebServerLauncher
                 sb.AppendLine(!p.HasAvailableStock
                     ? "<span class=\"badge badge-out\">Esgotado</span>"
                     : p.TotalStockQuantity <= 3
-                        ? "<span class=\"badge badge-ok\">Últimas peças</span>"
+                        ? "<span class=\"badge badge-ok\">Últimas unidades</span>"
                         : "<span class=\"badge badge-green\">Disponível</span>");
                 sb.AppendLine("</a>");
 
@@ -591,7 +591,7 @@ public static class LocalWebServerLauncher
                 sb.AppendLine($"<div class=\"cat\">{H(p.CategoryName)}</div>");
                 sb.AppendLine($"<a href=\"{detailUrl}\" class=\"title\">{H(p.Name)}</a>");
                 sb.AppendLine($"<div class=\"price\">{p.BasePrice.ToString("C", ptBr)}</div>");
-                sb.AppendLine($"<a href=\"{detailUrl}\" class=\"btn-dark full\">Ver Fotos &amp; Escolher Tamanho</a>");
+                sb.AppendLine($"<a href=\"{detailUrl}\" class=\"btn-dark full\">Ver Fotos &amp; Opções</a>");
                 sb.AppendLine("</div></article>");
             }
             sb.AppendLine("</div>");
@@ -668,14 +668,14 @@ public static class LocalWebServerLauncher
             var colors = product.Variants.GroupBy(v => v.Color, StringComparer.OrdinalIgnoreCase).Select(g => g.Key).ToList();
             var sizes = product.Variants.Select(v => v.Size).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
 
-            sb.AppendLine("<div style=\"margin:1rem 0;\"><label>1. Selecione a Cor: <strong id=\"lblColor\">" + H(defaultColor) + "</strong></label><div class=\"chips\">");
+            sb.AppendLine("<div style=\"margin:1rem 0;\"><label>1. Selecione a Cor / Modelo: <strong id=\"lblColor\">" + H(defaultColor) + "</strong></label><div class=\"chips\">");
             foreach (var c in colors)
             {
                 sb.AppendLine($"<button type=\"button\" class=\"chip\" onclick=\"setColor('{HJs(c)}')\">{H(c)}</button>");
             }
             sb.AppendLine("</div></div>");
 
-            sb.AppendLine("<div style=\"margin:1rem 0;\"><label>2. Selecione o Tamanho: <strong id=\"lblSize\">" + H(defaultSize) + "</strong></label><div class=\"chips\">");
+            sb.AppendLine("<div style=\"margin:1rem 0;\"><label>2. Selecione o Tamanho / Opção: <strong id=\"lblSize\">" + H(defaultSize) + "</strong></label><div class=\"chips\">");
             foreach (var s in sizes)
             {
                 sb.AppendLine($"<button type=\"button\" class=\"chip\" onclick=\"setSize('{HJs(s)}')\">{H(s)}</button>");
@@ -764,7 +764,7 @@ public static class LocalWebServerLauncher
         sb.AppendLine("<div style=\"background: var(--brand-surface, #ffffff); color: var(--brand-text, #18181B); border: 1.5px solid var(--brand-border, #e2e8f0); border-radius: 16px; padding: 3rem 2rem; box-shadow: 0 10px 30px rgba(0,0,0,0.08);\">");
         sb.AppendLine("<div style=\"font-size: 3.5rem; margin-bottom: 1rem;\">🛍️</div>");
         sb.AppendLine("<h1 style=\"font-family: var(--brand-font-display, Georgia, serif); font-size: 1.85rem; font-weight: 700; color: var(--brand-text, #0f172a); margin-bottom: 0.75rem;\">Loja em Atualização</h1>");
-        sb.AppendLine($"<p style=\"font-size: 1.05rem; color: var(--brand-text-muted, #475569); line-height: 1.6; margin-bottom: 1.5rem;\">{H(store.DeactivationReason ?? "Estamos preparando novas peças para nossa vitrine!")}</p>");
+        sb.AppendLine($"<p style=\"font-size: 1.05rem; color: var(--brand-text-muted, #475569); line-height: 1.6; margin-bottom: 1.5rem;\">{H(store.DeactivationReason ?? "Estamos preparando novidades para nossa vitrine!")}</p>");
         if (!string.IsNullOrWhiteSpace(store.WhatsappNumber))
         {
             sb.AppendLine($"<a href=\"{H(generalWaUrl)}\" target=\"_blank\" rel=\"noopener\" class=\"btn-wa-top\" style=\"display: inline-block; padding: 0.85rem 1.75rem; font-size: 1rem;\">💬 Falar com a Loja no WhatsApp</a>");

@@ -6,7 +6,7 @@
     <div>
         <h1 style="font-size: 1.65rem; font-weight: 700; margin: 0;">Gerenciamento de Produtos</h1>
         <p style="color: var(--adm-muted); font-size: 0.92rem; margin: 0.25rem 0 0;">
-            Cadastre peças, edite informações, gerencie fotografias, variantes de cor/tamanho e controle a visibilidade no site público.
+            Cadastre produtos, edite informações, gerencie fotografias, variações de cor/tamanho/opção e controle a visibilidade no site público.
         </p>
     </div>
 
@@ -37,11 +37,11 @@
 @if (_showNewCategoryModal && Gateway.CanManageProducts)
 {
     <div class="adm-card" style="border-left: 4px solid var(--adm-primary);">
-        <h3 style="margin-top: 0; font-size: 1.05rem;">Cadastrar Nova Categoria de Roupas</h3>
+        <h3 style="margin-top: 0; font-size: 1.05rem;">Cadastrar Nova Categoria</h3>
         <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr)); gap: 1rem; align-items: end;">
             <div>
                 <label class="adm-label">Nome da Categoria *</label>
-                <input type="text" class="adm-input" @bind="_newCategory.Name" placeholder="Ex.: Moda Praia, Fitness..." />
+                <input type="text" class="adm-input" @bind="_newCategory.Name" placeholder="Ex.: Eletrônicos, Casa, Cosméticos, Moda..." />
             </div>
             <div>
                 <label class="adm-label">Descrição</label>
@@ -66,14 +66,14 @@
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.85rem; flex-wrap: wrap; gap: 0.5rem;">
             <h3 style="margin: 0; font-size: 1.08rem;">Editar Item: @_editProductForm.Name</h3>
             <a href="/produtos/@_editingProductId.Value" class="adm-btn adm-btn-outline" style="padding: 0.35rem 0.75rem; font-size: 0.82rem;">
-                Abrir Editor Completo (Fotos, Cores &amp; Tamanhos) &rarr;
+                Abrir Editor Completo (Fotos &amp; Variantes) &rarr;
             </a>
         </div>
 
         <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr)); gap: 1rem;">
             <div>
                 <label class="adm-label">Nome do Produto *</label>
-                <input type="text" class="adm-input" @bind="_editProductForm.Name" placeholder="Nome da peça" />
+                <input type="text" class="adm-input" @bind="_editProductForm.Name" placeholder="Nome do produto" />
             </div>
 
             <div>
@@ -101,8 +101,8 @@
             </div>
 
             <div style="grid-column: 1 / -1;">
-                <label class="adm-label">Descrição da Peça</label>
-                <textarea class="adm-textarea" rows="2" @bind="_editProductForm.Description" placeholder="Composição do tecido, modelagem e detalhes..."></textarea>
+                <label class="adm-label">Descrição do Produto</label>
+                <textarea class="adm-textarea" rows="2" @bind="_editProductForm.Description" placeholder="Características, medidas, especificações e detalhes..."></textarea>
             </div>
 
             <div style="grid-column: 1 / -1; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;">
@@ -132,7 +132,7 @@
         <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr)); gap: 1rem;">
             <div>
                 <label class="adm-label">Nome do Produto *</label>
-                <input type="text" class="adm-input" @bind="_newProduct.Name" placeholder="Ex.: Jaqueta Jeans Oversized" />
+                <input type="text" class="adm-input" @bind="_newProduct.Name" placeholder="Ex.: Fone Bluetooth, Kit Skincare, Mochila..." />
             </div>
 
             <div>
@@ -150,7 +150,7 @@
                            class="adm-input"
                            style="margin-top: 0.45rem;"
                            @bind="_newProduct.CategoryName"
-                           placeholder="Digite o nome da nova categoria (ex.: Vestidos)..." />
+                           placeholder="Digite o nome da nova categoria (ex.: Acessórios, Casa...)..." />
                 }
             </div>
 
@@ -160,13 +160,13 @@
             </div>
 
             <div>
-                <label class="adm-label">Cor Inicial (Opcional)</label>
-                <input type="text" class="adm-input" @bind="_newProduct.InitialColor" placeholder="Ex.: Preto, Branco, Azul" />
+                <label class="adm-label">Cor / Modelo Inicial (Opcional)</label>
+                <input type="text" class="adm-input" @bind="_newProduct.InitialColor" placeholder="Ex.: Preto, Branco, Padrão" />
             </div>
 
             <div>
-                <label class="adm-label">Tamanho Inicial (Opcional)</label>
-                <input type="text" class="adm-input" @bind="_newProduct.InitialSize" placeholder="Ex.: P, M, G, 38..." />
+                <label class="adm-label">Tamanho / Opção Inicial (Opcional)</label>
+                <input type="text" class="adm-input" @bind="_newProduct.InitialSize" placeholder="Ex.: Único, 100ml, P, M, G..." />
             </div>
 
             <div>
@@ -175,8 +175,8 @@
             </div>
 
             <div style="grid-column: 1 / -1;">
-                <label class="adm-label">Descrição da Peça</label>
-                <textarea class="adm-textarea" rows="2" @bind="_newProduct.Description" placeholder="Composição do tecido, modelagem e detalhes..."></textarea>
+                <label class="adm-label">Descrição do Produto</label>
+                <textarea class="adm-textarea" rows="2" @bind="_newProduct.Description" placeholder="Características, medidas, especificações e detalhes..."></textarea>
             </div>
 
             <div style="grid-column: 1 / -1; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;">
@@ -305,7 +305,7 @@ else if (_categories.Count > 0)
                         @prod.BasePrice.ToString("C", new System.Globalization.CultureInfo("pt-BR"))
                     </td>
                     <td data-label="Variantes">
-                        <span class="pill-badge pill-slate">@prod.Variants.Count cor/tam</span>
+                        <span class="pill-badge pill-slate">@prod.Variants.Count var.</span>
                     </td>
                     <td data-label="Estoque Total">
                         <div style="display: flex; align-items: center; gap: 0.35rem; flex-wrap: wrap;">

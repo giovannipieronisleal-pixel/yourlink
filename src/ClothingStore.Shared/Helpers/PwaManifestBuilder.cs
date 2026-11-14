@@ -22,7 +22,7 @@ public static class PwaManifestBuilder
         var shortName = BuildShortName(storeName);
 
         var description = string.IsNullOrWhiteSpace(settings?.StoreDescription)
-            ? "Catálogo online de roupas com pedido rápido pelo WhatsApp."
+            ? "Catálogo online de produtos com pedido rápido pelo WhatsApp."
             : settings.StoreDescription.Trim();
 
         var payload = new

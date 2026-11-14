@@ -102,14 +102,14 @@
                     <div class="mini-cards">
                         <div class="mini-card">
                             <div class="mini-img"></div>
-                            <span class="mini-cat">Alfaiataria</span>
-                            <strong class="mini-name">Blazer Seda Natural</strong>
+                            <span class="mini-cat">Eletrônicos</span>
+                            <strong class="mini-name">Fone Studio Pro</strong>
                             <span class="mini-price">R$ 590,00</span>
                         </div>
                         <div class="mini-card">
                             <div class="mini-img"></div>
-                            <span class="mini-cat">Vestidos</span>
-                            <strong class="mini-name">Midi Linho Alabastro</strong>
+                            <span class="mini-cat">Casa &amp; Decor</span>
+                            <strong class="mini-name">Luminária Minimal</strong>
                             <span class="mini-price">R$ 440,00</span>
                         </div>
                     </div>
@@ -178,19 +178,19 @@
                         <span class="mini-eyebrow">@StoreDesignPresets.ResolveByPresetKey(Design.PresetKey).PresetKey</span>
                         <div class="mini-headline">@StoreName</div>
                         <p class="mini-copy">@(string.IsNullOrWhiteSpace(StoreDescription) ? "Vitrine pré-pronta calibrada para seus clientes." : StoreDescription)</p>
-                        <span class="mini-cta">Explorar Coleção</span>
+                        <span class="mini-cta">Explorar Catálogo</span>
                     </div>
                     <div class="mini-cards">
                         <div class="mini-card">
                             <div class="mini-img"></div>
-                            <span class="mini-cat">Alfaiataria</span>
-                            <strong class="mini-name">Blazer Linho</strong>
+                            <span class="mini-cat">Eletrônicos</span>
+                            <strong class="mini-name">Fone Studio Pro</strong>
                             <span class="mini-price">R$ 590</span>
                         </div>
                         <div class="mini-card">
                             <div class="mini-img"></div>
-                            <span class="mini-cat">Vestidos</span>
-                            <strong class="mini-name">Vestido Seda</strong>
+                            <span class="mini-cat">Casa &amp; Decor</span>
+                            <strong class="mini-name">Luminária Minimal</strong>
                             <span class="mini-price">R$ 460</span>
                         </div>
                     </div>
@@ -330,9 +330,9 @@
                         <div>
                             <label class="adm-label" for="studio-radius">Formato de Cantos</label>
                             <select id="studio-radius" class="adm-select" value="@Design.CornerRadiusMode" @onchange="OnRadiusChanged">
-                                <option value="SHARP">Reto Editorial (Vogue)</option>
+                                <option value="SHARP">Reto Clássico (Galeria)</option>
                                 <option value="ROUND_FOUR">Suave Luxo (Equilibrado)</option>
-                                <option value="ROUND_TWELVE">Arredondado Atelier</option>
+                                <option value="ROUND_TWELVE">Arredondado Suave</option>
                             </select>
                         </div>
 
@@ -341,14 +341,14 @@
                             <select id="studio-density" class="adm-select" value="@Design.DensityMode" @onchange="OnDensityChanged">
                                 <option value="compact">Compacto (Mais itens)</option>
                                 <option value="balanced">Equilibrado</option>
-                                <option value="airy">Arejado (Editorial Galeria)</option>
+                                <option value="airy">Arejado (Vitrine Ampla)</option>
                             </select>
                         </div>
 
                         <div>
                             <label class="adm-label" for="studio-hero">Composição da Capa (Hero)</label>
                             <select id="studio-hero" class="adm-select" value="@Design.HeroLayout" @onchange="OnHeroLayoutChanged">
-                                <option value="split">Split Editorial (2 Colunas + Concierge)</option>
+                                <option value="split">Split Vitrine (2 Colunas + Guia)</option>
                                 <option value="centered">Minimal Center (Centralizado)</option>
                                 <option value="banner">Banner Imersivo (Contraste Escuro)</option>
                             </select>
@@ -358,24 +358,24 @@
                             <label class="adm-label" for="studio-cols">Colunas da Vitrine</label>
                             <select id="studio-cols" class="adm-select" value="@Design.GridColumns" @onchange="OnGridColsChanged">
                                 <option value="2">2 Colunas (Destaque Grande)</option>
-                                <option value="3">3 Colunas (Padrão Editorial)</option>
+                                <option value="3">3 Colunas (Padrão)</option>
                                 <option value="4">4 Colunas (Grade Ampla)</option>
                             </select>
                         </div>
                     </div>
                 </div>
 
-                <!-- 4. Narrativa Editorial -->
+                <!-- 4. Narrativa da Capa -->
                 <div class="studio-group">
-                    <div class="studio-group-label">4. Chamada Editorial da Capa</div>
+                    <div class="studio-group-label">4. Chamada e Textos da Capa</div>
                     <div class="studio-two-col">
                         <div>
-                            <label class="adm-label" for="studio-eyebrow">Selo / Coleção (Acima do Título)</label>
+                            <label class="adm-label" for="studio-eyebrow">Selo / Destaque (Acima do Título)</label>
                             <input id="studio-eyebrow"
                                    class="adm-input"
                                    value="@Design.HeroEyebrow"
                                    @oninput="OnEyebrowInput"
-                                   placeholder="Ex.: Coleção Inverno 2026" />
+                                   placeholder="Ex.: Novidades da Loja" />
                         </div>
 
                         <div>
@@ -390,7 +390,7 @@
 
                     <label class="studio-check">
                         <input type="checkbox" checked="@Design.ShowLookbookBadge" @onchange="OnShowBadgeChanged" />
-                        <span>Exibir selo de coleção acima do título na capa do site</span>
+                        <span>Exibir selo de destaque acima do título na capa do site</span>
                     </label>
                 </div>
 
@@ -425,7 +425,7 @@
                         @if (Design.ShowLookbookBadge)
                         {
                             <span class="mini-eyebrow">
-                                @(string.IsNullOrWhiteSpace(Design.HeroEyebrow) ? "Coleção Oficial" : Design.HeroEyebrow)
+                                @(string.IsNullOrWhiteSpace(Design.HeroEyebrow) ? "Catálogo Oficial" : Design.HeroEyebrow)
                             </span>
                         }
                         <div class="mini-headline">
@@ -434,28 +434,28 @@
                         <p class="mini-copy">
                             @(string.IsNullOrWhiteSpace(StoreDescription) ? "Curadoria exclusiva moldada exatamente ao estilo da sua marca." : StoreDescription)
                         </p>
-                        <span class="mini-cta">Explorar Coleção</span>
+                        <span class="mini-cta">Explorar Catálogo</span>
                     </div>
 
                     <div class="mini-cards" style="@($"grid-template-columns: repeat({Math.Clamp(Design.GridColumns, 2, 4)}, minmax(0, 1fr));")">
                         <div class="mini-card">
                             <div class="mini-img"></div>
-                            <span class="mini-cat">Alfaiataria</span>
-                            <strong class="mini-name">Blazer Linho</strong>
+                            <span class="mini-cat">Eletrônicos</span>
+                            <strong class="mini-name">Fone Studio Pro</strong>
                             <span class="mini-price">R$ 590</span>
                         </div>
                         <div class="mini-card">
                             <div class="mini-img"></div>
-                            <span class="mini-cat">Vestidos</span>
-                            <strong class="mini-name">Vestido Seda</strong>
+                            <span class="mini-cat">Casa &amp; Decor</span>
+                            <strong class="mini-name">Luminária Minimal</strong>
                             <span class="mini-price">R$ 460</span>
                         </div>
                         @if (Design.GridColumns >= 3)
                         {
                             <div class="mini-card">
                                 <div class="mini-img"></div>
-                                <span class="mini-cat">Tricot</span>
-                                <strong class="mini-name">Suéter Cashmere</strong>
+                                <span class="mini-cat">Beleza</span>
+                                <strong class="mini-name">Sérum Botânico</strong>
                                 <span class="mini-price">R$ 380</span>
                             </div>
                         }
@@ -463,8 +463,8 @@
                         {
                             <div class="mini-card">
                                 <div class="mini-img"></div>
-                                <span class="mini-cat">Camisas</span>
-                                <strong class="mini-name">Chemise Puro Linho</strong>
+                                <span class="mini-cat">Acessórios</span>
+                                <strong class="mini-name">Mochila Urbana</strong>
                                 <span class="mini-price">R$ 320</span>
                             </div>
                         }

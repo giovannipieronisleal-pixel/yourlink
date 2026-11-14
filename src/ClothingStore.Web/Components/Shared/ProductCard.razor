@@ -19,7 +19,7 @@
         }
         else if (Product.TotalStockQuantity <= 3)
         {
-            <span class="lux-stock-pill lux-stock-low">Últimas peças</span>
+            <span class="lux-stock-pill lux-stock-low">Últimas unidades</span>
         }
         else
         {
@@ -32,7 +32,7 @@
             <span class="lux-product-category">@Product.CategoryName</span>
             @if (Product.AvailableSizes.Count > 0)
             {
-                <span class="lux-product-sizes">Tam: @string.Join(" · ", Product.AvailableSizes.Take(4))</span>
+                <span class="lux-product-sizes">Opções: @string.Join(" · ", Product.AvailableSizes.Take(4))</span>
             }
         </div>
 
@@ -63,7 +63,7 @@
         </div>
 
         <a href="@DetailHref" class="lux-card-cta">
-            @(Product.HasAvailableStock ? "Ver Fotos & Escolher Tamanho →" : "Consultar Reposição →")
+            @(Product.HasAvailableStock ? "Ver Fotos & Opções →" : "Consultar Reposição →")
         </a>
     </div>
 </article>

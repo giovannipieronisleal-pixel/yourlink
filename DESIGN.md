@@ -41,9 +41,9 @@ This project serves **three public storefront plan tiers** selectable from `/pla
 
 ### Curated Premium Presets
 - **Minimalista Luxo** (`minimalista-luxo`): `#FAF8F5` / `#FFFFFF` / `#18181B` / `#B69158` (`Playfair Display` + `Plus Jakarta Sans`, `ROUND_FOUR`)
-- **Editorial Vogue** (`editorial-vogue`): `#F7F5F2` / `#FFFFFF` / `#0F0F10` / `#9A7B4F` (`Bodoni Moda` + `Inter`, square `SHARP`)
-- **Boutique Rosé** (`boutique-rose`): `#FDF8F6` / `#FFFFFF` / `#3D2329` / `#C4847A` (`Cormorant Garamond` + `DM Sans`, `ROUND_TWELVE`)
-- **Urban Sartorial** (`urban-sartorial`): `#F4F4F5` / `#FFFFFF` / `#09090B` / `#52525B` (`Space Grotesk` + `Inter`, `ROUND_FOUR`)
+- **Editorial Clássico** (`editorial-vogue`): `#F7F5F2` / `#FFFFFF` / `#0F0F10` / `#9A7B4F` (`Bodoni Moda` + `Inter`, square `SHARP`)
+- **Rosé Suave** (`boutique-rose`): `#FDF8F6` / `#FFFFFF` / `#3D2329` / `#C4847A` (`Cormorant Garamond` + `DM Sans`, `ROUND_TWELVE`)
+- **Urbano Clean** (`urban-sartorial`): `#F4F4F5` / `#FFFFFF` / `#09090B` / `#52525B` (`Space Grotesk` + `Inter`, `ROUND_FOUR`)
 - **Noir Noturno** (`noir-noturno`): `#0E0E10` / `#18181B` / `#E5C99B` / `#C8A267` (`Playfair Display` + `Plus Jakarta Sans`, dark luxury canvas)
 
 ---
@@ -73,9 +73,9 @@ This project serves **three public storefront plan tiers** selectable from `/pla
 Generated from `StoreDesignDto.CornerRadiusMode` (`--brand-radius-*`) and `StoreDesignDto.DensityMode`:
 
 - **Corner Radius Modes (`Roundness`)**:
-  - `SHARP` (`Reto Editorial`): `--brand-radius-card: 2px; --brand-radius-btn: 2px; --brand-radius-pill: 4px;`
+  - `SHARP` (`Reto Clássico`): `--brand-radius-card: 2px; --brand-radius-btn: 2px; --brand-radius-pill: 4px;`
   - `ROUND_FOUR` (`Suave Luxo` — default): `--brand-radius-card: 8px; --brand-radius-btn: 6px; --brand-radius-pill: 999px;`
-  - `ROUND_TWELVE` (`Arredondado Atelier`): `--brand-radius-card: 16px; --brand-radius-btn: 12px; --brand-radius-pill: 999px;`
+  - `ROUND_TWELVE` (`Arredondado Suave`): `--brand-radius-card: 16px; --brand-radius-btn: 12px; --brand-radius-pill: 999px;`
 - **Layout Density Modes**:
   - `compact`: tighter card padding (`0.95rem`) and grid gap (`1rem`)
   - `balanced` (default): balanced editorial spacing (`1.25rem` padding, `1.5rem` gap)

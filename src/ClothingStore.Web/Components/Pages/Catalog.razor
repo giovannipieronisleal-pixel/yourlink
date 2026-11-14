@@ -38,9 +38,9 @@ else
     <div class="lux-section-head">
         <div>
             <span class="lux-section-kicker">Escolha Fácil</span>
-            <h1 class="lux-section-title">@(_store?.StoreName ?? "Todas as Roupas")</h1>
+            <h1 class="lux-section-title">@(_store?.StoreName ?? "Todos os Produtos")</h1>
         </div>
-        <span class="lux-product-sizes" style="font-size: 0.9rem; font-weight: 600;">@_products.Count peça(s) encontrada(s)</span>
+        <span class="lux-product-sizes" style="font-size: 0.9rem; font-weight: 600;">@_products.Count produto(s) encontrado(s)</span>
     </div>
 
     @if (_filters.Categories.Count > 0)
@@ -67,10 +67,10 @@ else
     <div class="lux-catalog-layout">
         <aside class="lux-filter-panel" aria-label="Filtros do catálogo">
             <div class="lux-filter-group">
-                <label class="lux-filter-label" for="cat-search">Buscar peça</label>
+                <label class="lux-filter-label" for="cat-search">Buscar produto</label>
                 <input id="cat-search"
                        class="lux-input"
-                       placeholder="Ex.: Linho, Blazer, Vestido..."
+                       placeholder="Ex.: Nome, modelo, categoria..."
                        @bind="_search"
                        @bind:event="oninput"
                        @bind:after="ApplyFiltersAsync" />
@@ -88,9 +88,9 @@ else
             </div>
 
             <div class="lux-filter-group">
-                <label class="lux-filter-label" for="cat-color">Cor</label>
+                <label class="lux-filter-label" for="cat-color">Cor / Modelo</label>
                 <select id="cat-color" class="lux-select" @bind="_selectedColor" @bind:after="ApplyFiltersAsync">
-                    <option value="">Todas as cores</option>
+                    <option value="">Todas</option>
                     @foreach (var col in _filters.Colors)
                     {
                         <option value="@col.Color">@col.Color</option>
@@ -99,9 +99,9 @@ else
             </div>
 
             <div class="lux-filter-group">
-                <label class="lux-filter-label" for="cat-size">Tamanho</label>
+                <label class="lux-filter-label" for="cat-size">Tamanho / Opção</label>
                 <select id="cat-size" class="lux-select" @bind="_selectedSize" @bind:after="ApplyFiltersAsync">
-                    <option value="">Todos os tamanhos</option>
+                    <option value="">Todas as opções</option>
                     @foreach (var sz in _filters.Sizes)
                     {
                         <option value="@sz">@sz</option>
@@ -112,7 +112,7 @@ else
             <div class="lux-filter-group">
                 <label class="lux-check-row">
                     <input type="checkbox" @bind="_onlyInStock" @bind:after="ApplyFiltersAsync" />
-                    <span>Mostrar só peças disponíveis agora</span>
+                    <span>Mostrar só produtos disponíveis agora</span>
                 </label>
             </div>
 
@@ -127,14 +127,14 @@ else
             @if (_loading)
             {
                 <div class="lux-empty-card">
-                    <p>Atualizando seleção de peças...</p>
+                    <p>Atualizando seleção de produtos...</p>
                 </div>
             }
             else if (_products.Count == 0)
             {
                 <div class="lux-empty-card">
-                    <h3>Nenhuma peça encontrada</h3>
-                    <p class="lux-hero-subtitle">Ajuste os filtros ao lado para visualizar outras peças da coleção.</p>
+                    <h3>Nenhum produto encontrado</h3>
+                    <p class="lux-hero-subtitle">Ajuste os filtros ao lado para visualizar outros itens da loja.</p>
                     <button type="button" class="lux-btn lux-btn-outline" @onclick="ClearFiltersAsync">
                         Restaurar Catálogo
                     </button>

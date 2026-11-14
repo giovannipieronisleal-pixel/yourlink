@@ -194,11 +194,11 @@
                             @foreach (var alert in _summary.StockAlerts)
                             {
                                 <tr>
-                                    <td data-label="Peça">
+                                    <td data-label="Produto">
                                         <div>
                                             <div style="font-weight: 700;">@alert.ProductName</div>
                                             <div style="font-size: 0.82rem; color: var(--adm-muted);">
-                                                Cor: @alert.Color &bull; Tam: <strong>@alert.Size</strong>
+                                                @alert.Color &bull; Opção: <strong>@alert.Size</strong>
                                             </div>
                                         </div>
                                     </td>

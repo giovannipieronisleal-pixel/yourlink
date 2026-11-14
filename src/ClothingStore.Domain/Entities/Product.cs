@@ -3,7 +3,7 @@ using ClothingStore.Domain.Exceptions;
 namespace ClothingStore.Domain.Entities;
 
 /// <summary>
-/// Representa um produto do catálogo de roupas, com suas fotografias e variantes de Cor/Tamanho.
+/// Representa um produto do catálogo da loja, com suas fotografias e variações (Cor/Modelo e Tamanho/Opção).
 /// </summary>
 public sealed class Product
 {

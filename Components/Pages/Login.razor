@@ -412,7 +412,7 @@
                            @bind="_initStoreName"
                            @bind:event="oninput"
                            @bind:after="SyncInitStoreDomain"
-                           placeholder="Ex.: Minha Loja de Roupas" />
+                           placeholder="Ex.: Minha Loja" />
                 </div>
 
                 <div>
@@ -420,7 +420,7 @@
                     <textarea class="adm-textarea"
                               rows="3"
                               @bind="_initStoreBio"
-                              placeholder="Ex.: Moda feminina com elegância, peças exclusivas e entrega para todo o Brasil."></textarea>
+                              placeholder="Ex.: Produtos selecionados com qualidade, variedade e entrega para todo o Brasil."></textarea>
                 </div>
 
                 <div>
@@ -554,7 +554,7 @@
     // Pop-up Inicial da Loja (Onboarding)
     private bool _showInitialSetupModal;
     private string _initStoreName = string.Empty;
-    private string _initStoreBio = "Catálogo oficial com novidades e tendências de moda.";
+    private string _initStoreBio = "Catálogo oficial com nossos produtos e novidades.";
     private string _initStoreWhatsapp = string.Empty;
     private string _initStoreDomain = string.Empty;
     private bool _isCheckingDomain;
@@ -734,7 +734,7 @@
 
             // Garante que o assistente da nova loja comece 100% em branco, sem herdar dados de outra conta.
             _initStoreName = string.Empty;
-            _initStoreBio = "Catálogo oficial com novidades e tendências de moda.";
+            _initStoreBio = "Catálogo oficial com nossos produtos e novidades.";
             _initStoreWhatsapp = string.Empty;
             _initStoreDomain = string.Empty;
             _domainCheckResult = null;

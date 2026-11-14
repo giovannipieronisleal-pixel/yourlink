@@ -5,7 +5,7 @@ using ClothingStore.Shared.DTOs;
 namespace ClothingStore.Application.Services;
 
 /// <summary>
-/// Serviço público de consulta ao catálogo de roupas e configurações dinâmicas da loja.
+/// Serviço público de consulta ao catálogo de produtos e configurações dinâmicas da loja.
 /// </summary>
 public sealed class CatalogService
 {

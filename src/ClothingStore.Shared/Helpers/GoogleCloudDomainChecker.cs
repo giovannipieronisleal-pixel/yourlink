@@ -171,7 +171,7 @@ public static class GoogleCloudDomainChecker
         [
             $"lojas.{cleanBase}oficial.com",
             $"lojas.use{cleanBase}.com",
-            $"lojas.{cleanBase}moda.com",
+            $"lojas.{cleanBase}store.com",
             $"lojas.{cleanBase}digital.com"
         ];
     }

@@ -186,7 +186,7 @@ public sealed class OrderAndShippingService
             throw new DomainException("O produto selecionado não está mais disponível para venda no catálogo.");
 
         var variant = product.Variants.FirstOrDefault(v => v.Id == request.ProductVariantId && v.IsActive)
-            ?? throw new DomainException("A cor/tamanho selecionada não está disponível.");
+            ?? throw new DomainException("A variação selecionada não está disponível.");
 
         var isExpressMobileWithoutCep = request.ExpressMobileMode && string.IsNullOrWhiteSpace(request.Cep);
 
@@ -719,7 +719,7 @@ public sealed class OrderAndShippingService
             ?? throw new DomainException("Produto selecionado não encontrado.");
 
         var variant = product.Variants.FirstOrDefault(v => v.Id == request.ProductVariantId)
-            ?? throw new DomainException("Variante (cor/tamanho) selecionada não encontrada.");
+            ?? throw new DomainException("Variante selecionada não encontrada.");
 
         var existingOrders = await _repository.GetOrdersAsync(ct);
         var orderNumber = $"VND-{(existingOrders.Count + 1):0000}";

@@ -90,7 +90,7 @@
     };
     var previewEyebrow = !string.IsNullOrWhiteSpace(activeDesign.HeroEyebrow)
         ? activeDesign.HeroEyebrow
-        : "Nova Coleção Disponível";
+        : "Novidades Disponíveis";
     var previewHeadline = !string.IsNullOrWhiteSpace(activeDesign.HeroHeadline)
         ? activeDesign.HeroHeadline
         : _store.StoreName;
@@ -111,7 +111,7 @@
             <button type="button"
                     style="background:none;border:none;font-weight:600;font-size:0.92rem;cursor:pointer;color:var(--brand-text);"
                     @onclick="GoToCatalogHome">
-                Início &amp; Roupas
+                Início &amp; Produtos
             </button>
             <button type="button"
                     class="adm-btn adm-btn-success"
@@ -130,7 +130,7 @@
                 @_store.StoreName está em atualização
             </h1>
             <p style="color: var(--brand-text-muted); font-size: 0.98rem; line-height: 1.6; margin-bottom: 1.5rem;">
-                @(_store.DeactivationReason ?? "Estamos preparando novas peças para você! Fale com nossa equipe no WhatsApp.")
+                @(_store.DeactivationReason ?? "Estamos preparando novidades para você! Fale com nossa equipe no WhatsApp.")
             </p>
             @if (!string.IsNullOrWhiteSpace(_store.WhatsappNumber))
             {
@@ -168,7 +168,7 @@
                     <label class="adm-label">Pesquisar produto</label>
                     <input type="text"
                            class="adm-input"
-                           placeholder="Ex.: Camiseta, Linho, Vestido..."
+                           placeholder="Ex.: Produto, marca, modelo..."
                            @bind="_search"
                            @bind:event="oninput"
                            @bind:after="ApplyFiltersAsync" />
@@ -186,9 +186,9 @@
                 </div>
 
                 <div>
-                    <label class="adm-label">Tamanho</label>
+                    <label class="adm-label">Tamanho / Opção</label>
                     <select class="adm-select" @bind="_selectedSize" @bind:after="ApplyFiltersAsync">
-                        <option value="">Todos os tamanhos</option>
+                        <option value="">Todas as opções</option>
                         @foreach (var size in _filters.Sizes)
                         {
                             <option value="@size">@size</option>
@@ -197,9 +197,9 @@
                 </div>
 
                 <div>
-                    <label class="adm-label">Cor</label>
+                    <label class="adm-label">Cor / Modelo</label>
                     <select class="adm-select" @bind="_selectedColor" @bind:after="ApplyFiltersAsync">
-                        <option value="">Todas as cores</option>
+                        <option value="">Todas</option>
                         @foreach (var color in _filters.Colors)
                         {
                             <option value="@color.Color">@color.Color</option>
@@ -225,7 +225,7 @@
                     <button type="button"
                             class="adm-chip-filter @(string.IsNullOrWhiteSpace(_selectedCategorySlug) ? "active" : "")"
                             @onclick="() => QuickFilterCategoryAsync(null)">
-                        Todas as peças
+                        Todos os produtos
                     </button>
                     @foreach (var cat in _filters.Categories)
                     {
@@ -240,7 +240,7 @@
             }
 
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.25rem; flex-wrap: wrap; gap: 0.5rem;">
-                <h2 style="font-size: 1.3rem; font-weight: 700; margin: 0; font-family: var(--brand-font-display);">Roupas Disponíveis (@_products.Count)</h2>
+                <h2 style="font-size: 1.3rem; font-weight: 700; margin: 0; font-family: var(--brand-font-display);">Produtos Disponíveis (@_products.Count)</h2>
             </div>
 
             <div class="lux-preview-grid">
@@ -267,7 +267,7 @@
                             else if (prod.TotalStockQuantity <= 3)
                             {
                                 <span style="position: absolute; top: 0.65rem; left: 0.65rem; background: rgba(182,145,88,0.94); color: #FFFFFF; font-size: 0.7rem; font-weight: 700; padding: 0.22rem 0.6rem; border-radius: 999px;">
-                                    Últimas peças
+                                    Últimas unidades
                                 </span>
                             }
                             else
@@ -308,7 +308,7 @@
                                     class="adm-btn adm-btn-primary"
                                     style="width: 100%; margin-top: 0.65rem;"
                                     @onclick="() => OpenProductDetail(prod.Slug)">
-                                Ver Fotos &amp; Escolher Tamanho
+                                Ver Fotos &amp; Opções
                             </button>
                         </div>
                     </article>
@@ -369,7 +369,7 @@
                     {
                         <!-- 1. Cor -->
                         <div style="margin-bottom: 1.25rem;">
-                            <label class="adm-label">1. Selecione a Cor: <strong>@_detailColor</strong></label>
+                            <label class="adm-label">1. Selecione a Cor / Modelo: <strong>@_detailColor</strong></label>
                             <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
                                 @foreach (var c in _selectedProduct.Variants.GroupBy(v => v.Color, StringComparer.OrdinalIgnoreCase))
                                 {
@@ -386,7 +386,7 @@
 
                         <!-- 2. Tamanho -->
                         <div style="margin-bottom: 1.35rem;">
-                            <label class="adm-label">2. Selecione o Tamanho: <strong>@_detailSize</strong></label>
+                            <label class="adm-label">2. Selecione o Tamanho / Opção: <strong>@_detailSize</strong></label>
                             <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
                                 @foreach (var v in _selectedProduct.Variants.Where(v => string.Equals(v.Color, _detailColor, StringComparison.OrdinalIgnoreCase)))
                                 {
@@ -432,7 +432,7 @@
                                 @if (selectedVariant is null || selectedVariant.StockQuantity <= 0)
                                 {
                                     <div style="font-size: 0.84rem; color: var(--adm-danger); font-weight: 700;">
-                                        Escolha uma cor e tamanho com estoque disponível para comprar via Pix.
+                                        Escolha uma opção com estoque disponível para comprar via Pix.
                                     </div>
                                 }
                                 else
@@ -581,7 +581,7 @@
                                         class="adm-btn adm-btn-outline"
                                         style="width: 100%; padding: 0.7rem;"
                                         @onclick="ConsultProductOnWhatsAppAsync">
-                                    💬 Tirar dúvida desta peça no WhatsApp (Opcional)
+                                    💬 Tirar dúvida deste produto no WhatsApp (Opcional)
                                 </button>
                                 <div style="background: var(--brand-surface-subtle); border: 1px solid var(--brand-border); border-radius: 8px; padding: 0.75rem; font-size: 0.8rem; color: var(--brand-text);">
                                     <div style="color: var(--brand-text-muted);">

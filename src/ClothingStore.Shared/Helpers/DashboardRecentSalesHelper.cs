@@ -64,7 +64,7 @@ public static partial class DashboardRecentSalesHelper
                 }
 
                 var qty = Math.Max(1, Math.Abs(mov.QuantityChanged));
-                var productName = string.IsNullOrWhiteSpace(mov.ProductName) ? "Peça" : mov.ProductName.Trim();
+                var productName = string.IsNullOrWhiteSpace(mov.ProductName) ? "Produto" : mov.ProductName.Trim();
                 var whatSold = $"{qty}x {productName}";
                 var who = ResolveMovementWho(mov);
 
@@ -88,7 +88,7 @@ public static partial class DashboardRecentSalesHelper
 
         var first = order.Items[0];
         var qty = Math.Max(1, first.Quantity);
-        var productName = string.IsNullOrWhiteSpace(first.ProductName) ? "Peça" : first.ProductName.Trim();
+        var productName = string.IsNullOrWhiteSpace(first.ProductName) ? "Produto" : first.ProductName.Trim();
 
         return order.Items.Count == 1
             ? $"{qty}x {productName}"
