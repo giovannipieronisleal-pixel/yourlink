@@ -40,6 +40,60 @@ public static class PlanCheckoutGuardHelper
         _ => "Plano Básico"
     };
 
+    public static bool IsPlanExpired(DateTimeOffset? planExpiresAt, DateTimeOffset? now = null) =>
+        planExpiresAt.HasValue && (now ?? DateTimeOffset.UtcNow) >= planExpiresAt.Value;
+
+    public static bool HasActivePaidOrActivatedPlan(
+        string? planTier,
+        DateTimeOffset? planActivatedAt,
+        DateTimeOffset? planExpiresAt,
+        string? activeGiftCardCode,
+        DateTimeOffset? now = null)
+    {
+        if (IsPlanExpired(planExpiresAt, now))
+        {
+            return false;
+        }
+
+        return GetTierRank(planTier) > 1 ||
+               planActivatedAt.HasValue ||
+               planExpiresAt.HasValue ||
+               !string.IsNullOrWhiteSpace(activeGiftCardCode);
+    }
+
+    public static bool HasActivePaidOrActivatedPlan(
+        AdminStoreSettingsDto? settings,
+        DateTimeOffset? now = null) =>
+        settings is not null &&
+        HasActivePaidOrActivatedPlan(
+            settings.PlanTier,
+            settings.PlanActivatedAt,
+            settings.PlanExpiresAt,
+            settings.ActiveGiftCardCode,
+            now);
+
+    public static string? ResolveActivePlanTier(
+        string? planTier,
+        DateTimeOffset? planActivatedAt,
+        DateTimeOffset? planExpiresAt,
+        string? activeGiftCardCode,
+        DateTimeOffset? now = null) =>
+        HasActivePaidOrActivatedPlan(planTier, planActivatedAt, planExpiresAt, activeGiftCardCode, now)
+            ? NormalizeTier(planTier)
+            : null;
+
+    public static string? ResolveActivePlanTier(
+        AdminStoreSettingsDto? settings,
+        DateTimeOffset? now = null) =>
+        settings is null
+            ? null
+            : ResolveActivePlanTier(
+                settings.PlanTier,
+                settings.PlanActivatedAt,
+                settings.PlanExpiresAt,
+                settings.ActiveGiftCardCode,
+                now);
+
     public static ExistingPlanPromptState EvaluatePurchasePrompt(
         AdminStoreSettingsDto? settings,
         string? selectedTier,
@@ -69,19 +123,7 @@ public static class PlanCheckoutGuardHelper
             return new(false, currentTier, currentTitle, targetTitle, false, false, false, settings.PlanExpiresAt, string.Empty, string.Empty, string.Empty);
         }
 
-        var isExpired = settings.PlanExpiresAt.HasValue && currentTime >= settings.PlanExpiresAt.Value;
-        if (isExpired)
-        {
-            return new(false, currentTier, currentTitle, targetTitle, false, false, false, settings.PlanExpiresAt, string.Empty, string.Empty, string.Empty);
-        }
-
-        var hasPaidOrActivatedPlan =
-            currentRank > 1 ||
-            settings.PlanActivatedAt.HasValue ||
-            settings.PlanExpiresAt.HasValue ||
-            !string.IsNullOrWhiteSpace(settings.ActiveGiftCardCode);
-
-        if (!hasPaidOrActivatedPlan)
+        if (!HasActivePaidOrActivatedPlan(settings, currentTime))
         {
             return new(false, currentTier, currentTitle, targetTitle, false, false, false, settings.PlanExpiresAt, string.Empty, string.Empty, string.Empty);
         }

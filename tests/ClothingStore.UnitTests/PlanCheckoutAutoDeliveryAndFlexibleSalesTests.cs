@@ -816,4 +816,86 @@ public class PlanCheckoutAutoDeliveryAndFlexibleSalesTests
         Assert.IsTrue(gatewaySource.Contains("IsEndpointUnavailableOnHubError", StringComparison.Ordinal));
         Assert.IsTrue(gatewaySource.Contains("GetPlatformPlanCatalogAsync", StringComparison.Ordinal));
     }
+
+    [TestMethod]
+    public void PlanCheckoutGuardHelper_ShouldReturnNoActivePlan_ForUnactivatedBasicOrExpiredPlans_AndResolveTierWhenActive()
+    {
+        var now = new DateTimeOffset(2026, 11, 15, 3, 0, 0, TimeSpan.Zero);
+
+        var unactivatedBasic = new AdminStoreSettingsDto(
+            Guid.NewGuid(),
+            "Conta Recem Criada",
+            "conta-recem-criada",
+            "5511999999999",
+            "Desc",
+            null,
+            null,
+            3,
+            now,
+            PlanTier: StoreSettings.PlanTierBasic,
+            PlanActivatedAt: null,
+            PlanExpiresAt: null,
+            ActiveGiftCardCode: null);
+
+        Assert.IsFalse(PlanCheckoutGuardHelper.HasActivePaidOrActivatedPlan(unactivatedBasic, now));
+        Assert.IsNull(PlanCheckoutGuardHelper.ResolveActivePlanTier(unactivatedBasic, now));
+        Assert.IsFalse(PlanCheckoutGuardHelper.EvaluatePurchasePrompt(unactivatedBasic, StoreDesignPresets.PlanBasic, "Conta Recem Criada", now).ShouldPrompt);
+
+        var expiredIntermediate = unactivatedBasic with
+        {
+            PlanTier = StoreSettings.PlanTierIntermediate,
+            PlanActivatedAt = now.AddDays(-35),
+            PlanExpiresAt = now.AddDays(-5),
+            ActiveGiftCardCode = "YLK-INTR-EXP1"
+        };
+        Assert.IsTrue(PlanCheckoutGuardHelper.IsPlanExpired(expiredIntermediate.PlanExpiresAt, now));
+        Assert.IsFalse(PlanCheckoutGuardHelper.HasActivePaidOrActivatedPlan(expiredIntermediate, now));
+        Assert.IsNull(PlanCheckoutGuardHelper.ResolveActivePlanTier(expiredIntermediate, now));
+
+        var activatedBasic = unactivatedBasic with
+        {
+            PlanActivatedAt = now.AddDays(-1),
+            PlanExpiresAt = now.AddDays(29)
+        };
+        Assert.IsTrue(PlanCheckoutGuardHelper.HasActivePaidOrActivatedPlan(activatedBasic, now));
+        Assert.AreEqual(StoreDesignPresets.PlanBasic, PlanCheckoutGuardHelper.ResolveActivePlanTier(activatedBasic, now));
+
+        var activatedGiftBasic = unactivatedBasic with
+        {
+            ActiveGiftCardCode = "YLK-BASC-VITAL"
+        };
+        Assert.AreEqual(StoreDesignPresets.PlanBasic, PlanCheckoutGuardHelper.ResolveActivePlanTier(activatedGiftBasic, now));
+
+        var activePremium = unactivatedBasic with
+        {
+            PlanTier = StoreSettings.PlanTierPremium,
+            PlanActivatedAt = now.AddDays(-2),
+            PlanExpiresAt = null
+        };
+        Assert.AreEqual(StoreDesignPresets.PlanPremium, PlanCheckoutGuardHelper.ResolveActivePlanTier(activePremium, now));
+    }
+
+    [TestMethod]
+    public void PlansAndSettingsUi_MustNeverShowRenewOrCurrentPlan_WhenStoreHasNoActivePlan()
+    {
+        var root = FindRepoRoot();
+        var plansMarkup = File.ReadAllText(Path.Combine(root, "Components", "Pages", "PlansPage.razor"), Encoding.UTF8);
+        var studioMarkup = File.ReadAllText(Path.Combine(root, "Components", "Pages", "DesignStudioPanel.razor"), Encoding.UTF8);
+        var settingsMarkup = File.ReadAllText(Path.Combine(root, "Components", "Pages", "StoreSettingsPage.razor"), Encoding.UTF8);
+        var layoutMarkup = File.ReadAllText(Path.Combine(root, "Components", "Layout", "MainLayout.razor"), Encoding.UTF8);
+
+        Assert.IsTrue(plansMarkup.Contains("HasActiveBasicPlan", StringComparison.Ordinal));
+        Assert.IsTrue(plansMarkup.Contains("Contratar Plano Básico →", StringComparison.Ordinal));
+        Assert.IsTrue(plansMarkup.Contains("Sem Plano Ativo", StringComparison.Ordinal));
+        Assert.IsTrue(plansMarkup.Contains("Nenhum plano contratado", StringComparison.Ordinal));
+        Assert.IsFalse(plansMarkup.Contains("!BrandState.IsIntermediatePlan && !BrandState.IsPremiumPlan ? \"Renovar Plano Básico", StringComparison.Ordinal));
+
+        Assert.IsTrue(studioMarkup.Contains("HasActiveBasicPlan", StringComparison.Ordinal));
+        Assert.IsTrue(studioMarkup.Contains("Contratar Básico →", StringComparison.Ordinal));
+        Assert.IsFalse(studioMarkup.Contains("<span class=\"studio-tier-badge\">Seu Plano Atual &bull; Básico</span>", StringComparison.Ordinal));
+
+        Assert.IsTrue(settingsMarkup.Contains("PlanActivatedAt=\"@_planActivatedAt\"", StringComparison.Ordinal));
+        Assert.IsTrue(settingsMarkup.Contains("Nenhum plano contratado", StringComparison.Ordinal));
+        Assert.IsTrue(layoutMarkup.Contains("Sem Plano Ativo", StringComparison.Ordinal));
+    }
 }

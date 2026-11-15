@@ -59,13 +59,13 @@ else
         <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;">
             <div style="display: flex; flex-direction: column; gap: 0.35rem;">
                 <div style="display: flex; align-items: center; gap: 0.55rem; flex-wrap: wrap;">
-                    <span class="pill-badge @(BrandState.IsPremiumPlan ? "pill-gold" : BrandState.IsIntermediatePlan ? "pill-green" : "pill-slate")">
+                    <span class="pill-badge @(HasActivePremiumPlan ? "pill-gold" : HasActiveIntermediatePlan ? "pill-green" : "pill-slate")">
                         @GetPlanBadgeLabel()
                     </span>
                     <span class="pill-badge @(_settings.IsSiteActive ? "pill-green" : "pill-red")">
                         @(_settings.IsSiteActive ? "🟢 Site Visível para o Público" : "🔴 Site Pausado / Oculto")
                     </span>
-                    @if (string.Equals(_settings.ActivePlanBillingKind, ClothingStore.Domain.Entities.PlanActivationCode.BillingKindGiftedUnpaid, StringComparison.OrdinalIgnoreCase))
+                    @if (HasAnyActivePlan && string.Equals(_settings.ActivePlanBillingKind, ClothingStore.Domain.Entities.PlanActivationCode.BillingKindGiftedUnpaid, StringComparison.OrdinalIgnoreCase))
                     {
                         <span class="pill-badge pill-gold">☁️ Cortesia (Sem Pagamento) · Servidor na Conta do Admin</span>
                     }
@@ -73,7 +73,7 @@ else
                 <p style="margin: 0; font-size: 0.9rem; color: var(--adm-muted);">
                     @GetPlanSummaryText()
                 </p>
-                @if (string.Equals(_settings.ActivePlanBillingKind, ClothingStore.Domain.Entities.PlanActivationCode.BillingKindGiftedUnpaid, StringComparison.OrdinalIgnoreCase))
+                @if (HasAnyActivePlan && string.Equals(_settings.ActivePlanBillingKind, ClothingStore.Domain.Entities.PlanActivationCode.BillingKindGiftedUnpaid, StringComparison.OrdinalIgnoreCase))
                 {
                     <div style="margin-top: 0.55rem; padding: 0.7rem 0.85rem; border-radius: 10px; background: var(--adm-surface-subtle); border: 1px dashed var(--adm-accent); font-size: 0.84rem; line-height: 1.45;">
                         <strong>☁️ Servidor Hospedado na Conta YouLink:</strong> Como você recebeu este plano sem pagamento, seu catálogo fica hospedado automaticamente no servidor do administrador. Escolha abaixo se quer <strong>usar um domínio grátis</strong> ou <strong>comprar seu domínio próprio</strong>!
@@ -92,13 +92,26 @@ else
             <div style="text-align: right; font-size: 0.84rem; color: var(--adm-muted);">
                 @if (_settings.PlanExpiresAt.HasValue)
                 {
-                    <div>
-                        Validade: <strong style="color: var(--adm-text);">@_settings.PlanExpiresAt.Value.ToLocalTime().ToString("dd/MM/yyyy HH:mm")</strong>
-                    </div>
+                    if (IsCurrentPlanExpired)
+                    {
+                        <div>
+                            Status: <strong style="color: var(--adm-danger);">Expirado em @_settings.PlanExpiresAt.Value.ToLocalTime().ToString("dd/MM/yyyy HH:mm")</strong>
+                        </div>
+                    }
+                    else
+                    {
+                        <div>
+                            Validade: <strong style="color: var(--adm-text);">@_settings.PlanExpiresAt.Value.ToLocalTime().ToString("dd/MM/yyyy HH:mm")</strong>
+                        </div>
+                    }
+                }
+                else if (HasAnyActivePlan)
+                {
+                    <div>Validade: <strong style="color: var(--adm-text);">Sem expiração</strong></div>
                 }
                 else
                 {
-                    <div>Validade: <strong style="color: var(--adm-text);">Sem expiração</strong></div>
+                    <div>Status: <strong style="color: var(--adm-text);">Nenhum plano contratado</strong></div>
                 }
 
                 @if (!string.IsNullOrWhiteSpace(_settings.ActiveGiftCardCode))
@@ -220,13 +233,13 @@ else
     <!-- Comparativo dos 3 Planos (clique em qualquer card para contratar/vender o plano) -->
     <section class="plans-grid" style="margin-bottom: 1.4rem;">
         <!-- Básico -->
-        <article class="plan-card plan-card-clickable @(!BrandState.IsIntermediatePlan && !BrandState.IsPremiumPlan ? "plan-active" : string.Empty)"
+        <article class="plan-card plan-card-clickable @(HasActiveBasicPlan ? "plan-active" : string.Empty)"
                  role="button"
                  tabindex="0"
                  @onclick='() => GoToPlanCheckout(StoreDesignPresets.PlanBasic)'>
             <div style="display: flex; justify-content: space-between; align-items: center; gap: 0.5rem;">
                 <span class="pill-badge pill-slate">Básico</span>
-                @if (!BrandState.IsIntermediatePlan && !BrandState.IsPremiumPlan)
+                @if (HasActiveBasicPlan)
                 {
                     <span class="pill-badge pill-green">Plano Atual</span>
                 }
@@ -251,21 +264,21 @@ else
                 <li>QR Code e botão direto de compra no WhatsApp</li>
             </ul>
             <a href="@GetCheckoutUrl(StoreDesignPresets.PlanBasic)"
-               class="adm-btn @(!BrandState.IsIntermediatePlan && !BrandState.IsPremiumPlan ? "adm-btn-outline" : "adm-btn-primary")"
+               class="adm-btn @(HasActiveBasicPlan ? "adm-btn-outline" : "adm-btn-primary")"
                style="margin-top: 0.35rem; text-align: center;"
                @onclick:stopPropagation="true">
-                @(!BrandState.IsIntermediatePlan && !BrandState.IsPremiumPlan ? "Renovar Plano Básico →" : "Contratar Plano Básico →")
+                @(HasActiveBasicPlan ? "Renovar Plano Básico →" : "Contratar Plano Básico →")
             </a>
         </article>
 
         <!-- Intermediário (Meia Versão) -->
-        <article class="plan-card plan-card-clickable plan-popular @(BrandState.IsIntermediatePlan ? "plan-active" : string.Empty)"
+        <article class="plan-card plan-card-clickable plan-popular @(HasActiveIntermediatePlan ? "plan-active" : string.Empty)"
                  role="button"
                  tabindex="0"
                  @onclick='() => GoToPlanCheckout(StoreDesignPresets.PlanIntermediate)'>
             <div style="display: flex; justify-content: space-between; align-items: center; gap: 0.5rem;">
                 <span class="pill-badge pill-green">Meia Versão</span>
-                @if (BrandState.IsIntermediatePlan)
+                @if (HasActiveIntermediatePlan)
                 {
                     <span class="pill-badge pill-gold">Plano Atual</span>
                 }
@@ -296,21 +309,21 @@ else
                 <li>Ideal para destacar a identidade da sua marca sem complexidade</li>
             </ul>
             <a href="@GetCheckoutUrl(StoreDesignPresets.PlanIntermediate)"
-               class="adm-btn @(BrandState.IsIntermediatePlan ? "adm-btn-outline" : "adm-btn-primary")"
+               class="adm-btn @(HasActiveIntermediatePlan ? "adm-btn-outline" : "adm-btn-primary")"
                style="margin-top: 0.35rem; text-align: center;"
                @onclick:stopPropagation="true">
-                @(BrandState.IsIntermediatePlan ? "Renovar Meia Versão →" : "Contratar Meia Versão →")
+                @(HasActiveIntermediatePlan ? "Renovar Meia Versão →" : "Contratar Meia Versão →")
             </a>
         </article>
 
         <!-- Premium -->
-        <article class="plan-card plan-card-clickable @(BrandState.IsPremiumPlan ? "plan-active" : string.Empty)"
+        <article class="plan-card plan-card-clickable @(HasActivePremiumPlan ? "plan-active" : string.Empty)"
                  role="button"
                  tabindex="0"
                  @onclick='() => GoToPlanCheckout(StoreDesignPresets.PlanPremium)'>
             <div style="display: flex; justify-content: space-between; align-items: center; gap: 0.5rem;">
                 <span class="pill-badge pill-gold">✦ Moldável</span>
-                @if (BrandState.IsPremiumPlan)
+                @if (HasActivePremiumPlan)
                 {
                     <span class="pill-badge pill-green">Plano Atual</span>
                 }
@@ -337,7 +350,7 @@ else
                 <li>Pré-visualização em tempo real antes de publicar ao público</li>
             </ul>
             <div style="display: flex; flex-direction: column; gap: 0.45rem; margin-top: 0.35rem;">
-                @if (Gateway.IsAdmin && BrandState.IsPremiumPlan)
+                @if (Gateway.IsAdmin && HasActivePremiumPlan)
                 {
                     <a href="/configuracoes-loja"
                        class="adm-btn adm-btn-accent"
@@ -347,10 +360,10 @@ else
                     </a>
                 }
                 <a href="@GetCheckoutUrl(StoreDesignPresets.PlanPremium)"
-                   class="adm-btn @(BrandState.IsPremiumPlan ? "adm-btn-outline" : "adm-btn-accent")"
+                   class="adm-btn @(HasActivePremiumPlan ? "adm-btn-outline" : "adm-btn-accent")"
                    style="text-align: center;"
                    @onclick:stopPropagation="true">
-                    @(BrandState.IsPremiumPlan ? "Renovar Plano Premium →" : "Contratar Premium Sob Medida →")
+                    @(HasActivePremiumPlan ? "Renovar Plano Premium →" : "Contratar Premium Sob Medida →")
                 </a>
             </div>
         </article>
@@ -509,6 +522,25 @@ else
     private FreeDomainSearchResponse? _freeDomainSearch;
     private string? _error;
     private string? _successMessage;
+
+    private string? ActivePlanTier => _settings is not null
+        ? PlanCheckoutGuardHelper.ResolveActivePlanTier(_settings)
+        : BrandState.ActivePlanTier;
+
+    private bool HasAnyActivePlan => !string.IsNullOrWhiteSpace(ActivePlanTier);
+
+    private bool IsCurrentPlanExpired => _settings is not null
+        ? PlanCheckoutGuardHelper.IsPlanExpired(_settings.PlanExpiresAt)
+        : BrandState.IsPlanExpired;
+
+    private bool HasActiveBasicPlan =>
+        string.Equals(ActivePlanTier, StoreDesignPresets.PlanBasic, StringComparison.OrdinalIgnoreCase);
+
+    private bool HasActiveIntermediatePlan =>
+        string.Equals(ActivePlanTier, StoreDesignPresets.PlanIntermediate, StringComparison.OrdinalIgnoreCase);
+
+    private bool HasActivePremiumPlan =>
+        string.Equals(ActivePlanTier, StoreDesignPresets.PlanPremium, StringComparison.OrdinalIgnoreCase);
 
     private bool HasAnyPlanDiscount =>
         _useFreeDomainCheaperPlan ||
@@ -771,19 +803,27 @@ else
     };
 
     private string GetPlanBadgeLabel() =>
-        BrandState.IsPremiumPlan
+        HasActivePremiumPlan
             ? "✦ Plano Premium Sob Medida"
-            : BrandState.IsIntermediatePlan
+            : HasActiveIntermediatePlan
                 ? "◈ Plano Intermediário (Meia Versão)"
-                : "Plano Básico · Minimalista Luxo";
+                : HasActiveBasicPlan
+                    ? "● Plano Básico Ativo · Minimalista Luxo"
+                    : IsCurrentPlanExpired
+                        ? "⚠ Plano Expirado"
+                        : "Sem Plano Ativo";
 
     private string GetPlanSummaryText()
     {
-        if (BrandState.IsPremiumPlan)
+        if (HasActivePremiumPlan)
             return "Você tem acesso completo às 5 versões pré-prontas, Estúdio Visual Sob Medida, vendas diretas no app por Pix (ativável) com limite de distância e cálculo dos Correios.";
-        if (BrandState.IsIntermediatePlan)
+        if (HasActiveIntermediatePlan)
             return "Você pode alternar livremente entre 5 versões de site pré-prontas e ativar vendas diretas no app por Pix com limite de distância e estimativa dos Correios.";
-        return "Sua loja opera com o layout fixo Minimalista Luxo, pensado para compras rápidas pelo WhatsApp.";
+        if (HasActiveBasicPlan)
+            return "Sua loja está com o Plano Básico ativo e opera com o layout fixo Minimalista Luxo, pensado para compras rápidas pelo WhatsApp.";
+        if (IsCurrentPlanExpired)
+            return "Seu plano anterior expirou. Escolha e ative um dos planos abaixo para regularizar sua licença.";
+        return "Você ainda não possui nenhum plano contratado. Escolha abaixo o Plano Básico, Meia Versão ou Premium Sob Medida para ativar sua assinatura.";
     }
 
     public void Dispose()

@@ -74,7 +74,9 @@ else
         <section class="adm-card sales-lock-card">
             <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem;">
                 <span class="pill-badge pill-gold">🔒 Exclusivo das Versões Pagas</span>
-                <span class="pill-badge pill-slate">Plano Atual: @_report.EffectivePlanTier</span>
+                <span class="pill-badge pill-slate">
+                    @(BrandState.HasActivePlan ? $"Plano Atual: {_report.EffectivePlanTier}" : BrandState.IsPlanExpired ? "Plano Expirado" : "Sem plano ativo")
+                </span>
             </div>
 
             <h2 class="sales-lock-title">Veja exatamente quanto você vendeu — produto por produto e dia a dia</h2>

@@ -64,7 +64,7 @@ Todos os níveis incluem endereço da loja (`/loja/{slug}`), HTTPS, PWA e public
 | **ClothingStore.Domain** | [ClothingStore.Domain.csproj](src/ClothingStore.Domain/ClothingStore.Domain.csproj) | Entidades e regras de domínio (`User`, `Employee`, `Category`, `Product`, `ProductImage`, `ProductVariant`, `StockMovement`, `StoreSettings`, `StoreOrder`, `PlanActivationCode`, `PlatformSubscriptionOrder`). |
 | **ClothingStore.Infrastructure** | [ClothingStore.Infrastructure.csproj](src/ClothingStore.Infrastructure/ClothingStore.Infrastructure.csproj) | Persistência transacional (`ClothingStoreRepository`), gerenciador multi-loja (`MultiTenantStoreManager`), espelhamento em nuvem PostgreSQL/Supabase (`CloudAppDataMirror`, `SupabasePostgresClient`), criptografia OAuth (`TokenProtectionHelper`), segurança PBKDF2/JWT e armazenamento de imagens (`SupabaseImageStorageService`). |
 | **ClothingStore.Shared** | [ClothingStore.Shared.csproj](src/ClothingStore.Shared/ClothingStore.Shared.csproj) | DTOs, clientes HTTP (`CatalogApiClient`, `AdminApiClient`), `AppUpdateCatalog`, `PixPayloadBuilder`, `BrazilShippingCalculator`, `FreeDomainFinder`, `GoogleAccountTierVerifier`, `PwaManifestBuilder`, `RenderProvisioningHelper` e `WhatsAppLinkBuilder`. |
-| **ClothingStore.UnitTests** | [ClothingStore.UnitTests.csproj](tests/ClothingStore.UnitTests/ClothingStore.UnitTests.csproj) | Suíte com **152 testes automatizados** cobrindo domínio, segurança/2FA, multi-tenant, Mercado Pago (OAuth/Pix/Checkout Pro/assinaturas), portal web/PWA, publicação 1-clique, auto-update, layout/responsividade e validações Windows/NTFS. |
+| **ClothingStore.UnitTests** | [ClothingStore.UnitTests.csproj](tests/ClothingStore.UnitTests/ClothingStore.UnitTests.csproj) | Suíte com **154 testes automatizados** cobrindo domínio, segurança/2FA, multi-tenant, Mercado Pago (OAuth/Pix/Checkout Pro/assinaturas), portal web/PWA, publicação 1-clique, auto-update, layout/responsividade e validações Windows/NTFS. |
 
 ---
 
@@ -85,7 +85,7 @@ dotnet publish appmaui.blazor.csproj -f net10.0-windows10.0.19041.0 -c Release -
 dotnet publish appmaui.blazor.csproj -f net10.0-android -c Release -p:AndroidPackageFormat=apk
 ```
 
-### 3. Executar a Suíte de Testes (152 testes)
+### 3. Executar a Suíte de Testes (154 testes)
 ```powershell
 dotnet run --project tests/ClothingStore.UnitTests/ClothingStore.UnitTests.csproj -c Release
 ```

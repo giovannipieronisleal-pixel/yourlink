@@ -1,5 +1,6 @@
 using ClothingStore.Application.Services;
 using ClothingStore.Shared.DTOs;
+using ClothingStore.Shared.Helpers;
 
 namespace appmaui.blazor.Services;
 
@@ -13,16 +14,30 @@ public sealed class StoreBrandStateService
     private bool _initialized;
 
     public string CurrentPlanTier { get; private set; } = StoreDesignPresets.PlanBasic;
+    public DateTimeOffset? PlanActivatedAt { get; private set; }
     public DateTimeOffset? PlanExpiresAt { get; private set; }
     public string? ActiveGiftCardCode { get; private set; }
 
-    public bool IsLicenseValid => !PlanExpiresAt.HasValue || DateTimeOffset.UtcNow < PlanExpiresAt.Value;
+    public bool IsPlanExpired => PlanCheckoutGuardHelper.IsPlanExpired(PlanExpiresAt);
+
+    public bool IsLicenseValid => !IsPlanExpired;
+
+    public string? ActivePlanTier => PlanCheckoutGuardHelper.ResolveActivePlanTier(
+        CurrentPlanTier,
+        PlanActivatedAt,
+        PlanExpiresAt,
+        ActiveGiftCardCode);
+
+    public bool HasActivePlan => !string.IsNullOrWhiteSpace(ActivePlanTier);
+
+    public bool IsBasicPlan =>
+        string.Equals(ActivePlanTier, StoreDesignPresets.PlanBasic, StringComparison.OrdinalIgnoreCase);
 
     public bool IsPremiumPlan =>
-        string.Equals(CurrentPlanTier, StoreDesignPresets.PlanPremium, StringComparison.OrdinalIgnoreCase) && IsLicenseValid;
+        string.Equals(ActivePlanTier, StoreDesignPresets.PlanPremium, StringComparison.OrdinalIgnoreCase);
 
     public bool IsIntermediatePlan =>
-        string.Equals(CurrentPlanTier, StoreDesignPresets.PlanIntermediate, StringComparison.OrdinalIgnoreCase) && IsLicenseValid;
+        string.Equals(ActivePlanTier, StoreDesignPresets.PlanIntermediate, StringComparison.OrdinalIgnoreCase);
 
     public string EffectivePlanTier =>
         IsPremiumPlan ? StoreDesignPresets.PlanPremium
@@ -63,6 +78,7 @@ public sealed class StoreBrandStateService
 
     public void ApplyFromPublicSettings(PublicStoreSettingsDto settings)
     {
+        PlanActivatedAt = settings.PlanActivatedAt;
         PlanExpiresAt = settings.PlanExpiresAt;
         ActiveGiftCardCode = settings.ActiveGiftCardCode;
         CurrentPlanTier = StoreDesignPresets.NormalizePlanTier(settings.PlanTier);
@@ -73,6 +89,7 @@ public sealed class StoreBrandStateService
 
     public void ApplyFromAdminSettings(AdminStoreSettingsDto settings)
     {
+        PlanActivatedAt = settings.PlanActivatedAt;
         PlanExpiresAt = settings.PlanExpiresAt;
         ActiveGiftCardCode = settings.ActiveGiftCardCode;
         CurrentPlanTier = StoreDesignPresets.NormalizePlanTier(settings.PlanTier);

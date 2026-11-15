@@ -23,7 +23,7 @@
         </div>
 
         <span class="pill-badge @(IsPremium ? "pill-gold" : IsIntermediate ? "pill-green" : "pill-slate")">
-            @(IsPremium ? "✦ Plano Premium Ativo" : IsIntermediate ? "◈ Meia Versão (5 Temas)" : "🔒 Básico · Tema Fixo")
+            @(IsPremium ? "✦ Plano Premium Ativo" : IsIntermediate ? "◈ Meia Versão (5 Temas)" : HasActiveBasicPlan ? "🔒 Básico · Tema Fixo" : "🔒 Recursos de Planos")
         </span>
     </div>
 
@@ -38,13 +38,13 @@
                              tabindex="0"
                              @onclick='() => GoToPlanCheckout(StoreDesignPresets.PlanBasic)'>
                             <div>
-                                <span class="studio-tier-badge">Seu Plano Atual &bull; Básico</span>
+                                <span class="studio-tier-badge">@(HasActiveBasicPlan ? "Seu Plano Atual • Básico" : "Plano Básico • Entrada")</span>
                                 <div class="studio-tier-price">@BasicPrice.ToString("C")<span>/mês</span></div>
                                 <p class="studio-tier-desc">
                                     Tema editorial fixo <strong>Minimalista Luxo</strong> com <strong>Servidor 24h + HTTPS + Domínio/Endereço já inclusos</strong> (sem taxa extra).
                                 </p>
                             </div>
-                            <span class="studio-tier-cta">Renovar Básico →</span>
+                            <span class="studio-tier-cta">@(HasActiveBasicPlan ? "Renovar Básico →" : "Contratar Básico →")</span>
                         </div>
 
                         <div class="studio-tier-box studio-tier-box-clickable"
@@ -477,7 +477,9 @@
 
 @code {
     [Parameter] public string PlanTier { get; set; } = StoreDesignPresets.PlanBasic;
+    [Parameter] public DateTimeOffset? PlanActivatedAt { get; set; }
     [Parameter] public DateTimeOffset? PlanExpiresAt { get; set; }
+    [Parameter] public string? ActiveGiftCardCode { get; set; }
     [Parameter] public decimal BasicPrice { get; set; } = 49.90m;
     [Parameter] public decimal IntermediaryPrice { get; set; } = 89.90m;
     [Parameter] public decimal PremiumPrice { get; set; } = 129.90m;
@@ -490,15 +492,20 @@
 
     private string NormalizedPlanTier => StoreDesignPresets.NormalizePlanTier(PlanTier);
 
-    private bool IsLicenseActive => !PlanExpiresAt.HasValue || DateTimeOffset.UtcNow < PlanExpiresAt.Value;
+    private string? ActivePlanTier => PlanCheckoutGuardHelper.ResolveActivePlanTier(
+        NormalizedPlanTier,
+        PlanActivatedAt,
+        PlanExpiresAt,
+        ActiveGiftCardCode);
+
+    private bool HasActiveBasicPlan =>
+        string.Equals(ActivePlanTier, StoreDesignPresets.PlanBasic, StringComparison.OrdinalIgnoreCase);
 
     private bool IsPremium =>
-        string.Equals(NormalizedPlanTier, StoreDesignPresets.PlanPremium, StringComparison.OrdinalIgnoreCase) &&
-        IsLicenseActive;
+        string.Equals(ActivePlanTier, StoreDesignPresets.PlanPremium, StringComparison.OrdinalIgnoreCase);
 
     private bool IsIntermediate =>
-        string.Equals(NormalizedPlanTier, StoreDesignPresets.PlanIntermediate, StringComparison.OrdinalIgnoreCase) &&
-        IsLicenseActive;
+        string.Equals(ActivePlanTier, StoreDesignPresets.PlanIntermediate, StringComparison.OrdinalIgnoreCase);
 
     private Task NotifyChangedAsync() => OnDesignChanged.InvokeAsync(Design);
 

@@ -954,16 +954,29 @@
             </p>
         </div>
 
+        @{
+            var activePlanTier = PlanCheckoutGuardHelper.ResolveActivePlanTier(
+                _planTier,
+                _planActivatedAt,
+                _planExpiresAt,
+                _activeGiftCardCode);
+            var hasBasicActive = string.Equals(activePlanTier, StoreDesignPresets.PlanBasic, StringComparison.OrdinalIgnoreCase);
+            var isPlanExpired = PlanCheckoutGuardHelper.IsPlanExpired(_planExpiresAt);
+        }
         <div style="display: flex; flex-direction: column; align-items: flex-end; gap: 0.25rem;">
             <span class="pill-badge @(BrandState.IsPremiumPlan ? "pill-gold" : BrandState.IsIntermediatePlan ? "pill-green" : "pill-slate")">
-                @(BrandState.IsPremiumPlan ? "✦ Plano Premium Ativo" : BrandState.IsIntermediatePlan ? "◈ Meia Versão (5 Temas)" : "● Plano Básico Minimalista")
+                @(BrandState.IsPremiumPlan ? "✦ Plano Premium Ativo" : BrandState.IsIntermediatePlan ? "◈ Meia Versão (5 Temas)" : hasBasicActive ? "● Plano Básico Minimalista" : isPlanExpired ? "⚠ Plano Expirado" : "Sem Plano Ativo")
             </span>
             <span style="font-size: 0.78rem; color: var(--adm-muted);">
-                @if (!_planExpiresAt.HasValue)
+                @if (activePlanTier is null && !_planExpiresAt.HasValue)
+                {
+                    <span>Status: <strong>Nenhum plano contratado</strong></span>
+                }
+                else if (!_planExpiresAt.HasValue)
                 {
                     <span>Validade: <strong>Vitalício / Contínuo</strong></span>
                 }
-                else if (DateTimeOffset.UtcNow < _planExpiresAt.Value)
+                else if (!isPlanExpired)
                 {
                     <span>Válido até: <strong>@_planExpiresAt.Value.ToLocalTime().ToString("dd/MM/yyyy HH:mm")</strong></span>
                 }
@@ -998,7 +1011,9 @@
 </section>
 
 <DesignStudioPanel PlanTier="@_planTier"
+                   PlanActivatedAt="@_planActivatedAt"
                    PlanExpiresAt="@_planExpiresAt"
+                   ActiveGiftCardCode="@_activeGiftCardCode"
                    BasicPrice="@_basicPlanPrice"
                    IntermediaryPrice="@_intermediaryPlanPrice"
                    PremiumPrice="@_premiumPlanPrice"
@@ -1011,6 +1026,7 @@
 
 @code {
     private string _planTier = StoreDesignPresets.PlanBasic;
+    private DateTimeOffset? _planActivatedAt;
     private DateTimeOffset? _planExpiresAt;
     private string? _activeGiftCardCode;
     private string _giftCardCodeInput = string.Empty;
@@ -1169,6 +1185,7 @@
                 ManualSalesEnabled = current.ManualSalesEnabled
             };
             _planTier = current.PlanTier;
+            _planActivatedAt = current.PlanActivatedAt;
             _planExpiresAt = current.PlanExpiresAt;
             _activeGiftCardCode = current.ActiveGiftCardCode;
             _basicPlanPrice = current.BasicPlanMonthlyPrice;
@@ -1328,6 +1345,7 @@
             _form.LastActivityAt = updated.LastActivityAt;
             _form.PublishedStoreName = updated.PublishedStoreName;
             _planTier = updated.PlanTier;
+            _planActivatedAt = updated.PlanActivatedAt;
             _planExpiresAt = updated.PlanExpiresAt;
             _activeGiftCardCode = updated.ActiveGiftCardCode;
             _basicPlanPrice = updated.BasicPlanMonthlyPrice;
@@ -1546,6 +1564,7 @@
 
             _giftCardCodeInput = string.Empty;
             _planTier = result.UpdatedSettings.PlanTier;
+            _planActivatedAt = result.UpdatedSettings.PlanActivatedAt;
             _planExpiresAt = result.UpdatedSettings.PlanExpiresAt;
             _activeGiftCardCode = result.UpdatedSettings.ActiveGiftCardCode;
             _form.PlanTier = _planTier;
@@ -1965,6 +1984,7 @@
         _form.LastActivityAt = updated.LastActivityAt;
         _form.PublishedStoreName = updated.PublishedStoreName;
         _planTier = updated.PlanTier;
+        _planActivatedAt = updated.PlanActivatedAt;
         _planExpiresAt = updated.PlanExpiresAt;
         _activeGiftCardCode = updated.ActiveGiftCardCode;
         _basicPlanPrice = updated.BasicPlanMonthlyPrice;
