@@ -1172,42 +1172,116 @@ public sealed class MauiAdminGateway
             ? CurrentEmployee?.FullName ?? "Loja Cliente"
             : localSettings.StoreName.Trim();
 
+        var remoteRedeemRequest = new PlatformGiftCardRedeemRequest(
+            Code: request.Code,
+            StoreName: redeemingStoreName,
+            EmployeeId: CurrentEmployee?.EmployeeId);
+
         RedeemActivationCodeResponse? response = null;
+        var triedConfiguredApiClient = false;
 
         if (HasCustomServerUrl || ShouldTryRemoteApi)
         {
-            try
-            {
-                var remoteGrant = await _apiClient.RedeemPlatformGiftCardAsync(new PlatformGiftCardRedeemRequest(
-                    Code: request.Code,
-                    StoreName: redeemingStoreName,
-                    EmployeeId: CurrentEmployee?.EmployeeId));
-
-                response = await _employeeAndSettingsService.ApplyRedeemedRemoteGiftCardAsync(
-                    remoteGrant,
-                    CurrentEmployee?.EmployeeId);
-            }
-            catch (Exception ex) when (IsConnectionOrTimeoutError(ex))
-            {
-                _skipRemoteApiUntil = DateTimeOffset.UtcNow.AddSeconds(60);
-            }
-            catch (InvalidOperationException ex) when (IsEndpointUnavailableOnHubError(ex))
-            {
-                // Servidor antigo ainda sem /api/platform-sync/gift-cards/redeem -> fallback para fluxo legado
-            }
+            triedConfiguredApiClient = true;
+            response = await TryRedeemGiftCardViaClientAsync(_apiClient, remoteRedeemRequest, updateSkipTimerOnTimeout: true);
         }
 
         if (response is null)
         {
-            response = await ExecuteWithFallbackAsync(
-                () => _apiClient.RedeemActivationCodeAsync(request),
-                () => _employeeAndSettingsService.RedeemActivationCodeAsync(request, CurrentEmployee?.EmployeeId));
+            try
+            {
+                response = await _employeeAndSettingsService.RedeemActivationCodeAsync(request, CurrentEmployee?.EmployeeId);
+                _ = NotifyRemoteGiftCardRedeemedQuietlyAsync(remoteRedeemRequest, localSettings);
+            }
+            catch (DomainException localNotFoundEx) when (IsGiftCardNotFoundError(localNotFoundEx))
+            {
+                if (!triedConfiguredApiClient && !string.IsNullOrWhiteSpace(_apiClient.CurrentBaseAddress))
+                {
+                    response = await TryRedeemGiftCardViaClientAsync(_apiClient, remoteRedeemRequest, updateSkipTimerOnTimeout: false);
+                }
+
+                if (response is null)
+                {
+                    var centralUrl = ResolveCentralBillingServerUrl(localSettings);
+                    if (!string.IsNullOrWhiteSpace(centralUrl) &&
+                        !string.Equals(centralUrl.TrimEnd('/'), (_apiClient.CurrentBaseAddress ?? string.Empty).TrimEnd('/'), StringComparison.OrdinalIgnoreCase))
+                    {
+                        var centralClient = CreateCentralBillingClient(centralUrl);
+                        response = await TryRedeemGiftCardViaClientAsync(centralClient, remoteRedeemRequest, updateSkipTimerOnTimeout: false);
+                    }
+                }
+
+                if (response is null)
+                {
+                    throw;
+                }
+            }
         }
 
         _cloudSyncService?.TriggerAutoSyncIfEnabled();
         PlanEntitlementActivated?.Invoke(response.UpdatedSettings);
         AuthStateChanged?.Invoke();
         return response;
+    }
+
+    private async Task<RedeemActivationCodeResponse?> TryRedeemGiftCardViaClientAsync(
+        AdminApiClient client,
+        PlatformGiftCardRedeemRequest remoteRedeemRequest,
+        bool updateSkipTimerOnTimeout)
+    {
+        try
+        {
+            var remoteGrant = await client.RedeemPlatformGiftCardAsync(remoteRedeemRequest);
+            return await _employeeAndSettingsService.ApplyRedeemedRemoteGiftCardAsync(
+                remoteGrant,
+                CurrentEmployee?.EmployeeId);
+        }
+        catch (Exception ex) when (IsConnectionOrTimeoutError(ex))
+        {
+            if (updateSkipTimerOnTimeout)
+            {
+                _skipRemoteApiUntil = DateTimeOffset.UtcNow.AddSeconds(60);
+            }
+            return null;
+        }
+        catch (InvalidOperationException ex) when (IsEndpointUnavailableOnHubError(ex) || IsGiftCardNotFoundError(ex))
+        {
+            return null;
+        }
+        catch (DomainException ex) when (IsGiftCardNotFoundError(ex))
+        {
+            return null;
+        }
+        catch (InvalidOperationException ex)
+        {
+            throw new DomainException(ex.Message);
+        }
+    }
+
+    private async Task NotifyRemoteGiftCardRedeemedQuietlyAsync(
+        PlatformGiftCardRedeemRequest remoteRedeemRequest,
+        AdminStoreSettingsDto localSettings)
+    {
+        try
+        {
+            var centralUrl = ResolveCentralBillingServerUrl(localSettings);
+            if (!string.IsNullOrWhiteSpace(centralUrl))
+            {
+                var centralClient = CreateCentralBillingClient(centralUrl);
+                await centralClient.RedeemPlatformGiftCardAsync(remoteRedeemRequest);
+            }
+        }
+        catch
+        {
+        }
+    }
+
+    private static bool IsGiftCardNotFoundError(Exception ex)
+    {
+        var msg = ex.Message ?? string.Empty;
+        return msg.Contains("não encontrado", StringComparison.OrdinalIgnoreCase) ||
+               msg.Contains("nao encontrado", StringComparison.OrdinalIgnoreCase) ||
+               msg.Contains("not found", StringComparison.OrdinalIgnoreCase);
     }
 
     public Task<CheckDomainAvailabilityResponse> CheckDomainAvailabilityAsync(string domain, CancellationToken ct = default)

@@ -569,17 +569,169 @@ public sealed class SwitchableClothingStoreRepository : IClothingStoreRepository
     public Task UpdateStoreSettingsAsync(StoreSettings settings, CancellationToken ct = default) =>
         ActiveRepository.UpdateStoreSettingsAsync(settings, ct);
 
-    public Task<IReadOnlyList<PlanActivationCode>> GetPlanActivationCodesAsync(CancellationToken ct = default) =>
-        ActiveRepository.GetPlanActivationCodesAsync(ct);
+    public async Task<IReadOnlyList<PlanActivationCode>> GetPlanActivationCodesAsync(CancellationToken ct = default)
+    {
+        var merged = new Dictionary<string, PlanActivationCode>(StringComparer.OrdinalIgnoreCase);
+        foreach (var repo in EnumerateGiftCardRepositories())
+        {
+            var list = await repo.GetPlanActivationCodesAsync(ct);
+            foreach (var item in list)
+            {
+                if (!merged.TryGetValue(item.Code, out var existing) || IsMoreRecentGiftCardState(item, existing))
+                {
+                    merged[item.Code] = item;
+                }
+            }
+        }
 
-    public Task<PlanActivationCode?> GetPlanActivationCodeByCodeAsync(string code, CancellationToken ct = default) =>
-        ActiveRepository.GetPlanActivationCodeByCodeAsync(code, ct);
+        return merged.Values
+            .OrderByDescending(c => c.CreatedAt)
+            .ToList();
+    }
 
-    public Task<PlanActivationCode?> GetPlanActivationCodeByIdAsync(Guid id, CancellationToken ct = default) =>
-        ActiveRepository.GetPlanActivationCodeByIdAsync(id, ct);
+    public async Task<PlanActivationCode?> GetPlanActivationCodeByCodeAsync(string code, CancellationToken ct = default)
+    {
+        PlanActivationCode? bestMatch = null;
+        foreach (var repo in EnumerateGiftCardRepositories())
+        {
+            var candidate = await repo.GetPlanActivationCodeByCodeAsync(code, ct);
+            if (candidate is null)
+                continue;
 
-    public Task SavePlanActivationCodeAsync(PlanActivationCode activationCode, CancellationToken ct = default) =>
-        ActiveRepository.SavePlanActivationCodeAsync(activationCode, ct);
+            if (bestMatch is null || IsMoreRecentGiftCardState(candidate, bestMatch))
+            {
+                bestMatch = candidate;
+            }
+        }
+
+        return bestMatch;
+    }
+
+    public async Task<PlanActivationCode?> GetPlanActivationCodeByIdAsync(Guid id, CancellationToken ct = default)
+    {
+        PlanActivationCode? bestMatch = null;
+        foreach (var repo in EnumerateGiftCardRepositories())
+        {
+            var candidate = await repo.GetPlanActivationCodeByIdAsync(id, ct);
+            if (candidate is null)
+                continue;
+
+            if (bestMatch is null || IsMoreRecentGiftCardState(candidate, bestMatch))
+            {
+                bestMatch = candidate;
+            }
+        }
+
+        return bestMatch;
+    }
+
+    public async Task SavePlanActivationCodeAsync(PlanActivationCode activationCode, CancellationToken ct = default)
+    {
+        var activeRepo = ActiveRepository;
+        await activeRepo.SavePlanActivationCodeAsync(activationCode, ct);
+
+        var defaultRepo = GetOrCreateRepository(DefaultWorkspaceId);
+        if (!ReferenceEquals(defaultRepo, activeRepo))
+        {
+            await defaultRepo.SavePlanActivationCodeAsync(activationCode, ct);
+        }
+
+        foreach (var repo in EnumerateGiftCardRepositories())
+        {
+            if (ReferenceEquals(repo, activeRepo) || ReferenceEquals(repo, defaultRepo))
+                continue;
+
+            var existingByCode = await repo.GetPlanActivationCodeByCodeAsync(activationCode.Code, ct);
+            var existingById = existingByCode ?? await repo.GetPlanActivationCodeByIdAsync(activationCode.Id, ct);
+            if (existingById is not null)
+            {
+                await repo.SavePlanActivationCodeAsync(activationCode, ct);
+            }
+        }
+    }
+
+    private IEnumerable<ClothingStoreRepository> EnumerateGiftCardRepositories()
+    {
+        var yielded = new HashSet<ClothingStoreRepository>();
+
+        var active = ActiveRepository;
+        if (yielded.Add(active))
+            yield return active;
+
+        var defaultRepo = GetOrCreateRepository(DefaultWorkspaceId);
+        if (yielded.Add(defaultRepo))
+            yield return defaultRepo;
+
+        foreach (var wsId in EnumerateCandidateWorkspaceIds())
+        {
+            var repo = GetOrCreateRepository(wsId);
+            if (yielded.Add(repo))
+                yield return repo;
+        }
+
+        var companionRepo = TryGetWindowsSharedAppDataRepository();
+        if (companionRepo is not null && yielded.Add(companionRepo))
+            yield return companionRepo;
+    }
+
+    private ClothingStoreRepository? _windowsSharedAppDataRepo;
+
+    private ClothingStoreRepository? TryGetWindowsSharedAppDataRepository()
+    {
+        if (!OperatingSystem.IsWindows() || !_enablePlatformOwnerCompanion)
+            return null;
+
+        try
+        {
+            var fullDefaultPath = Path.GetFullPath(_defaultStorageFilePath);
+            var tempRoot = Path.GetFullPath(Path.GetTempPath());
+            if (fullDefaultPath.StartsWith(tempRoot, StringComparison.OrdinalIgnoreCase))
+                return null;
+
+            var sharedDbPath = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "YouLinkShared",
+                "App_Data",
+                "clothingstore_db.json");
+
+            if (!File.Exists(sharedDbPath))
+                return null;
+
+            if (string.Equals(
+                    Path.GetFullPath(sharedDbPath),
+                    fullDefaultPath,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                return null;
+            }
+
+            return _windowsSharedAppDataRepo ??= new ClothingStoreRepository(_passwordHasher, sharedDbPath);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static bool IsMoreRecentGiftCardState(PlanActivationCode candidate, PlanActivationCode existing)
+    {
+        if (candidate.IsRedeemed && !existing.IsRedeemed)
+            return true;
+        if (!candidate.IsRedeemed && existing.IsRedeemed)
+            return false;
+        if (candidate.IsRevoked != existing.IsRevoked)
+        {
+            var candidateStamp = candidate.StatusUpdatedAt ?? candidate.CreatedAt;
+            var existingStamp = existing.StatusUpdatedAt ?? existing.CreatedAt;
+            if (candidateStamp != existingStamp)
+                return candidateStamp > existingStamp;
+            return candidate.IsRevoked;
+        }
+
+        var candTime = candidate.RedeemedAt ?? candidate.StatusUpdatedAt ?? candidate.CreatedAt;
+        var existTime = existing.RedeemedAt ?? existing.StatusUpdatedAt ?? existing.CreatedAt;
+        return candTime > existTime;
+    }
 
     public Task<IReadOnlyList<StoreOrder>> GetOrdersAsync(CancellationToken ct = default) =>
         ActiveRepository.GetOrdersAsync(ct);

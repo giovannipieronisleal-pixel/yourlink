@@ -384,5 +384,92 @@ public class MultiAccountStoreIsolationTests
 
         var notFound = File.ReadAllText(Path.Combine(root, "Components", "Pages", "NotFound.razor"));
         Assert.IsTrue(notFound.Contains("Página não encontrada", StringComparison.Ordinal));
+
+        var mauiGateway = File.ReadAllText(Path.Combine(root, "Services", "MauiAdminGateway.cs"));
+        Assert.IsTrue(mauiGateway.Contains("TryRedeemGiftCardViaClientAsync", StringComparison.Ordinal));
+        Assert.IsTrue(mauiGateway.Contains("IsGiftCardNotFoundError", StringComparison.Ordinal));
+    }
+
+    [TestMethod]
+    public async Task GiftCard_CreatedInDefaultAdminWorkspace_CanBeRedeemedInIsolatedSecondaryStoreWorkspace()
+    {
+        var (repo, auth, _, settings, _, _, _, _, tempDir, _) = CreateStack();
+        try
+        {
+            await repo.ProvisionIsolatedWorkspaceForNewAccountAsync("admin1@gmail.com", "admin1");
+            var login1 = await auth.RegisterUserAccountAsync(new RegisterUserAccountRequest(
+                "Admin Um",
+                "admin1@gmail.com",
+                "SenhaForte@123",
+                Username: "admin1"));
+            await settings.UpdateStoreSettingsAsync(login1.Employee.EmployeeId, new UpdateStoreSettingsRequest
+            {
+                StoreName = "Loja Principal",
+                WhatsappNumber = "5511999990001",
+                StoreDescription = "Catálogo Loja Principal"
+            });
+
+            // Admin gera o Gift Card no workspace padrão (clothingstore_db.json), exatamente como o YouLink Admin faz
+            var giftCard = PlanActivationCode.Create(
+                targetPlanTier: "Premium",
+                durationDays: 7,
+                customCode: "LUXO-PREM-7D-MAXVFZH6",
+                notes: "Gift Card de 7 dias gerado no YouLink Admin");
+            await repo.SavePlanActivationCodeAsync(giftCard);
+
+            // Segunda conta cria e entra em seu workspace isolado ("Minha Loja" / "gio")
+            await repo.ProvisionIsolatedWorkspaceForNewAccountAsync("giovannipreal@gmail.com", "gio");
+            var secondLogin = await auth.RegisterUserAccountAsync(new RegisterUserAccountRequest(
+                "gio",
+                "giovannipreal@gmail.com",
+                "SenhaForte@456",
+                Username: "gio"));
+
+            Assert.IsFalse(repo.IsDefaultWorkspace);
+            var settingsBefore = await settings.GetAdminStoreSettingsAsync();
+            Assert.AreEqual("Minha Loja", settingsBefore.StoreName);
+            Assert.AreEqual("Basico", settingsBefore.PlanTier);
+
+            // Resgata o Gift Card estando no workspace isolado da segunda loja
+            var redeemResponse = await settings.RedeemActivationCodeAsync(
+                new RedeemActivationCodeRequest { Code = "LUXO-PREM-7D-MAXVFZH6" },
+                secondLogin.Employee.EmployeeId);
+
+            Assert.AreEqual("LUXO-PREM-7D-MAXVFZH6", redeemResponse.Code);
+            Assert.AreEqual("Premium", redeemResponse.ActivatedPlanTier);
+            Assert.AreEqual(7, redeemResponse.DurationDays);
+            Assert.AreEqual("Premium", redeemResponse.UpdatedSettings.PlanTier);
+            Assert.AreEqual("LUXO-PREM-7D-MAXVFZH6", redeemResponse.UpdatedSettings.ActiveGiftCardCode);
+
+            // Verifica que o Gift Card ficou marcado como resgatado também no banco padrão (visível ao YouLink Admin)
+            await repo.SwitchToWorkspaceForAccountAsync("admin1");
+            Assert.IsTrue(repo.IsDefaultWorkspace);
+            var primarySettings = await settings.GetAdminStoreSettingsAsync();
+            Assert.AreEqual("Loja Principal", primarySettings.StoreName);
+            Assert.IsFalse(string.Equals("LUXO-PREM-7D-MAXVFZH6", primarySettings.ActiveGiftCardCode, StringComparison.OrdinalIgnoreCase));
+
+            var codeInPrimaryDb = await repo.GetPlanActivationCodeByCodeAsync("LUXO-PREM-7D-MAXVFZH6");
+            Assert.IsNotNull(codeInPrimaryDb);
+            Assert.IsTrue(codeInPrimaryDb!.IsRedeemed);
+            Assert.AreEqual("Minha Loja", codeInPrimaryDb.RedeemedByStoreName);
+
+            // Impede segundo resgate do mesmo Gift Card em qualquer loja
+            var duplicateErrorThrown = false;
+            try
+            {
+                await settings.RedeemActivationCodeAsync(
+                    new RedeemActivationCodeRequest { Code = "LUXO-PREM-7D-MAXVFZH6" });
+            }
+            catch (DomainException)
+            {
+                duplicateErrorThrown = true;
+            }
+
+            Assert.IsTrue(duplicateErrorThrown, "O mesmo Gift Card não pode ser resgatado uma segunda vez.");
+        }
+        finally
+        {
+            CleanupDir(tempDir);
+        }
     }
 }
