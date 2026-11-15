@@ -73,11 +73,25 @@ namespace
             actualLower.compare(actualLower.size() - suffix.size(), suffix.size(), suffix) == 0;
     }
 
+    bool IsIgnoredOverlayOrSystemClass(const std::wstring& classLower)
+    {
+        return classLower == L"uac_inputindicatoroverlaywnd" ||
+            classLower == L"uac input indicator" ||
+            classLower == L"ime" ||
+            classLower == L"msctfime ui" ||
+            classLower == L"cicloaderwndclass" ||
+            classLower == L"cicerouiwndframe" ||
+            classLower == L"touch tooltip window" ||
+            classLower == L"webview2_temp_parent";
+    }
+
     struct WindowSearchContext
     {
         std::wstring expectedExeLower;
         HWND foundHwnd = nullptr;
         DWORD foundPid = 0;
+        HWND fallbackHwnd = nullptr;
+        DWORD fallbackPid = 0;
     };
 
     BOOL CALLBACK EnumTopLevelWindowProc(HWND hwnd, LPARAM lParam)
@@ -97,26 +111,58 @@ namespace
         if (pid == 0 || pid == GetCurrentProcessId())
             return TRUE;
 
-        if (EqualsExePathOrName(pid, ctx->expectedExeLower))
+        if (!EqualsExePathOrName(pid, ctx->expectedExeLower))
+            return TRUE;
+
+        wchar_t classBuf[128]{};
+        GetClassNameW(hwnd, classBuf, static_cast<int>(sizeof(classBuf) / sizeof(classBuf[0])));
+        const std::wstring classLower = ToLowerCopy(classBuf);
+        if (IsIgnoredOverlayOrSystemClass(classLower))
+            return TRUE;
+
+        if (classLower == L"winuidesktopwin32windowclass")
         {
             ctx->foundHwnd = hwnd;
             ctx->foundPid = pid;
             return FALSE;
         }
 
+        if (!ctx->fallbackHwnd && GetWindowTextLengthW(hwnd) > 0)
+        {
+            ctx->fallbackHwnd = hwnd;
+            ctx->fallbackPid = pid;
+        }
+
         return TRUE;
     }
 
-    bool HasRunningAppProcess(const std::wstring& expectedExeLower, DWORD& outPid)
+    HWND FindExistingMainWindow(const std::wstring& expectedExeLower, DWORD& outPid)
     {
+        WindowSearchContext ctx{ expectedExeLower };
+        EnumWindows(EnumTopLevelWindowProc, reinterpret_cast<LPARAM>(&ctx));
+        if (ctx.foundHwnd)
+        {
+            outPid = ctx.foundPid;
+            return ctx.foundHwnd;
+        }
+        if (ctx.fallbackHwnd)
+        {
+            outPid = ctx.fallbackPid;
+            return ctx.fallbackHwnd;
+        }
         outPid = 0;
+        return nullptr;
+    }
+
+    std::vector<DWORD> CollectRunningAppPids(const std::wstring& expectedExeLower)
+    {
+        std::vector<DWORD> pids;
         HANDLE snap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
         if (snap == INVALID_HANDLE_VALUE)
-            return false;
+            return pids;
 
         PROCESSENTRY32W pe{};
         pe.dwSize = sizeof(pe);
-        bool found = false;
 
         if (Process32FirstW(snap, &pe))
         {
@@ -125,15 +171,69 @@ namespace
                 if (_wcsicmp(pe.szExeFile, L"appmaui.blazor.exe") == 0 &&
                     EqualsExePathOrName(pe.th32ProcessID, expectedExeLower))
                 {
-                    outPid = pe.th32ProcessID;
-                    found = true;
-                    break;
+                    pids.push_back(pe.th32ProcessID);
                 }
             } while (Process32NextW(snap, &pe));
         }
 
         CloseHandle(snap);
-        return found;
+        return pids;
+    }
+
+    bool HasRunningAppProcess(const std::wstring& expectedExeLower, DWORD& outPid)
+    {
+        auto pids = CollectRunningAppPids(expectedExeLower);
+        if (pids.empty())
+        {
+            outPid = 0;
+            return false;
+        }
+        outPid = pids[0];
+        return true;
+    }
+
+    ULONGLONG GetProcessAgeMs(DWORD pid)
+    {
+        HANDLE hProc = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
+        if (!hProc)
+            return 0;
+
+        FILETIME ftCreate{}, ftExit{}, ftKernel{}, ftUser{}, ftNow{};
+        ULONGLONG ageMs = 0;
+        if (GetProcessTimes(hProc, &ftCreate, &ftExit, &ftKernel, &ftUser))
+        {
+            GetSystemTimeAsFileTime(&ftNow);
+            ULARGE_INTEGER createTime{}, nowTime{};
+            createTime.LowPart = ftCreate.dwLowDateTime;
+            createTime.HighPart = ftCreate.dwHighDateTime;
+            nowTime.LowPart = ftNow.dwLowDateTime;
+            nowTime.HighPart = ftNow.dwHighDateTime;
+            if (nowTime.QuadPart > createTime.QuadPart)
+            {
+                ageMs = (nowTime.QuadPart - createTime.QuadPart) / 10000ULL;
+            }
+        }
+        CloseHandle(hProc);
+        return ageMs;
+    }
+
+    void TerminateOrphanAppProcesses(const std::wstring& expectedExeLower)
+    {
+        const auto pids = CollectRunningAppPids(expectedExeLower);
+        for (DWORD pid : pids)
+        {
+            HANDLE hProc = OpenProcess(PROCESS_TERMINATE | SYNCHRONIZE, FALSE, pid);
+            if (!hProc)
+                continue;
+
+            TerminateProcess(hProc, 1);
+            WaitForSingleObject(hProc, 2500);
+            CloseHandle(hProc);
+        }
+        if (!pids.empty())
+        {
+            Sleep(150);
+        }
     }
 
     void SignalActivationEvent()
@@ -150,7 +250,7 @@ namespace
     {
         const std::wstring expectedExeLower = ToLowerCopy(targetExe);
 
-        // Verifica tanto o mutex do app quanto se o processo já foi disparado há poucos milissegundos
+        // Verifica tanto o mutex do app quanto processos já em execução
         bool instanceExists = false;
         HANDLE hMutex = OpenMutexW(SYNCHRONIZE, FALSE, kInstanceMutexName);
         if (hMutex)
@@ -167,8 +267,8 @@ namespace
             CloseHandle(hMutex);
         }
 
-        DWORD runningPid = 0;
-        if (!instanceExists && HasRunningAppProcess(expectedExeLower, runningPid))
+        auto initialPids = CollectRunningAppPids(expectedExeLower);
+        if (!instanceExists && !initialPids.empty())
         {
             instanceExists = true;
         }
@@ -178,18 +278,45 @@ namespace
 
         SignalActivationEvent();
 
-        // Caso a instância principal ainda esteja finalizando o boot, aguarda brevemente a janela surgir para focar
-        for (int attempt = 0; attempt < 8; ++attempt)
+        DWORD matchedPid = 0;
+        if (HWND hwndNow = FindExistingMainWindow(expectedExeLower, matchedPid))
         {
-            WindowSearchContext ctx{ expectedExeLower };
-            EnumWindows(EnumTopLevelWindowProc, reinterpret_cast<LPARAM>(&ctx));
-            if (ctx.foundHwnd)
-            {
-                if (ctx.foundPid != 0)
-                    AllowSetForegroundWindow(ctx.foundPid);
+            if (matchedPid != 0)
+                AllowSetForegroundWindow(matchedPid);
 
-                ShowWindow(ctx.foundHwnd, IsIconic(ctx.foundHwnd) ? SW_RESTORE : SW_SHOW);
-                SetForegroundWindow(ctx.foundHwnd);
+            ShowWindow(hwndNow, IsIconic(hwndNow) ? SW_RESTORE : SW_SHOW);
+            SetForegroundWindow(hwndNow);
+            SignalActivationEvent();
+            return true;
+        }
+
+        // Se existe um processo recém-iniciado (< 6s), aguarda o boot da janela WinUI;
+        // se todos os processos ativos já estiverem rodando há >= 6s sem janela, trata rapidamente como órfão/travado.
+        bool hasFreshBootProcess = false;
+        for (DWORD pid : initialPids)
+        {
+            if (GetProcessAgeMs(pid) < 6000ULL)
+            {
+                hasFreshBootProcess = true;
+                break;
+            }
+        }
+
+        const int maxAttempts = hasFreshBootProcess ? 40 : 4;
+        const DWORD sleepMs = hasFreshBootProcess ? 150 : 120;
+
+        for (int attempt = 0; attempt < maxAttempts; ++attempt)
+        {
+            Sleep(sleepMs);
+
+            DWORD foundPid = 0;
+            if (HWND foundHwnd = FindExistingMainWindow(expectedExeLower, foundPid))
+            {
+                if (foundPid != 0)
+                    AllowSetForegroundWindow(foundPid);
+
+                ShowWindow(foundHwnd, IsIconic(foundHwnd) ? SW_RESTORE : SW_SHOW);
+                SetForegroundWindow(foundHwnd);
                 SignalActivationEvent();
                 return true;
             }
@@ -200,14 +327,12 @@ namespace
                 // O processo anterior acabou de fechar (ex.: reinício de atualização) — permite abrir o novo
                 return false;
             }
-
-            Sleep(120);
         }
 
-        if (runningPid != 0)
-            AllowSetForegroundWindow(runningPid);
-        SignalActivationEvent();
-        return true;
+        // Nenhum janela real surgiu (processo antigo preso/zumbi sem janela segurando o mutex):
+        // encerra os processos órfãos para que o usuário consiga abrir o YouLink imediatamente.
+        TerminateOrphanAppProcesses(expectedExeLower);
+        return false;
     }
 
     bool LaunchTarget(const std::wstring& exePath, const std::wstring& workDir, const wchar_t* extraArgs)

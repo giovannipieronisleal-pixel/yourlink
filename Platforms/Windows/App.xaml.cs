@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Runtime.InteropServices;
+using System.Text;
 using Microsoft.UI.Xaml;
 
 // To learn more about WinUI, the WinUI project structure,
@@ -22,6 +23,7 @@ namespace appmaui.blazor.WinUI
         private static Mutex? _singleInstanceMutex;
         private static EventWaitHandle? _activateWindowEvent;
         private static int _hasAcquiredMutex;
+        private static int _isShuttingDown;
 
         /// <summary>
         /// Initializes the singleton application object. This is the first line of authored code
@@ -30,6 +32,7 @@ namespace appmaui.blazor.WinUI
         public App()
         {
             this.InitializeComponent();
+            this.UnhandledException += (_, _) => PerformCleanProcessCleanup();
         }
 
         protected override MauiApp CreateMauiApp() => MauiProgram.CreateMauiApp();
@@ -44,9 +47,50 @@ namespace appmaui.blazor.WinUI
             }
 
             StartActivationSignalListener();
-            AppDomain.CurrentDomain.ProcessExit += (_, _) => ReleaseSingleInstanceHandles();
+            AppDomain.CurrentDomain.ProcessExit += (_, _) => PerformCleanProcessCleanup();
 
             base.OnLaunched(args);
+        }
+
+        public static void HandleMainWindowClosed()
+        {
+            if (Interlocked.Exchange(ref _isShuttingDown, 1) != 0)
+                return;
+
+            PerformCleanProcessCleanup();
+
+            try
+            {
+                Microsoft.Maui.Controls.Application.Current?.Quit();
+            }
+            catch
+            {
+            }
+
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await Task.Delay(500).ConfigureAwait(false);
+                }
+                catch
+                {
+                }
+                Environment.Exit(0);
+            });
+        }
+
+        private static void PerformCleanProcessCleanup()
+        {
+            try
+            {
+                appmaui.blazor.Services.LocalWebServerLauncher.Stop();
+            }
+            catch
+            {
+            }
+
+            ReleaseSingleInstanceHandles();
         }
 
         private static bool TryAcquireSingleInstance()
@@ -56,27 +100,27 @@ namespace appmaui.blazor.WinUI
 
             _singleInstanceMutex = new Mutex(initiallyOwned: false, name: SingleInstanceMutexName);
 
-            bool acquired = false;
-            try
-            {
-                acquired = _singleInstanceMutex.WaitOne(0, exitContext: false);
-            }
-            catch (AbandonedMutexException)
-            {
-                acquired = true;
-            }
+            bool acquired = TryWaitMutex(_singleInstanceMutex, 0);
 
-            // Se outro processo já segura o mutex, verifica primeiro se ele já tem janela ativa
-            // (resposta imediata em duplo clique) ou aguarda brevemente caso esteja encerrando para autoatualização.
+            // Se outro processo já segura o mutex, aguarda brevemente caso esteja em boot inicial ou encerrando;
+            // se continuar preso sem janela visível após o prazo, encerra os órfãos e retoma o mutex.
             if (!acquired && !HasExistingYouLinkWindow())
             {
-                try
+                var hasFreshSibling = HasFreshSiblingAppProcess(maxAgeMs: 6000);
+                var maxPollSteps = hasFreshSibling ? 20 : 4;
+
+                for (var step = 0; step < maxPollSteps && !acquired; step++)
                 {
-                    acquired = _singleInstanceMutex.WaitOne(TimeSpan.FromMilliseconds(1200), exitContext: false);
+                    if (HasExistingYouLinkWindow())
+                        break;
+
+                    acquired = TryWaitMutex(_singleInstanceMutex, 200);
                 }
-                catch (AbandonedMutexException)
+
+                if (!acquired && !HasExistingYouLinkWindow())
                 {
-                    acquired = true;
+                    TerminateOrphanWindowlessSiblings();
+                    acquired = TryWaitMutex(_singleInstanceMutex, 1500);
                 }
             }
 
@@ -89,6 +133,71 @@ namespace appmaui.blazor.WinUI
             _singleInstanceMutex.Dispose();
             _singleInstanceMutex = null;
             return false;
+        }
+
+        private static bool TryWaitMutex(Mutex mutex, int timeoutMs)
+        {
+            try
+            {
+                return mutex.WaitOne(timeoutMs, exitContext: false);
+            }
+            catch (AbandonedMutexException)
+            {
+                return true;
+            }
+        }
+
+        private static bool HasFreshSiblingAppProcess(double maxAgeMs)
+        {
+            var currentPid = Environment.ProcessId;
+            var nowUtc = DateTime.UtcNow;
+
+            foreach (var proc in Process.GetProcessesByName("appmaui.blazor"))
+            {
+                using (proc)
+                {
+                    try
+                    {
+                        if (proc.Id == currentPid || proc.HasExited)
+                            continue;
+
+                        var ageMs = (nowUtc - proc.StartTime.ToUniversalTime()).TotalMilliseconds;
+                        if (ageMs < maxAgeMs)
+                            return true;
+                    }
+                    catch
+                    {
+                    }
+                }
+            }
+
+            return false;
+        }
+
+        private static void TerminateOrphanWindowlessSiblings()
+        {
+            var currentPid = Environment.ProcessId;
+
+            foreach (var proc in Process.GetProcessesByName("appmaui.blazor"))
+            {
+                using (proc)
+                {
+                    try
+                    {
+                        if (proc.Id == currentPid || proc.HasExited)
+                            continue;
+
+                        if (FindExistingYouLinkWindowForPid((uint)proc.Id) != IntPtr.Zero)
+                            continue;
+
+                        proc.Kill(entireProcessTree: true);
+                        proc.WaitForExit(2000);
+                    }
+                    catch
+                    {
+                    }
+                }
+            }
         }
 
         private static void StartActivationSignalListener()
@@ -195,12 +304,31 @@ namespace appmaui.blazor.WinUI
             SetForegroundWindow(hwnd);
         }
 
-        private static IntPtr FindExistingYouLinkWindow(out uint targetPid, out string? foundTitle)
+        private static bool IsIgnoredOverlayOrSystemClass(string? className) =>
+            string.Equals(className, "UAC_InputIndicatorOverlayWnd", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(className, "UAC Input Indicator", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(className, "IME", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(className, "MSCTFIME UI", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(className, "CicLoaderWndClass", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(className, "CiceroUIWndFrame", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(className, "Touch Tooltip Window", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(className, "WEBVIEW2_TEMP_PARENT", StringComparison.OrdinalIgnoreCase);
+
+        private static IntPtr FindExistingYouLinkWindowForPid(uint requiredPid) =>
+            FindExistingYouLinkWindowCore(requiredPid, out _, out _);
+
+        private static IntPtr FindExistingYouLinkWindow(out uint targetPid, out string? foundTitle) =>
+            FindExistingYouLinkWindowCore(null, out targetPid, out foundTitle);
+
+        private static IntPtr FindExistingYouLinkWindowCore(uint? requiredPid, out uint targetPid, out string? foundTitle)
         {
             uint currentPid = (uint)Environment.ProcessId;
             IntPtr matchedHwnd = IntPtr.Zero;
             uint matchedPid = 0;
             string? matchedTitle = null;
+            IntPtr fallbackHwnd = IntPtr.Zero;
+            uint fallbackPid = 0;
+            string? fallbackTitle = null;
 
             EnumWindows((hwnd, _) =>
             {
@@ -217,6 +345,9 @@ namespace appmaui.blazor.WinUI
                 if (pid == 0 || pid == currentPid)
                     return true;
 
+                if (requiredPid.HasValue && pid != requiredPid.Value)
+                    return true;
+
                 try
                 {
                     using var proc = Process.GetProcessById((int)pid);
@@ -224,10 +355,28 @@ namespace appmaui.blazor.WinUI
                     if (!string.Equals(procName, "appmaui.blazor", StringComparison.OrdinalIgnoreCase))
                         return true;
 
-                    matchedHwnd = hwnd;
-                    matchedPid = pid;
-                    matchedTitle = proc.MainWindowTitle;
-                    return false;
+                    var clsSb = new StringBuilder(128);
+                    GetClassName(hwnd, clsSb, clsSb.Capacity);
+                    var className = clsSb.ToString();
+                    if (IsIgnoredOverlayOrSystemClass(className))
+                        return true;
+
+                    if (string.Equals(className, "WinUIDesktopWin32WindowClass", StringComparison.OrdinalIgnoreCase))
+                    {
+                        matchedHwnd = hwnd;
+                        matchedPid = pid;
+                        matchedTitle = proc.MainWindowTitle;
+                        return false;
+                    }
+
+                    if (fallbackHwnd == IntPtr.Zero && GetWindowTextLength(hwnd) > 0)
+                    {
+                        fallbackHwnd = hwnd;
+                        fallbackPid = pid;
+                        fallbackTitle = proc.MainWindowTitle;
+                    }
+
+                    return true;
                 }
                 catch
                 {
@@ -235,9 +384,16 @@ namespace appmaui.blazor.WinUI
                 }
             }, IntPtr.Zero);
 
-            targetPid = matchedPid;
-            foundTitle = matchedTitle;
-            return matchedHwnd;
+            if (matchedHwnd != IntPtr.Zero)
+            {
+                targetPid = matchedPid;
+                foundTitle = matchedTitle;
+                return matchedHwnd;
+            }
+
+            targetPid = fallbackPid;
+            foundTitle = fallbackTitle;
+            return fallbackHwnd;
         }
 
         private static void ReleaseSingleInstanceHandles()
@@ -293,6 +449,12 @@ namespace appmaui.blazor.WinUI
 
         [DllImport("user32.dll")]
         private static extern uint GetWindowThreadProcessId(IntPtr hwnd, out uint lpdwProcessId);
+
+        [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+        private static extern int GetClassName(IntPtr hwnd, StringBuilder lpClassName, int nMaxCount);
+
+        [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+        private static extern int GetWindowTextLength(IntPtr hwnd);
 
         [DllImport("user32.dll")]
         private static extern bool ShowWindow(IntPtr hwnd, int nCmdShow);

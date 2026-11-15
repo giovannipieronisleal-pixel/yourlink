@@ -14,7 +14,33 @@ namespace appmaui.blazor
             var window = new Window(new MainPage()) { Title = "YouLink" };
             window.Activated += (_, _) => TriggerUpdateCheck(window);
             window.Resumed += (_, _) => TriggerUpdateCheck(window);
+            window.Destroying += (_, _) => OnMainWindowDestroying();
+#if WINDOWS
+            window.HandlerChanged += (_, _) =>
+            {
+                if (window.Handler?.PlatformView is Microsoft.UI.Xaml.Window winUiWindow)
+                {
+                    winUiWindow.Closed -= OnNativeWindowsWindowClosed;
+                    winUiWindow.Closed += OnNativeWindowsWindowClosed;
+                }
+            };
+#endif
             return window;
+        }
+
+#if WINDOWS
+        private static void OnNativeWindowsWindowClosed(object sender, Microsoft.UI.Xaml.WindowEventArgs args)
+        {
+            appmaui.blazor.WinUI.App.HandleMainWindowClosed();
+        }
+#endif
+
+        private static void OnMainWindowDestroying()
+        {
+            LocalWebServerLauncher.Stop();
+#if WINDOWS
+            appmaui.blazor.WinUI.App.HandleMainWindowClosed();
+#endif
         }
 
         private static void TriggerUpdateCheck(Window window)

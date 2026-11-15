@@ -80,6 +80,7 @@ public class SecurityHardeningAndSingleInstanceTests
         var root = FindRepoRoot();
         var launcherCpp = File.ReadAllText(Path.Combine(root, "installer", "launcher", "YouLinkLauncher.cpp"), Encoding.UTF8);
         var winAppCs = File.ReadAllText(Path.Combine(root, "Platforms", "Windows", "App.xaml.cs"), Encoding.UTF8);
+        var sharedAppCs = File.ReadAllText(Path.Combine(root, "App.xaml.cs"), Encoding.UTF8);
 
         Assert.IsTrue(launcherCpp.Contains(@"Local\\YouLink_AppWindow_Mutex_v1", StringComparison.Ordinal));
         Assert.IsTrue(launcherCpp.Contains(@"Local\\YouLink_ActivateWindow_Event_v1", StringComparison.Ordinal));
@@ -87,13 +88,22 @@ public class SecurityHardeningAndSingleInstanceTests
         Assert.IsTrue(launcherCpp.Contains("EnumWindows", StringComparison.Ordinal));
         Assert.IsTrue(launcherCpp.Contains("AllowSetForegroundWindow", StringComparison.Ordinal));
         Assert.IsTrue(launcherCpp.Contains("SetForegroundWindow", StringComparison.Ordinal));
+        Assert.IsTrue(launcherCpp.Contains("TerminateOrphanAppProcesses", StringComparison.Ordinal));
+        Assert.IsTrue(launcherCpp.Contains("winuidesktopwin32windowclass", StringComparison.Ordinal));
+        Assert.IsTrue(launcherCpp.Contains("uac_inputindicatoroverlaywnd", StringComparison.Ordinal));
 
         Assert.IsTrue(winAppCs.Contains(@"Local\YouLink_AppWindow_Mutex_v1", StringComparison.Ordinal));
         Assert.IsTrue(winAppCs.Contains(@"Local\YouLink_ActivateWindow_Event_v1", StringComparison.Ordinal));
         Assert.IsTrue(winAppCs.Contains("OnLaunched", StringComparison.Ordinal));
         Assert.IsTrue(winAppCs.Contains("TryAcquireSingleInstance", StringComparison.Ordinal));
         Assert.IsTrue(winAppCs.Contains("ActivateExistingYouLinkWindow", StringComparison.Ordinal));
+        Assert.IsTrue(winAppCs.Contains("TerminateOrphanWindowlessSiblings", StringComparison.Ordinal));
+        Assert.IsTrue(winAppCs.Contains("HandleMainWindowClosed", StringComparison.Ordinal));
+        Assert.IsTrue(winAppCs.Contains("WinUIDesktopWin32WindowClass", StringComparison.Ordinal));
         Assert.IsTrue(winAppCs.Contains("Environment.Exit(0)", StringComparison.Ordinal));
+
+        Assert.IsTrue(sharedAppCs.Contains("Destroying", StringComparison.Ordinal));
+        Assert.IsTrue(sharedAppCs.Contains("LocalWebServerLauncher.Stop()", StringComparison.Ordinal));
     }
 
     [TestMethod]
