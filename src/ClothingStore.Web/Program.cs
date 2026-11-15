@@ -3,6 +3,8 @@ using System.Text;
 using System.Threading.RateLimiting;
 using ClothingStore.Application.Interfaces;
 using ClothingStore.Application.Services;
+using ClothingStore.Domain.Entities;
+using ClothingStore.Domain.Enums;
 using ClothingStore.Domain.Exceptions;
 using ClothingStore.Infrastructure.Persistence;
 using ClothingStore.Infrastructure.Security;
@@ -743,6 +745,93 @@ app.MapPost("/api/platform-sync/gift-cards/sync", async (
     return Results.Ok(merged);
 }).DisableAntiforgery();
 
+app.MapGet("/api/platform-sync/accounts", async (
+    HttpContext httpContext,
+    IClothingStoreRepository repository,
+    MultiTenantGatewayService gateway,
+    CloudAccountRegistryService accountRegistry,
+    CancellationToken ct) =>
+{
+    if (!await IsAuthorizedSyncRequestAsync(httpContext, repository, ct))
+    {
+        return Results.Json(
+            new { error = "Chave de sincronização (X-YouLink-Sync-Key) inválida ou ausente." },
+            statusCode: StatusCodes.Status401Unauthorized);
+    }
+
+    var envelope = await BuildPlatformAccountsSyncEnvelopeAsync(
+        repository,
+        gateway,
+        accountRegistry,
+        GetPublicOrigin(httpContext),
+        ct);
+    return Results.Ok(envelope);
+});
+
+app.MapPost("/api/platform-sync/apply-vip", async (
+    HttpContext httpContext,
+    RemoteApplyVipRequest request,
+    IClothingStoreRepository repository,
+    MultiTenantGatewayService gateway,
+    CancellationToken ct) =>
+{
+    if (!await IsAuthorizedSyncRequestAsync(httpContext, repository, ct))
+    {
+        return Results.Json(
+            new { error = "Chave de sincronização (X-YouLink-Sync-Key) inválida ou ausente." },
+            statusCode: StatusCodes.Status401Unauthorized);
+    }
+
+    var targetRepo = await ResolvePlatformSyncTargetRepositoryAsync(repository, gateway, request, ct);
+    var settings = await targetRepo.GetStoreSettingsAsync(ct);
+    var now = DateTimeOffset.UtcNow;
+    var normalizedTier = StoreSettings.NormalizePlanTier(request.PlanTier);
+    DateTimeOffset? nextExpiry = null;
+
+    if (!string.Equals(normalizedTier, StoreSettings.PlanTierBasic, StringComparison.OrdinalIgnoreCase) &&
+        request.DurationDays.HasValue && request.DurationDays.Value > 0)
+    {
+        var baseStart = request.ExtendExistingDuration &&
+                        string.Equals(settings.PlanTier, normalizedTier, StringComparison.OrdinalIgnoreCase) &&
+                        settings.PlanExpiresAt.HasValue &&
+                        settings.PlanExpiresAt.Value > now
+            ? settings.PlanExpiresAt.Value
+            : now;
+        nextExpiry = baseStart.AddDays(request.DurationDays.Value);
+    }
+
+    settings.UpdatePlanAndDesign(normalizedTier, designConfig: settings.DesignConfig);
+    settings.PlanExpiresAt = nextExpiry;
+    if (request.ActivateSite)
+        settings.ActivateSite();
+    await targetRepo.UpdateStoreSettingsAsync(settings, ct);
+    await TryFlushCloudMirrorAsync(httpContext, ct);
+
+    return Results.Ok(EmployeeAndSettingsService.MapToAdminSettingsDto(settings));
+}).DisableAntiforgery();
+
+app.MapPost("/api/platform-sync/toggle-user-active/{userId:guid}", async (
+    Guid userId,
+    HttpContext httpContext,
+    IClothingStoreRepository repository,
+    MultiTenantGatewayService gateway,
+    CancellationToken ct) =>
+{
+    if (!await IsAuthorizedSyncRequestAsync(httpContext, repository, ct))
+    {
+        return Results.Json(
+            new { error = "Chave de sincronização (X-YouLink-Sync-Key) inválida ou ausente." },
+            statusCode: StatusCodes.Status401Unauthorized);
+    }
+
+    var result = await ToggleUserActiveAcrossRepositoriesAsync(userId, repository, gateway, ct);
+    if (result is null)
+        return Results.NotFound(new { error = "Usuário não encontrado no servidor." });
+
+    await TryFlushCloudMirrorAsync(httpContext, ct);
+    return Results.Ok(result);
+}).DisableAntiforgery();
+
 app.MapGet("/planos/retorno", async (
     string? orderNumber,
     string? status,
@@ -1262,4 +1351,316 @@ static async Task TryFlushCloudMirrorAsync(HttpContext ctx, CancellationToken ct
     catch
     {
     }
+}
+
+static async Task<PlatformAccountsSyncEnvelopeDto> BuildPlatformAccountsSyncEnvelopeAsync(
+    IClothingStoreRepository rootRepository,
+    MultiTenantGatewayService gateway,
+    CloudAccountRegistryService accountRegistry,
+    string publicOrigin,
+    CancellationToken ct)
+{
+    var rootSettings = await rootRepository.GetStoreSettingsAsync(ct);
+    var rootEffectiveTier = rootSettings.GetEffectivePlanTier();
+    var rootPublicUrl = ResolveCentralStorePublicUrl(rootSettings.OnlineBaseUrl, null, publicOrigin);
+
+    var accounts = new List<PlatformAccountSyncDto>();
+    var seenEmails = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+    var seenUsernames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+    var tenantBySlug = new Dictionary<string, (StoreSettings Settings, string? PublicUrl, string EffectiveTier, string? OwnerEmail)>(StringComparer.OrdinalIgnoreCase);
+
+    await AppendRepositoryAccountsAsync(
+        rootRepository,
+        rootSettings,
+        rootPublicUrl,
+        rootEffectiveTier,
+        accounts,
+        seenEmails,
+        seenUsernames,
+        ct);
+
+    var tenantSlugs = await gateway.StoreResolver.ListTenantSlugsAsync(ct);
+    foreach (var slug in tenantSlugs)
+    {
+        if (string.IsNullOrWhiteSpace(slug) || string.Equals(slug, "__root__", StringComparison.OrdinalIgnoreCase))
+            continue;
+
+        var tenantRepo = await gateway.StoreResolver.ResolveReadRepositoryAsync(slug, ct);
+        if (tenantRepo is null || ReferenceEquals(tenantRepo, rootRepository))
+            continue;
+
+        var tenantSettings = await tenantRepo.GetStoreSettingsAsync(ct);
+        var tenantTier = tenantSettings.GetEffectivePlanTier();
+        var tenantUrl = ResolveCentralStorePublicUrl(tenantSettings.OnlineBaseUrl, slug, publicOrigin);
+        var creds = await gateway.StoreResolver.GetTenantCredentialsAsync(slug, ct);
+
+        tenantBySlug[slug] = (tenantSettings, tenantUrl, tenantTier, creds?.OwnerEmail);
+
+        await AppendRepositoryAccountsAsync(
+            tenantRepo,
+            tenantSettings,
+            tenantUrl,
+            tenantTier,
+            accounts,
+            seenEmails,
+            seenUsernames,
+            ct);
+    }
+
+    var cloudAccounts = await accountRegistry.GetAllAccountsAsync(ct);
+    foreach (var acc in cloudAccounts)
+    {
+        var emailKey = acc.Email.Trim();
+        var usernameKey = acc.Username.Trim();
+        if ((!string.IsNullOrWhiteSpace(emailKey) && seenEmails.Contains(emailKey)) ||
+            (!string.IsNullOrWhiteSpace(usernameKey) && seenUsernames.Contains(usernameKey)))
+        {
+            continue;
+        }
+
+        StoreSettings? matchedTenantSettings = null;
+        string? matchedUrl = null;
+        string matchedTier = StoreSettings.PlanTierBasic;
+        DateTimeOffset? matchedExpiry = null;
+
+        if (!string.IsNullOrWhiteSpace(acc.StoreSlug) &&
+            tenantBySlug.TryGetValue(acc.StoreSlug, out var bySlug))
+        {
+            matchedTenantSettings = bySlug.Settings;
+            matchedUrl = bySlug.PublicUrl;
+            matchedTier = bySlug.EffectiveTier;
+            matchedExpiry = bySlug.Settings.PlanExpiresAt;
+        }
+        else if (!string.IsNullOrWhiteSpace(emailKey))
+        {
+            foreach (var kv in tenantBySlug.Values)
+            {
+                if (!string.IsNullOrWhiteSpace(kv.OwnerEmail) &&
+                    string.Equals(kv.OwnerEmail.Trim(), emailKey, StringComparison.OrdinalIgnoreCase))
+                {
+                    matchedTenantSettings = kv.Settings;
+                    matchedUrl = kv.PublicUrl;
+                    matchedTier = kv.EffectiveTier;
+                    matchedExpiry = kv.Settings.PlanExpiresAt;
+                    break;
+                }
+            }
+        }
+
+        if (matchedUrl is null && !string.IsNullOrWhiteSpace(acc.StoreSlug))
+        {
+            matchedUrl = ResolveCentralStorePublicUrl(null, acc.StoreSlug, publicOrigin);
+        }
+
+        if (!string.IsNullOrWhiteSpace(emailKey))
+            seenEmails.Add(emailKey);
+        if (!string.IsNullOrWhiteSpace(usernameKey))
+            seenUsernames.Add(usernameKey);
+
+        accounts.Add(new PlatformAccountSyncDto(
+            UserId: Guid.Empty,
+            EmployeeId: Guid.Empty,
+            FullName: acc.FullName,
+            Username: acc.Username,
+            Email: acc.Email,
+            RoleName: RoleNames.Admin,
+            JobTitle: matchedTenantSettings?.StoreName ?? acc.StoreName,
+            Phone: acc.Phone ?? matchedTenantSettings?.WhatsappNumber,
+            IsActive: matchedTenantSettings?.IsSiteActive ?? true,
+            TwoFactorEnabled: false,
+            CreatedAt: acc.CreatedAt,
+            LastLoginAt: acc.UpdatedAt,
+            StoreName: matchedTenantSettings?.StoreName ?? acc.StoreName,
+            StoreSlug: matchedTenantSettings?.StoreSlug ?? acc.StoreSlug,
+            OnlineBaseUrl: matchedUrl,
+            PlanTier: matchedTier,
+            PlanExpiresAt: matchedExpiry));
+    }
+
+    // Inclui lojas publicadas cujo dono tenha publicado sem registro prévio no CloudAccountRegistry
+    foreach (var (slug, info) in tenantBySlug)
+    {
+        var alreadyListed = accounts.Any(a =>
+            string.Equals(a.StoreSlug, slug, StringComparison.OrdinalIgnoreCase) ||
+            (!string.IsNullOrWhiteSpace(info.OwnerEmail) &&
+             string.Equals(a.Email, info.OwnerEmail, StringComparison.OrdinalIgnoreCase)));
+
+        if (alreadyListed)
+            continue;
+
+        var email = info.OwnerEmail;
+        var derivedUsername = !string.IsNullOrWhiteSpace(email)
+            ? User.DeriveDefaultUsername(email)
+            : slug;
+
+        accounts.Add(new PlatformAccountSyncDto(
+            UserId: Guid.Empty,
+            EmployeeId: Guid.Empty,
+            FullName: info.Settings.StoreName,
+            Username: derivedUsername,
+            Email: email,
+            RoleName: "Lojista",
+            JobTitle: info.Settings.StoreName,
+            Phone: info.Settings.WhatsappNumber,
+            IsActive: info.Settings.IsSiteActive,
+            TwoFactorEnabled: false,
+            CreatedAt: info.Settings.UpdatedAt,
+            LastLoginAt: info.Settings.LastOnlineSyncAt,
+            StoreName: info.Settings.StoreName,
+            StoreSlug: string.IsNullOrWhiteSpace(info.Settings.StoreSlug) ? slug : info.Settings.StoreSlug,
+            OnlineBaseUrl: info.PublicUrl,
+            PlanTier: info.EffectiveTier,
+            PlanExpiresAt: info.Settings.PlanExpiresAt));
+    }
+
+    return new PlatformAccountsSyncEnvelopeDto(
+        ServerVersion: AppUpdateCatalog.CurrentAppVersion,
+        ServerTimeUtc: DateTimeOffset.UtcNow,
+        StoreName: rootSettings.StoreName,
+        PlanTier: rootEffectiveTier,
+        PlanExpiresAt: rootSettings.PlanExpiresAt,
+        OnlineBaseUrl: rootPublicUrl,
+        Accounts: accounts);
+}
+
+static async Task AppendRepositoryAccountsAsync(
+    IClothingStoreRepository repository,
+    StoreSettings settings,
+    string? publicUrl,
+    string effectiveTier,
+    List<PlatformAccountSyncDto> target,
+    HashSet<string> seenEmails,
+    HashSet<string> seenUsernames,
+    CancellationToken ct)
+{
+    var employees = await repository.GetEmployeesAsync(ct);
+    foreach (var emp in employees)
+    {
+        var user = emp.User ?? await repository.GetUserByIdAsync(emp.UserId, ct);
+        if (user is null)
+            continue;
+
+        var username = string.IsNullOrWhiteSpace(user.Username)
+            ? User.DeriveDefaultUsername(user.Email)
+            : user.Username;
+        var email = user.HasEmailAddress ? user.Email : null;
+
+        if ((!string.IsNullOrWhiteSpace(email) && !seenEmails.Add(email.Trim())) ||
+            (!string.IsNullOrWhiteSpace(username) && !seenUsernames.Add(username.Trim())))
+        {
+            continue;
+        }
+
+        target.Add(new PlatformAccountSyncDto(
+            UserId: user.Id,
+            EmployeeId: emp.Id,
+            FullName: emp.FullName,
+            Username: username,
+            Email: email,
+            RoleName: user.Role?.Name ?? RoleNames.Employee,
+            JobTitle: emp.JobTitle,
+            Phone: emp.Phone,
+            IsActive: emp.IsActive && user.IsActive,
+            TwoFactorEnabled: user.TwoFactorEnabled,
+            CreatedAt: user.CreatedAt,
+            LastLoginAt: user.LastLoginAt,
+            StoreName: settings.StoreName,
+            StoreSlug: settings.StoreSlug,
+            OnlineBaseUrl: publicUrl,
+            PlanTier: effectiveTier,
+            PlanExpiresAt: settings.PlanExpiresAt));
+    }
+}
+
+static string? ResolveCentralStorePublicUrl(string? onlineBaseUrl, string? tenantSlug, string publicOrigin)
+{
+    if (!string.IsNullOrWhiteSpace(onlineBaseUrl) && !StoreSettings.IsPlaceholderStoreUrl(onlineBaseUrl))
+        return onlineBaseUrl.Trim().TrimEnd('/');
+
+    if (string.IsNullOrWhiteSpace(publicOrigin))
+        return null;
+
+    return string.IsNullOrWhiteSpace(tenantSlug)
+        ? publicOrigin.TrimEnd('/')
+        : WhatsAppLinkBuilder.BuildCentralTenantCatalogUrl(publicOrigin, tenantSlug);
+}
+
+static async Task<IClothingStoreRepository> ResolvePlatformSyncTargetRepositoryAsync(
+    IClothingStoreRepository rootRepository,
+    MultiTenantGatewayService gateway,
+    RemoteApplyVipRequest request,
+    CancellationToken ct)
+{
+    var targetStoreName = request.StoreName?.Trim();
+    var targetEmail = request.TargetEmail?.Trim();
+    var targetSlug = string.IsNullOrWhiteSpace(targetStoreName)
+        ? null
+        : gateway.StoreResolver.NormalizeStoreSlug(targetStoreName);
+
+    foreach (var slug in await gateway.StoreResolver.ListTenantSlugsAsync(ct))
+    {
+        if (string.IsNullOrWhiteSpace(slug) || string.Equals(slug, "__root__", StringComparison.OrdinalIgnoreCase))
+            continue;
+
+        var repo = await gateway.StoreResolver.ResolveReadRepositoryAsync(slug, ct);
+        if (repo is null || ReferenceEquals(repo, rootRepository))
+            continue;
+
+        var settings = await repo.GetStoreSettingsAsync(ct);
+        var creds = await gateway.StoreResolver.GetTenantCredentialsAsync(slug, ct);
+
+        var nameMatches = !string.IsNullOrWhiteSpace(targetStoreName) &&
+                          (string.Equals(settings.StoreName, targetStoreName, StringComparison.OrdinalIgnoreCase) ||
+                           string.Equals(slug, targetSlug, StringComparison.OrdinalIgnoreCase));
+        var emailMatches = !string.IsNullOrWhiteSpace(targetEmail) &&
+                           !string.IsNullOrWhiteSpace(creds?.OwnerEmail) &&
+                           string.Equals(creds.OwnerEmail.Trim(), targetEmail, StringComparison.OrdinalIgnoreCase);
+
+        if (nameMatches || emailMatches)
+            return repo;
+    }
+
+    return rootRepository;
+}
+
+static async Task<RemoteToggleUserActiveResponse?> ToggleUserActiveAcrossRepositoriesAsync(
+    Guid userId,
+    IClothingStoreRepository rootRepository,
+    MultiTenantGatewayService gateway,
+    CancellationToken ct)
+{
+    var repos = new List<IClothingStoreRepository> { rootRepository };
+    foreach (var slug in await gateway.StoreResolver.ListTenantSlugsAsync(ct))
+    {
+        if (string.IsNullOrWhiteSpace(slug) || string.Equals(slug, "__root__", StringComparison.OrdinalIgnoreCase))
+            continue;
+
+        var repo = await gateway.StoreResolver.ResolveReadRepositoryAsync(slug, ct);
+        if (repo is not null && !ReferenceEquals(repo, rootRepository))
+            repos.Add(repo);
+    }
+
+    foreach (var repo in repos)
+    {
+        var user = await repo.GetUserByIdAsync(userId, ct);
+        if (user is null)
+            continue;
+
+        var employee = await repo.GetEmployeeByUserIdAsync(user.Id, ct);
+        if (employee is null)
+            continue;
+
+        var nextActive = !(user.IsActive && employee.IsActive);
+        user.IsActive = nextActive;
+        employee.IsActive = nextActive;
+        await repo.UpdateEmployeeAsync(employee, user, ct);
+
+        return new RemoteToggleUserActiveResponse(
+            user.Id,
+            employee.Id,
+            nextActive,
+            nextActive ? $"Conta '{employee.FullName}' reativada no servidor." : $"Conta '{employee.FullName}' suspensa no servidor.");
+    }
+
+    return null;
 }

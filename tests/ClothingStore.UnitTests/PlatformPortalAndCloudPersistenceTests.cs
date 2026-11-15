@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Net;
+using System.Net.Http.Json;
 using System.Net.Sockets;
 using System.Text;
 using System.Text.Json;
@@ -780,6 +781,37 @@ public sealed class PlatformPortalAndCloudPersistenceTests
                 var listedAfterRedeem = await syncClient.GetPlatformGiftCardsSyncAsync("portal-loopback-sync-secret");
                 Assert.AreEqual(1, listedAfterRedeem.Count);
                 Assert.IsNotNull(listedAfterRedeem[0].RedeemedAt);
+
+                // Endpoints /api/platform-sync/accounts e /apply-vip em ClothingStore.Web (multi-tenant + CloudAccountRegistry)
+                await Assert.ThrowsExceptionAsync<InvalidOperationException>(
+                    () => syncClient.GetPlatformAccountsSyncAsync("chave-incorreta"));
+
+                var upsertRes = await http.PostAsJsonAsync("/api/cloud/accounts/upsert", new CloudAccountCredentialSyncDto(
+                    FullName: "Ana Boutique",
+                    Username: "ana.boutique",
+                    Email: "ana.boutique@gmail.com",
+                    PasswordHash: "pbkdf2-dummy-hash",
+                    Phone: "5511988887777",
+                    StoreName: "Boutique Luz Real",
+                    StoreSlug: "boutique-luz"));
+                Assert.AreEqual(HttpStatusCode.OK, upsertRes.StatusCode);
+
+                var envelope = await syncClient.GetPlatformAccountsSyncAsync("portal-loopback-sync-secret");
+                var tenantAccount = envelope.Accounts.FirstOrDefault(a =>
+                    string.Equals(a.StoreSlug, "boutique-luz", StringComparison.OrdinalIgnoreCase));
+                Assert.IsNotNull(tenantAccount, "Conta na nuvem vinculada à loja publicada /loja/boutique-luz deve aparecer em /api/platform-sync/accounts.");
+                Assert.AreEqual("ana.boutique@gmail.com", tenantAccount!.Email);
+                Assert.IsTrue(tenantAccount.OnlineBaseUrl?.Contains("/loja/boutique-luz", StringComparison.OrdinalIgnoreCase) == true);
+
+                var vipApplied = await syncClient.ApplyRemoteVipAsync(
+                    new RemoteApplyVipRequest(
+                        PlanTier: StoreSettings.PlanTierPremium,
+                        DurationDays: 45,
+                        ExtendExistingDuration: false,
+                        ActivateSite: true,
+                        StoreName: "Boutique Luz Real"),
+                    "portal-loopback-sync-secret");
+                Assert.AreEqual(StoreSettings.PlanTierPremium, vipApplied.PlanTier);
             }
             finally
             {
