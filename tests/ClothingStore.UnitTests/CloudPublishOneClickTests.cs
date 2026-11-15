@@ -943,4 +943,37 @@ public sealed class CloudPublishOneClickTests
             }
         }
     }
+
+    [TestMethod]
+    public void ManifestRelativeAssetResolution_And_AdminUpdateHardening_ShouldWork()
+    {
+        Assert.AreEqual(
+            "https://updates.example.com/admin/YouLinkAdmin-Android-v1.1.8.apk",
+            AppUpdateCatalog.ResolveManifestAssetUrl(
+                "https://updates.example.com/admin/admin-update.json",
+                "YouLinkAdmin-Android-v1.1.8.apk"));
+
+        Assert.AreEqual(
+            "https://cdn.example.com/pkg/app.zip",
+            AppUpdateCatalog.ResolveManifestAssetUrl(
+                "https://updates.example.com/admin/admin-update.json",
+                "https://cdn.example.com/pkg/app.zip"));
+
+        var root = ResolveRepoRoot();
+        var adminRoot = Path.Combine(root, "src", "ClothingStore.AdminApp");
+        if (Directory.Exists(adminRoot))
+        {
+            var adminCsproj = File.ReadAllText(Path.Combine(adminRoot, "ClothingStore.AdminApp.csproj"));
+            var adminUpdater = File.ReadAllText(Path.Combine(adminRoot, "Services", "AdminUpdateService.cs"));
+            var adminModal = File.ReadAllText(Path.Combine(adminRoot, "Components", "Shared", "AdminUpdateModal.razor"));
+
+            Assert.IsTrue(adminCsproj.Contains("youlink-admin-official.keystore", StringComparison.Ordinal));
+            Assert.IsTrue(adminUpdater.Contains("ResolveManifestAssetUrl(", StringComparison.Ordinal));
+            Assert.IsTrue(adminUpdater.Contains("ReplaceConflictingAndroidPackageAsync", StringComparison.Ordinal));
+            Assert.IsTrue(adminUpdater.Contains("ZipFile.OpenRead", StringComparison.Ordinal));
+            Assert.IsFalse(adminModal.Contains("style=\"", StringComparison.OrdinalIgnoreCase),
+                "AdminUpdateModal.razor não deve conter atributos style inline.");
+            Assert.IsTrue(adminModal.Contains("ReplaceConflictingAndroidAsync", StringComparison.Ordinal));
+        }
+    }
 }

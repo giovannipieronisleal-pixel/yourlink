@@ -513,6 +513,28 @@ public sealed record PlatformGiftCardSyncDto(
 public sealed record SyncPlatformGiftCardsRequest(
     IReadOnlyList<PlatformGiftCardSyncDto> GiftCards);
 
+public sealed record PlatformGiftCardValidationResponse(
+    string Code,
+    bool IsValid,
+    string Status,
+    string Message,
+    string? TargetPlanTier = null,
+    int? DurationDays = null,
+    bool IsGiftedUnpaid = false,
+    string? SuggestedDomainName = null,
+    string? RedeemedByStoreName = null,
+    DateTimeOffset? RedeemedAt = null,
+    DateTimeOffset? CodeExpiresAt = null);
+
+public sealed record PlatformGiftCardSyncStatusDto(
+    bool SyncAuthorized,
+    int TotalCards,
+    int AvailableCards,
+    int RedeemedCards,
+    int RevokedCards,
+    DateTimeOffset ServerTimestampUtc,
+    string? CentralServerUrl = null);
+
 public sealed record PlatformPlanCatalogDto(
     decimal BasicPlanMonthlyPrice,
     decimal IntermediaryPlanMonthlyPrice,

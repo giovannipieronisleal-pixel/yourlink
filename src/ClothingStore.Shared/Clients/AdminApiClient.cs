@@ -732,6 +732,20 @@ public sealed class AdminApiClient
         return (await response.Content.ReadFromJsonAsync<PlatformGiftCardRedeemResponse>(cancellationToken: ct))!;
     }
 
+    public async Task<PlatformGiftCardValidationResponse> ValidatePlatformGiftCardAsync(
+        PlatformGiftCardRedeemRequest request,
+        CancellationToken ct = default)
+    {
+        var response = await PostBufferedJsonAsync("/api/platform-sync/gift-cards/validate", request, ct);
+        await EnsureSuccessOrThrowAsync(response, ct);
+        return (await response.Content.ReadFromJsonAsync<PlatformGiftCardValidationResponse>(cancellationToken: ct))!;
+    }
+
+    public async Task<PlatformGiftCardSyncStatusDto> GetPlatformGiftCardSyncStatusAsync(
+        string? syncSecret,
+        CancellationToken ct = default) =>
+        await SendSyncRequestAsync<PlatformGiftCardSyncStatusDto>(HttpMethod.Get, "/api/platform-sync/gift-cards/status", syncSecret, content: null, ct);
+
     public async Task<IReadOnlyList<PlatformGiftCardSyncDto>> GetPlatformGiftCardsSyncAsync(
         string? syncSecret,
         CancellationToken ct = default) =>
@@ -791,6 +805,23 @@ public sealed class AdminApiClient
             req.Headers.Add("X-YouLink-Sync-Key", syncSecret.Trim());
 
         var response = await _httpClient.SendAsync(req, ct);
+        if (response.StatusCode == System.Net.HttpStatusCode.Unauthorized)
+        {
+            var raw = await response.Content.ReadAsStringAsync(ct);
+            try
+            {
+                using var doc = JsonDocument.Parse(raw);
+                if (doc.RootElement.TryGetProperty("error", out var errProp) && !string.IsNullOrWhiteSpace(errProp.GetString()))
+                    throw new InvalidOperationException(errProp.GetString()!);
+            }
+            catch (JsonException)
+            {
+            }
+
+            throw new InvalidOperationException(
+                "Chave de Sincronização (X-YouLink-Sync-Key) recusada pelo servidor (401). Verifique se a chave no YouLink Admin corresponde à variável YOULINK_SYNC_SECRET do servidor.");
+        }
+
         await EnsureSuccessOrThrowAsync(response, ct);
         return (await response.Content.ReadFromJsonAsync<T>(cancellationToken: ct))!;
     }

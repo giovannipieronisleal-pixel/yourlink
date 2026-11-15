@@ -4,6 +4,7 @@ using ClothingStore.Domain.Entities;
 using ClothingStore.Domain.Enums;
 using ClothingStore.Domain.Exceptions;
 using ClothingStore.Shared.DTOs;
+using ClothingStore.Shared.Helpers;
 
 namespace ClothingStore.Application.Services;
 
@@ -515,6 +516,63 @@ public sealed class EmployeeAndSettingsService
     }
 
     /// <summary>
+    /// Valida um código Gift Card sem consumi-lo, retornando o status detalhado e informações do plano.
+    /// </summary>
+    public async Task<PlatformGiftCardValidationResponse> ValidateGiftCardForRemoteStoreAsync(
+        PlatformGiftCardRedeemRequest request,
+        CancellationToken ct = default)
+    {
+        var check = await EvaluateRemoteGiftCardAsync(request, ct);
+        if (!check.IsEligible)
+        {
+            return new PlatformGiftCardValidationResponse(
+                Code: check.NormalizedCode,
+                IsValid: false,
+                Status: check.Status,
+                Message: check.ErrorMessage!,
+                TargetPlanTier: check.Code is not null ? StoreSettings.NormalizePlanTier(check.Code.TargetPlanTier) : null,
+                DurationDays: check.Code?.DurationDays,
+                IsGiftedUnpaid: check.Code?.IsGiftedUnpaid ?? false,
+                SuggestedDomainName: check.Code?.SuggestedDomainName,
+                RedeemedByStoreName: check.Code?.RedeemedByStoreName,
+                RedeemedAt: check.Code?.RedeemedAt,
+                CodeExpiresAt: check.Code?.CodeExpiresAt);
+        }
+
+        var code = check.Code!;
+        var tier = StoreSettings.NormalizePlanTier(code.TargetPlanTier);
+        return new PlatformGiftCardValidationResponse(
+            Code: code.Code,
+            IsValid: true,
+            Status: GiftCardErrorClassifier.StatusAvailable,
+            Message: $"Gift Card '{code.Code}' válido para ativar o Plano {tier} ({code.GetDurationLabel()}).",
+            TargetPlanTier: tier,
+            DurationDays: code.DurationDays,
+            IsGiftedUnpaid: code.IsGiftedUnpaid,
+            SuggestedDomainName: code.SuggestedDomainName,
+            CodeExpiresAt: code.CodeExpiresAt);
+    }
+
+    public async Task<PlatformGiftCardSyncStatusDto> GetGiftCardSyncStatusAsync(
+        string? centralServerUrl = null,
+        CancellationToken ct = default)
+    {
+        var codes = await _repository.GetPlanActivationCodesAsync(ct);
+        var now = DateTimeOffset.UtcNow;
+        var redeemed = codes.Count(c => c.IsRedeemed);
+        var revoked = codes.Count(c => !c.IsRedeemed && c.IsRevoked);
+        var available = codes.Count(c => c.CanRedeem(now));
+        return new PlatformGiftCardSyncStatusDto(
+            SyncAuthorized: true,
+            TotalCards: codes.Count,
+            AvailableCards: available,
+            RedeemedCards: redeemed,
+            RevokedCards: revoked,
+            ServerTimestampUtc: now,
+            CentralServerUrl: centralServerUrl);
+    }
+
+    /// <summary>
     /// Valida e marca um Gift Card como resgatado pela loja destinatária sem sobrescrever
     /// as configurações locais da loja do administrador na central.
     /// </summary>
@@ -522,38 +580,13 @@ public sealed class EmployeeAndSettingsService
         PlatformGiftCardRedeemRequest request,
         CancellationToken ct = default)
     {
-        if (request is null || string.IsNullOrWhiteSpace(request.Code))
-            throw new DomainException("Digite o código do Gift Card para resgatar seu plano.");
+        var check = await EvaluateRemoteGiftCardAsync(request, ct);
+        if (!check.IsEligible)
+            throw new DomainException(check.ErrorMessage!);
 
-        var normalizedCode = request.Code.Trim().ToUpperInvariant();
-        var code = await _repository.GetPlanActivationCodeByCodeAsync(normalizedCode, ct)
-            ?? throw new DomainException($"Código Gift Card '{normalizedCode}' não encontrado.");
-
-        if (code.IsRevoked)
-            throw new DomainException("Este código Gift Card está pausado/revogado pelo administrador.");
-
-        if (code.IsRedeemed)
-        {
-            var usedBy = string.IsNullOrWhiteSpace(code.RedeemedByStoreName)
-                ? string.Empty
-                : $" por '{code.RedeemedByStoreName}'";
-            throw new DomainException($"Este código Gift Card já foi resgatado{usedBy}.");
-        }
-
-        var now = DateTimeOffset.UtcNow;
-        if (code.CodeExpiresAt.HasValue && now >= code.CodeExpiresAt.Value)
-            throw new DomainException("Este código Gift Card expirou antes do resgate.");
-
-        var redeemingStoreName = string.IsNullOrWhiteSpace(request.StoreName)
-            ? "Loja Parceira"
-            : request.StoreName.Trim();
-
-        if (!string.IsNullOrWhiteSpace(code.TargetStoreName) &&
-            !string.Equals(code.TargetStoreName, redeemingStoreName, StringComparison.OrdinalIgnoreCase))
-        {
-            throw new DomainException($"Este Gift Card foi emitido exclusivamente para a loja '{code.TargetStoreName}'.");
-        }
-
+        var code = check.Code!;
+        var now = check.EvaluatedAt;
+        var redeemingStoreName = check.RedeemingStoreName;
         DateTimeOffset? appliedExpiry = code.DurationDays.HasValue
             ? now.AddDays(code.DurationDays.Value)
             : null;
@@ -570,6 +603,112 @@ public sealed class EmployeeAndSettingsService
             code.SuggestedDomainName,
             redeemingStoreName,
             $"Gift Card {code.Code} validado para a loja '{redeemingStoreName}'.");
+    }
+
+    private sealed record RemoteGiftCardEvaluation(
+        bool IsEligible,
+        string NormalizedCode,
+        string Status,
+        string? ErrorMessage,
+        PlanActivationCode? Code,
+        string RedeemingStoreName,
+        DateTimeOffset EvaluatedAt);
+
+    private async Task<RemoteGiftCardEvaluation> EvaluateRemoteGiftCardAsync(
+        PlatformGiftCardRedeemRequest? request,
+        CancellationToken ct)
+    {
+        var now = DateTimeOffset.UtcNow;
+        if (request is null || string.IsNullOrWhiteSpace(request.Code))
+        {
+            return new RemoteGiftCardEvaluation(
+                false,
+                string.Empty,
+                GiftCardErrorClassifier.StatusInvalidInput,
+                "Digite o código do Gift Card para resgatar seu plano.",
+                null,
+                "Loja Parceira",
+                now);
+        }
+
+        var normalizedCode = request.Code.Trim().ToUpperInvariant().Replace(" ", "-");
+        var redeemingStoreName = string.IsNullOrWhiteSpace(request.StoreName)
+            ? "Loja Parceira"
+            : request.StoreName.Trim();
+
+        var code = await _repository.GetPlanActivationCodeByCodeAsync(normalizedCode, ct);
+        if (code is null)
+        {
+            return new RemoteGiftCardEvaluation(
+                false,
+                normalizedCode,
+                GiftCardErrorClassifier.StatusNotFound,
+                $"Código Gift Card '{normalizedCode}' não encontrado.",
+                null,
+                redeemingStoreName,
+                now);
+        }
+
+        if (code.IsRevoked)
+        {
+            return new RemoteGiftCardEvaluation(
+                false,
+                normalizedCode,
+                GiftCardErrorClassifier.StatusRevoked,
+                "Este código Gift Card está pausado/revogado pelo administrador.",
+                code,
+                redeemingStoreName,
+                now);
+        }
+
+        if (code.IsRedeemed)
+        {
+            var usedBy = string.IsNullOrWhiteSpace(code.RedeemedByStoreName)
+                ? string.Empty
+                : $" por '{code.RedeemedByStoreName}'";
+            return new RemoteGiftCardEvaluation(
+                false,
+                normalizedCode,
+                GiftCardErrorClassifier.StatusAlreadyRedeemed,
+                $"Este código Gift Card já foi resgatado{usedBy}.",
+                code,
+                redeemingStoreName,
+                now);
+        }
+
+        if (code.CodeExpiresAt.HasValue && now >= code.CodeExpiresAt.Value)
+        {
+            return new RemoteGiftCardEvaluation(
+                false,
+                normalizedCode,
+                GiftCardErrorClassifier.StatusExpired,
+                "Este código Gift Card expirou antes do resgate.",
+                code,
+                redeemingStoreName,
+                now);
+        }
+
+        if (!string.IsNullOrWhiteSpace(code.TargetStoreName) &&
+            !string.Equals(code.TargetStoreName, redeemingStoreName, StringComparison.OrdinalIgnoreCase))
+        {
+            return new RemoteGiftCardEvaluation(
+                false,
+                normalizedCode,
+                GiftCardErrorClassifier.StatusStoreMismatch,
+                $"Este Gift Card foi emitido exclusivamente para a loja '{code.TargetStoreName}'.",
+                code,
+                redeemingStoreName,
+                now);
+        }
+
+        return new RemoteGiftCardEvaluation(
+            true,
+            normalizedCode,
+            GiftCardErrorClassifier.StatusAvailable,
+            null,
+            code,
+            redeemingStoreName,
+            now);
     }
 
     /// <summary>
@@ -727,11 +866,34 @@ public sealed class EmployeeAndSettingsService
                 {
                     var incomingUpdated = dto.StatusUpdatedAt ?? dto.CreatedAt;
                     var existingUpdated = existing.StatusUpdatedAt ?? existing.CreatedAt;
-                    if (incomingUpdated > existingUpdated && existing.IsRevoked != dto.IsRevoked)
+                    if (incomingUpdated > existingUpdated)
                     {
-                        existing.IsRevoked = dto.IsRevoked;
-                        existing.StatusUpdatedAt = incomingUpdated;
-                        changed = true;
+                        var normalizedTier = StoreSettings.NormalizePlanTier(dto.TargetPlanTier);
+                        var normalizedBilling = string.Equals(dto.PlanBillingKind, PlanActivationCode.BillingKindGiftedUnpaid, StringComparison.OrdinalIgnoreCase)
+                            ? PlanActivationCode.BillingKindGiftedUnpaid
+                            : PlanActivationCode.BillingKindPaid;
+                        var normalizedTargetStore = string.IsNullOrWhiteSpace(dto.TargetStoreName) ? null : dto.TargetStoreName.Trim();
+
+                        if (existing.IsRevoked != dto.IsRevoked ||
+                            !string.Equals(existing.TargetPlanTier, normalizedTier, StringComparison.Ordinal) ||
+                            existing.DurationDays != dto.DurationDays ||
+                            !string.Equals(existing.TargetStoreName, normalizedTargetStore, StringComparison.Ordinal) ||
+                            !string.Equals(existing.Notes, dto.Notes, StringComparison.Ordinal) ||
+                            !string.Equals(existing.PlanBillingKind, normalizedBilling, StringComparison.Ordinal) ||
+                            !string.Equals(existing.SuggestedDomainName, dto.SuggestedDomainName, StringComparison.Ordinal) ||
+                            existing.CodeExpiresAt != dto.CodeExpiresAt)
+                        {
+                            existing.IsRevoked = dto.IsRevoked;
+                            existing.TargetPlanTier = normalizedTier;
+                            existing.DurationDays = dto.DurationDays;
+                            existing.TargetStoreName = normalizedTargetStore;
+                            existing.Notes = dto.Notes;
+                            existing.PlanBillingKind = normalizedBilling;
+                            existing.SuggestedDomainName = dto.SuggestedDomainName;
+                            existing.CodeExpiresAt = dto.CodeExpiresAt;
+                            existing.StatusUpdatedAt = incomingUpdated;
+                            changed = true;
+                        }
                     }
                 }
 

@@ -1,7 +1,9 @@
 using System.Security.Cryptography;
 using System.Text;
+using System.Threading.RateLimiting;
 using ClothingStore.Application.Interfaces;
 using ClothingStore.Application.Services;
+using ClothingStore.Domain.Exceptions;
 using ClothingStore.Infrastructure.Persistence;
 using ClothingStore.Infrastructure.Security;
 using ClothingStore.Infrastructure.Storage;
@@ -10,6 +12,7 @@ using ClothingStore.Shared.DTOs;
 using ClothingStore.Shared.Helpers;
 using ClothingStore.Web.Components;
 using ClothingStore.Web.Services;
+using Microsoft.AspNetCore.RateLimiting;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -61,6 +64,28 @@ if (cloudMirror is not null)
 
 builder.Services.AddHttpClient();
 builder.Services.AddHttpContextAccessor();
+builder.Services.AddRateLimiter(options =>
+{
+    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    options.OnRejected = async (context, token) =>
+    {
+        context.HttpContext.Response.ContentType = "application/json";
+        await context.HttpContext.Response.WriteAsJsonAsync(
+            new { error = "Muitas tentativas em sequência. Aguarde um minuto e tente novamente." },
+            token);
+    };
+
+    options.AddPolicy("giftcard-strict", httpContext =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+            factory: _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = 30,
+                Window = TimeSpan.FromMinutes(1),
+                QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
+                QueueLimit = 0
+            }));
+});
 builder.Services.AddSingleton<IPasswordHasher, Pbkdf2PasswordHasher>();
 builder.Services.AddSingleton<IEmailService>(sp =>
     new SmtpEmailService(sp.GetRequiredService<IConfiguration>(), outboxPath));
@@ -146,6 +171,7 @@ app.Use(async (context, next) =>
 
 app.UseStaticFiles();
 app.UseAntiforgery();
+app.UseRateLimiter();
 
 app.MapGet("/health", () => Results.Ok(new
 {
@@ -633,6 +659,88 @@ app.MapPost("/api/platform-sync/mercadopago/disconnect", async (
 
     await tokenStore.ClearOAuthTokensAsync(ct);
     return Results.Ok(new { disconnected = true });
+}).DisableAntiforgery();
+
+app.MapPost("/api/platform-sync/gift-cards/validate", async (
+    PlatformGiftCardRedeemRequest request,
+    EmployeeAndSettingsService settingsService,
+    CancellationToken ct) =>
+{
+    var validation = await settingsService.ValidateGiftCardForRemoteStoreAsync(request, ct);
+    return Results.Ok(validation);
+}).DisableAntiforgery().RequireRateLimiting("giftcard-strict");
+
+app.MapPost("/api/platform-sync/gift-cards/redeem", async (
+    PlatformGiftCardRedeemRequest request,
+    HttpContext httpContext,
+    EmployeeAndSettingsService settingsService,
+    CancellationToken ct) =>
+{
+    try
+    {
+        var result = await settingsService.RedeemGiftCardForRemoteStoreAsync(request, ct);
+        await TryFlushCloudMirrorAsync(httpContext, ct);
+        return Results.Ok(result);
+    }
+    catch (DomainException ex)
+    {
+        return Results.BadRequest(new
+        {
+            error = ex.Message,
+            codeStatus = GiftCardErrorClassifier.ClassifyMessage(ex.Message)
+        });
+    }
+}).DisableAntiforgery().RequireRateLimiting("giftcard-strict");
+
+app.MapGet("/api/platform-sync/gift-cards/status", async (
+    HttpContext httpContext,
+    IClothingStoreRepository repository,
+    EmployeeAndSettingsService settingsService,
+    CancellationToken ct) =>
+{
+    if (!await IsAuthorizedSyncRequestAsync(httpContext, repository, ct))
+    {
+        return Results.Json(
+            new { error = "Chave de sincronização (X-YouLink-Sync-Key) inválida ou ausente neste servidor central." },
+            statusCode: StatusCodes.Status401Unauthorized);
+    }
+
+    return Results.Ok(await settingsService.GetGiftCardSyncStatusAsync(GetPublicOrigin(httpContext), ct));
+});
+
+app.MapGet("/api/platform-sync/gift-cards", async (
+    HttpContext httpContext,
+    IClothingStoreRepository repository,
+    EmployeeAndSettingsService settingsService,
+    CancellationToken ct) =>
+{
+    if (!await IsAuthorizedSyncRequestAsync(httpContext, repository, ct))
+    {
+        return Results.Json(
+            new { error = "Chave de sincronização (X-YouLink-Sync-Key) inválida ou ausente." },
+            statusCode: StatusCodes.Status401Unauthorized);
+    }
+
+    return Results.Ok(await settingsService.GetActivationCodesForSyncAsync(ct));
+});
+
+app.MapPost("/api/platform-sync/gift-cards/sync", async (
+    SyncPlatformGiftCardsRequest request,
+    HttpContext httpContext,
+    IClothingStoreRepository repository,
+    EmployeeAndSettingsService settingsService,
+    CancellationToken ct) =>
+{
+    if (!await IsAuthorizedSyncRequestAsync(httpContext, repository, ct))
+    {
+        return Results.Json(
+            new { error = "Chave de sincronização (X-YouLink-Sync-Key) inválida ou ausente." },
+            statusCode: StatusCodes.Status401Unauthorized);
+    }
+
+    var merged = await settingsService.SyncPlatformGiftCardsAsync(request.GiftCards, ct);
+    await TryFlushCloudMirrorAsync(httpContext, ct);
+    return Results.Ok(merged);
 }).DisableAntiforgery();
 
 app.MapGet("/planos/retorno", async (
@@ -1139,4 +1247,19 @@ static async Task<IResult> HandlePlatformMercadoPagoWebhookAsync(
         confirmed = res.OrderApproved,
         message = res.Message
     });
+}
+
+static async Task TryFlushCloudMirrorAsync(HttpContext ctx, CancellationToken ct)
+{
+    var mirror = ctx.RequestServices.GetService<CloudAppDataMirror>();
+    if (mirror is null)
+        return;
+
+    try
+    {
+        await mirror.FlushAsync(TimeSpan.FromSeconds(3), ct);
+    }
+    catch
+    {
+    }
 }
