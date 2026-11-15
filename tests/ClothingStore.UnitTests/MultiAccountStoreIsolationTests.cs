@@ -472,4 +472,53 @@ public class MultiAccountStoreIsolationTests
             CleanupDir(tempDir);
         }
     }
+
+    [TestMethod]
+    public async Task CentralPublishUrl_NeverUsesPlaceholderLojasMinhaloja_AndFallsBackToOfficialRenderServer()
+    {
+        Assert.IsTrue(StoreSettings.IsPlaceholderStoreUrl("https://lojas.minhaloja.com"));
+        Assert.IsTrue(StoreSettings.IsPlaceholderStoreUrl("https://lojas.loja-de-eletronicos-do-gio.com"));
+        Assert.IsFalse(StoreSettings.IsPlaceholderStoreUrl("https://youlink-loja.onrender.com"));
+
+        var (repo, auth, _, settings, _, _, _, _, tempDir, defaultDbPath) = CreateStack();
+        try
+        {
+            await repo.ProvisionIsolatedWorkspaceForNewAccountAsync("admin1@gmail.com", "admin1");
+            var login1 = await auth.RegisterUserAccountAsync(new RegisterUserAccountRequest(
+                "Admin Um",
+                "admin1@gmail.com",
+                "SenhaForte@123",
+                Username: "admin1"));
+            await settings.UpdateStoreSettingsAsync(login1.Employee.EmployeeId, new UpdateStoreSettingsRequest
+            {
+                StoreName = "Loja Principal",
+                WhatsappNumber = "5511999990001",
+                StoreDescription = "Catálogo Loja Principal",
+                CentralCatalogBaseUrl = "https://youlink-loja.onrender.com"
+            });
+
+            var primaryEntity = await repo.GetStoreSettingsAsync();
+            PlatformOwnerSettingsStore.SaveFromStoreSettings(defaultDbPath, primaryEntity);
+
+            await repo.ProvisionIsolatedWorkspaceForNewAccountAsync("giovannipreal@gmail.com", "gio");
+            await auth.RegisterUserAccountAsync(new RegisterUserAccountRequest(
+                "gio",
+                "giovannipreal@gmail.com",
+                "SenhaForte@456",
+                Username: "gio"));
+
+            var storeEntity = await repo.GetStoreSettingsAsync();
+            storeEntity.ConfigureCentralPublishing("https://lojas.minhaloja.com");
+            Assert.IsNull(storeEntity.CentralCatalogBaseUrl, "Placeholder lojas.minhaloja.com jamais deve ser salvo como CentralCatalogBaseUrl.");
+
+            // Mesmo quando carregado do companion platform_owner_settings.json do diretório pai (App_Data), a loja secundária recebe o servidor central oficial
+            var applied = PlatformOwnerSettingsStore.ApplyToStoreSettingsIfMissingOrDefault(repo.ActiveStorageFilePath, storeEntity);
+            Assert.IsTrue(applied);
+            Assert.AreEqual("https://youlink-loja.onrender.com", storeEntity.CentralCatalogBaseUrl);
+        }
+        finally
+        {
+            CleanupDir(tempDir);
+        }
+    }
 }

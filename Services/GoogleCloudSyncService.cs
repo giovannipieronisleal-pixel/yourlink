@@ -109,7 +109,13 @@ public sealed class GoogleCloudSyncService
             var key = ResolveCentralUrlKey(workspaceId);
             var value = Preferences.Default.Get(key, string.Empty);
             var normalized = NormalizePublicServerUrl(value);
-            return string.IsNullOrWhiteSpace(normalized) ? null : normalized;
+            if (string.IsNullOrWhiteSpace(normalized) || StoreSettings.IsPlaceholderStoreUrl(normalized))
+            {
+                if (!string.IsNullOrWhiteSpace(value))
+                    Preferences.Default.Remove(key);
+                return null;
+            }
+            return normalized;
         }
         catch
         {
@@ -123,7 +129,7 @@ public sealed class GoogleCloudSyncService
         {
             var key = ResolveCentralUrlKey(workspaceId);
             var normalized = NormalizePublicServerUrl(url);
-            if (string.IsNullOrWhiteSpace(normalized))
+            if (string.IsNullOrWhiteSpace(normalized) || StoreSettings.IsPlaceholderStoreUrl(normalized))
                 Preferences.Default.Remove(key);
             else
                 Preferences.Default.Set(key, normalized);
@@ -176,16 +182,23 @@ public sealed class GoogleCloudSyncService
         string? workspaceId = null)
     {
         var explicitNormalized = NormalizePublicServerUrl(explicitUrl);
-        if (!string.IsNullOrWhiteSpace(explicitNormalized))
+        if (!string.IsNullOrWhiteSpace(explicitNormalized) && !StoreSettings.IsPlaceholderStoreUrl(explicitNormalized))
             return explicitNormalized;
 
         var settingsCentral = NormalizePublicServerUrl(settings.CentralCatalogBaseUrl);
-        if (!string.IsNullOrWhiteSpace(settingsCentral))
+        if (!string.IsNullOrWhiteSpace(settingsCentral) && !StoreSettings.IsPlaceholderStoreUrl(settingsCentral))
             return settingsCentral;
 
         var cachedCentral = GetCachedCentralCatalogUrl(workspaceId);
-        if (!string.IsNullOrWhiteSpace(cachedCentral))
+        if (!string.IsNullOrWhiteSpace(cachedCentral) && !StoreSettings.IsPlaceholderStoreUrl(cachedCentral))
             return cachedCentral;
+
+        if (!string.IsNullOrWhiteSpace(workspaceId))
+        {
+            var globalCachedCentral = GetCachedCentralCatalogUrl(null);
+            if (!string.IsNullOrWhiteSpace(globalCachedCentral) && !StoreSettings.IsPlaceholderStoreUrl(globalCachedCentral))
+                return globalCachedCentral;
+        }
 
         var isSharedMode = string.Equals(
             settings.ServerHostingMode,
@@ -195,11 +208,16 @@ public sealed class GoogleCloudSyncService
         if (isSharedMode || string.IsNullOrWhiteSpace(settings.OwnServerSyncSecret))
         {
             var onlineNormalized = NormalizePublicServerUrl(settings.OnlineBaseUrl);
-            if (!string.IsNullOrWhiteSpace(onlineNormalized))
+            if (!string.IsNullOrWhiteSpace(onlineNormalized) &&
+                !StoreSettings.IsPlaceholderStoreUrl(onlineNormalized) &&
+                !onlineNormalized.Contains("localhost", StringComparison.OrdinalIgnoreCase) &&
+                !onlineNormalized.Contains("127.0.0.1", StringComparison.OrdinalIgnoreCase))
+            {
                 return onlineNormalized;
+            }
         }
 
-        return string.Empty;
+        return ClothingStore.Shared.Helpers.AppUpdateCatalog.DefaultCentralPlatformServerUrl;
     }
 
     private string? ResolvePublishToken(StoreSettings settings, string effectiveSlug) =>

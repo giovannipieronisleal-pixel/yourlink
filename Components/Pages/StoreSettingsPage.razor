@@ -1789,19 +1789,23 @@
             ? s.OnlineBaseUrl!
             : string.Empty;
 
-        var resolvedCentral = !string.IsNullOrWhiteSpace(s.CentralCatalogBaseUrl)
+        var resolvedCentral = !IsPlaceholderOrLocalUrl(s.CentralCatalogBaseUrl)
             ? s.CentralCatalogBaseUrl
-            : (!string.IsNullOrWhiteSpace(Gateway.LatestAdminCentralServerUrl)
+            : (!IsPlaceholderOrLocalUrl(Gateway.LatestAdminCentralServerUrl)
                 ? Gateway.LatestAdminCentralServerUrl
                 : GoogleCloudSyncService.GetCachedCentralCatalogUrl());
-        if (!string.IsNullOrWhiteSpace(resolvedCentral))
+        if (!IsPlaceholderOrLocalUrl(resolvedCentral))
         {
-            _centralCatalogServerUrlInput = resolvedCentral;
+            _centralCatalogServerUrlInput = resolvedCentral!;
         }
         else if (string.Equals(_serverHostingMode, "PlatformShared", StringComparison.OrdinalIgnoreCase) &&
                  !IsPlaceholderOrLocalUrl(s.OnlineBaseUrl))
         {
             _centralCatalogServerUrlInput = s.OnlineBaseUrl!;
+        }
+        else
+        {
+            _centralCatalogServerUrlInput = ClothingStore.Shared.Helpers.AppUpdateCatalog.DefaultCentralPlatformServerUrl;
         }
 
         _form.ServerHostingMode = _serverHostingMode;
@@ -1907,6 +1911,11 @@
             if (string.IsNullOrWhiteSpace(_form.StoreDescription))
             {
                 _form.StoreDescription = $"Catálogo digital oficial de {_form.StoreName.Trim()}.";
+            }
+
+            if (IsPlaceholderOrLocalUrl(_centralCatalogServerUrlInput))
+            {
+                _centralCatalogServerUrlInput = ClothingStore.Shared.Helpers.AppUpdateCatalog.DefaultCentralPlatformServerUrl;
             }
 
             var normalizedCentral = GoogleCloudSyncService.NormalizePublicServerUrl(_centralCatalogServerUrlInput);

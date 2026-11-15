@@ -44,6 +44,22 @@ public static class PlatformOwnerSettingsStore
         {
             var path = GetCompanionPath(storageFilePath);
             if (!File.Exists(path))
+            {
+                var dir = Path.GetDirectoryName(Path.GetFullPath(storageFilePath));
+                if (!string.IsNullOrWhiteSpace(dir) &&
+                    string.Equals(Path.GetFileName(dir), "store_workspaces", StringComparison.OrdinalIgnoreCase))
+                {
+                    var parentDir = Path.GetDirectoryName(dir);
+                    if (!string.IsNullOrWhiteSpace(parentDir))
+                    {
+                        var parentPath = Path.Combine(parentDir, "platform_owner_settings.json");
+                        if (File.Exists(parentPath))
+                            path = parentPath;
+                    }
+                }
+            }
+
+            if (!File.Exists(path))
                 return null;
 
             var raw = File.ReadAllText(path);
@@ -65,7 +81,7 @@ public static class PlatformOwnerSettingsStore
             settings.BasicPlanMonthlyPrice != 49.90m ||
             settings.IntermediaryPlanMonthlyPrice != 89.90m ||
             settings.PremiumPlanMonthlyPrice != 129.90m;
-        var hasCentralUrl = !string.IsNullOrWhiteSpace(settings.CentralCatalogBaseUrl);
+        var hasCentralUrl = !StoreSettings.IsPlaceholderStoreUrl(settings.CentralCatalogBaseUrl);
 
         // Nunca sobrescrever uma chave Pix real já salva com o placeholder padrão ao recriar uma loja.
         if (!hasCustomPix && !hasCustomPrices && !hasCentralUrl && existing is null)
@@ -77,9 +93,12 @@ public static class PlatformOwnerSettingsStore
                 ? existing.PicpayPixKey
                 : DefaultPlaceholderPixKey);
 
+        var existingCentralUrl = existing is not null && !StoreSettings.IsPlaceholderStoreUrl(existing.CentralCatalogServerUrl)
+            ? existing.CentralCatalogServerUrl
+            : null;
         var effectiveCentralUrl = hasCentralUrl
             ? settings.CentralCatalogBaseUrl!.Trim().TrimEnd('/')
-            : existing?.CentralCatalogServerUrl;
+            : existingCentralUrl;
 
         var snapshot = new Snapshot(
             PicpayPixKey: effectivePix,
@@ -114,11 +133,18 @@ public static class PlatformOwnerSettingsStore
     {
         ArgumentNullException.ThrowIfNull(settings);
 
+        var changed = false;
+
+        if (!string.IsNullOrWhiteSpace(settings.CentralCatalogBaseUrl) &&
+            StoreSettings.IsPlaceholderStoreUrl(settings.CentralCatalogBaseUrl))
+        {
+            settings.CentralCatalogBaseUrl = null;
+            changed = true;
+        }
+
         var snapshot = Load(storageFilePath);
         if (snapshot is null)
-            return false;
-
-        var changed = false;
+            return changed;
 
         if (IsPlaceholderPixKey(settings.PicpayPixKey) && !IsPlaceholderPixKey(snapshot.PicpayPixKey))
         {
@@ -145,9 +171,9 @@ public static class PlatformOwnerSettingsStore
         }
 
         if (string.IsNullOrWhiteSpace(settings.CentralCatalogBaseUrl) &&
-            !string.IsNullOrWhiteSpace(snapshot.CentralCatalogServerUrl))
+            !StoreSettings.IsPlaceholderStoreUrl(snapshot.CentralCatalogServerUrl))
         {
-            settings.CentralCatalogBaseUrl = snapshot.CentralCatalogServerUrl.Trim().TrimEnd('/');
+            settings.CentralCatalogBaseUrl = snapshot.CentralCatalogServerUrl!.Trim().TrimEnd('/');
             changed = true;
         }
 

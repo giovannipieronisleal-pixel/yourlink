@@ -569,15 +569,27 @@ public sealed class StoreSettings
         UpdatedAt = DateTimeOffset.UtcNow;
     }
 
+    public static bool IsPlaceholderStoreUrl(string? url)
+    {
+        if (string.IsNullOrWhiteSpace(url))
+            return true;
+
+        var trimmed = url.Trim().TrimEnd('/');
+        return trimmed.Contains("://lojas.", StringComparison.OrdinalIgnoreCase) ||
+               trimmed.StartsWith("lojas.", StringComparison.OrdinalIgnoreCase) ||
+               trimmed.Contains("minhaloja.com", StringComparison.OrdinalIgnoreCase) ||
+               trimmed.Contains("sualoja.com", StringComparison.OrdinalIgnoreCase);
+    }
+
     public void ConfigureCentralPublishing(
         string? centralCatalogBaseUrl,
         string? centralPublishToken = null,
         bool preserveExistingToken = true,
         Guid? employeeId = null)
     {
-        CentralCatalogBaseUrl = string.IsNullOrWhiteSpace(centralCatalogBaseUrl)
+        CentralCatalogBaseUrl = IsPlaceholderStoreUrl(centralCatalogBaseUrl)
             ? null
-            : centralCatalogBaseUrl.Trim().TrimEnd('/');
+            : centralCatalogBaseUrl!.Trim().TrimEnd('/');
 
         if (!preserveExistingToken || !string.IsNullOrWhiteSpace(centralPublishToken))
         {
