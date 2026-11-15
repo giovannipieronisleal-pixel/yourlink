@@ -476,15 +476,18 @@ img {
 
 .lux-product-media {
     position: relative;
-    aspect-ratio: 4 / 5;
+    aspect-ratio: 1 / 1;
     background: var(--brand-surface-subtle);
     overflow: hidden;
+    display: flex;
+    align-items: center;
+    justify-content: center;
 }
 
 .lux-product-media img {
     width: 100%;
     height: 100%;
-    object-fit: cover;
+    object-fit: contain;
     transition: transform 0.45s ease;
 }
 
@@ -684,17 +687,21 @@ img {
 }
 
 .lux-detail-stage {
-    background: var(--brand-surface);
+    background: var(--brand-surface-subtle);
     border: 1px solid var(--brand-border);
     border-radius: var(--brand-radius-card);
     overflow: hidden;
-    aspect-ratio: 4 / 5;
+    aspect-ratio: 1 / 1;
+    max-height: 560px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
 }
 
 .lux-detail-stage img {
     width: 100%;
     height: 100%;
-    object-fit: cover;
+    object-fit: contain;
 }
 
 .lux-thumb-strip {
@@ -706,12 +713,12 @@ img {
 
 .lux-thumb-btn {
     padding: 0;
-    width: 72px;
-    height: 88px;
+    width: 76px;
+    height: 76px;
     border-radius: var(--brand-radius-btn);
     overflow: hidden;
     border: 1.5px solid var(--brand-border);
-    background: var(--brand-surface);
+    background: var(--brand-surface-subtle);
     cursor: pointer;
 }
 
@@ -723,7 +730,7 @@ img {
 .lux-thumb-btn img {
     width: 100%;
     height: 100%;
-    object-fit: cover;
+    object-fit: contain;
 }
 
 .lux-detail-info {

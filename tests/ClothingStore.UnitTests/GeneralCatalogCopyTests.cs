@@ -194,5 +194,13 @@ public class GeneralCatalogCopyTests
         var ogExtracted = WhatsAppLinkBuilder.ExtractOpenGraphImageUrl(
             "<html><head><meta property=\"og:image\" content=\"https://cdn.loja.com/fotos/mouse-hazor.webp\" /></head></html>");
         Assert.AreEqual("https://cdn.loja.com/fotos/mouse-hazor.webp", ogExtracted);
+        var webAppCss = File.ReadAllText(Path.Combine(root, "src", "ClothingStore.Web", "wwwroot", "app.css"));
+        Assert.IsTrue(webAppCss.Contains("object-fit: contain;", StringComparison.Ordinal));
+
+        var mauiAppCss = File.ReadAllText(Path.Combine(root, "wwwroot", "app.css"));
+        Assert.IsTrue(mauiAppCss.Contains("object-fit: contain;", StringComparison.Ordinal));
+
+        var previewRazor = File.ReadAllText(Path.Combine(root, "Components", "Pages", "PublicCatalogPreview.razor"));
+        Assert.IsTrue(previewRazor.Contains("object-fit: contain;", StringComparison.Ordinal));
     }
 }
