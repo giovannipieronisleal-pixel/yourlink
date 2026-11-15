@@ -398,31 +398,10 @@ else
                                 Cobrança recorrente automática no cartão todo ciclo pelo Mercado Pago.
                             </div>
                         </button>
-
-                        <button type="button"
-                                class="theme-card-option @(_selectedPaymentMethod == PlatformSubscriptionOrder.MethodDirectPix ? "active" : string.Empty)"
-                                @onclick="() => SelectPaymentMethod(PlatformSubscriptionOrder.MethodDirectPix)">
-                            <div style="font-weight: 800; font-size: 0.88rem;">🏦 Pix Direto (Aprovação Admin)</div>
-                            <div style="font-size: 0.77rem; color: var(--adm-muted); margin-top: 0.25rem;">
-                                Chave Pix direta do administrador com ativação após confirmação.
-                            </div>
-                        </button>
                     </div>
                 </div>
 
-                @if (_selectedPaymentMethod == PlatformSubscriptionOrder.MethodDirectPix)
-                {
-                    <div style="background: var(--adm-surface-subtle); border: 1px dashed var(--adm-border); border-radius: 10px; padding: 0.9rem; display: flex; flex-direction: column; gap: 0.45rem;">
-                        <div style="font-size: 0.85rem; font-weight: 800; color: var(--adm-text);">
-                            🔒 A chave Pix aparece somente após você confirmar a compra abaixo
-                        </div>
-                        <div style="font-size: 0.79rem; color: var(--adm-muted); line-height: 1.45;">
-                            Quando você clicar no botão abaixo, geraremos o pedido e mostraremos a chave Pix oficial + QR Code exato (@TotalOrderAmount.ToString("C")).
-                            Assim que o pagamento for confirmado, a sua versão paga chega automaticamente no aplicativo — sem precisar digitar código!
-                        </div>
-                    </div>
-                }
-                else if (_selectedPaymentMethod == PlatformSubscriptionOrder.MethodMercadoPagoSubscription)
+                @if (_selectedPaymentMethod == PlatformSubscriptionOrder.MethodMercadoPagoSubscription)
                 {
                     <div style="background: rgba(182, 145, 88, 0.1); border: 1px solid var(--adm-accent); border-radius: 10px; padding: 0.8rem; font-size: 0.79rem; color: var(--adm-text); line-height: 1.45;">
                         🔄 <strong>Assinatura Automática Mercado Pago:</strong> certifique-se de preencher um <strong>e-mail válido</strong> no campo <em>Usuário / Gmail de Acesso</em> ao lado para autorizar a renovação no cartão.
@@ -439,15 +418,6 @@ else
                                 Não redirecionamos para Cartão automaticamente porque você escolheu pagar por Pix. Se desejar, escolha uma alternativa:
                             </div>
                             <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
-                                @if (Gateway.LatestPlatformCatalog?.HasOfficialPixKey == true)
-                                {
-                                    <button type="button"
-                                            class="adm-btn adm-btn-success"
-                                            disabled="@_creatingPlanOrder"
-                                            @onclick="() => SwitchPaymentMethodAndCreateAsync(PlatformSubscriptionOrder.MethodDirectPix)">
-                                        🏦 Pagar com Pix Direto (Aprovação Admin)
-                                    </button>
-                                }
                                 <button type="button"
                                         class="adm-btn adm-btn-primary"
                                         disabled="@_creatingPlanOrder"
@@ -483,10 +453,10 @@ else
                 <div style="background: var(--adm-surface-subtle); border: 1.5px solid var(--adm-accent); border-radius: 10px; padding: 0.95rem; display: flex; flex-direction: column; gap: 0.7rem;">
                     <div style="display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
                         <div style="font-size: 0.88rem; font-weight: 800;">
-                            @(_activePlanOrder.PaymentMethod == PlatformSubscriptionOrder.MethodDirectPix ? "💸 Chave Pix Liberada" : "💳 Pagamento Mercado Pago") — Pedido @_activePlanOrder.OrderNumber
+                            💳 Pagamento Mercado Pago — Pedido @_activePlanOrder.OrderNumber
                         </div>
                         <span class="pill-badge pill-gold">
-                            @(_activePlanOrder.PaymentMethod == PlatformSubscriptionOrder.MethodDirectPix ? "Aguardando Pix" : "Aguardando Pagamento")
+                            Aguardando Pagamento
                         </span>
                     </div>
 
@@ -519,15 +489,6 @@ else
                             <code style="flex: 1; font-size: 0.94rem; padding: 0.5rem 0.65rem; border-radius: 6px; background: var(--adm-card); border: 1px solid var(--adm-border); overflow-wrap: anywhere;">
                                 @_activePlanOrder.PixKeyUsed
                             </code>
-                            @if (_activePlanOrder.PaymentMethod == PlatformSubscriptionOrder.MethodDirectPix)
-                            {
-                                <button type="button"
-                                        class="adm-btn adm-btn-outline"
-                                        style="white-space: nowrap;"
-                                        @onclick="CopyPixKeyAsync">
-                                    @(_copiedPix ? "✓ Chave Copiada!" : "📋 Copiar Chave Pix")
-                                </button>
-                            }
                         </div>
                     }
 
@@ -561,14 +522,7 @@ else
                         <div>
                             <strong style="color: var(--adm-success);">⚡ Verificação 100% automática ativa — não precisa clicar em nada</strong>
                             <div style="color: var(--adm-muted); margin-top: 0.15rem;">
-                                @if (_activePlanOrder.PaymentMethod == PlatformSubscriptionOrder.MethodDirectPix)
-                                {
-                                    <span>Checando o pedido a cada 4 segundos automaticamente até o administrador confirmar seu Pix.</span>
-                                }
-                                else
-                                {
-                                    <span>Checando o Mercado Pago a cada 4 segundos: assim que seu pagamento aprovar, o plano libera sozinho.</span>
-                                }
+                                <span>Checando o Mercado Pago a cada 4 segundos: assim que seu pagamento aprovar, o plano libera sozinho.</span>
                             </div>
                         </div>
                         @if (_lastAutoCheckAt.HasValue)
@@ -728,7 +682,6 @@ else
 
     private AdminStoreSettingsDto? _settings;
     private bool _loading = true;
-    private bool _copiedPix;
     private bool _redeemingCode;
     private bool _isCheckingDomain;
     private bool _searchingFreeDomains;
@@ -893,6 +846,11 @@ else
                 _useOwnDedicatedServer = true;
 
             var pending = Gateway.GetPendingPlanOrder();
+            if (pending is not null && string.Equals(pending.PaymentMethod, PlatformSubscriptionOrder.MethodDirectPix, StringComparison.OrdinalIgnoreCase))
+            {
+                Gateway.ClearPendingPlanOrder();
+                pending = null;
+            }
             if (pending is not null)
             {
                 var status = await Gateway.CheckAndApplyPendingPlanOrderAsync(pending.OrderNumber, pending.ClaimToken);
@@ -959,24 +917,6 @@ else
         await ConfirmDirectMobilePlanOrderAsync();
     }
 
-    private async Task CopyPixKeyAsync()
-    {
-        var key = _activePlanOrder?.PixKeyUsed;
-        if (string.IsNullOrWhiteSpace(key))
-            return;
-
-        try
-        {
-            await Clipboard.Default.SetTextAsync(key);
-            _copiedPix = true;
-            _successMessage = $"Chave Pix '{key}' copiada para a área de transferência.";
-        }
-        catch
-        {
-            _successMessage = $"Copie manualmente a chave Pix: {key}";
-        }
-    }
-
     private async Task CopyPlanPixBrCodeAsync()
     {
         if (string.IsNullOrWhiteSpace(PlanPixBrCode))
@@ -996,7 +936,10 @@ else
 
     private void SelectPaymentMethod(string paymentMethod)
     {
-        _selectedPaymentMethod = PlatformSubscriptionOrder.NormalizePaymentMethod(paymentMethod);
+        var normalized = PlatformSubscriptionOrder.NormalizePaymentMethod(paymentMethod);
+        _selectedPaymentMethod = normalized == PlatformSubscriptionOrder.MethodDirectPix
+            ? PlatformSubscriptionOrder.MethodMercadoPagoPix
+            : normalized;
         _pixCollectorKeyMissing = false;
         _error = null;
     }
@@ -1014,8 +957,6 @@ else
 
         return _selectedPaymentMethod switch
         {
-            PlatformSubscriptionOrder.MethodMercadoPagoPix =>
-                $"⚡ Gerar Pix Automático Mercado Pago ({TotalOrderAmount.ToString("C")})",
             PlatformSubscriptionOrder.MethodMercadoPagoCheckoutPro =>
                 $"💳 Pagar no Cartão / Mercado Pago ({TotalOrderAmount.ToString("C")})",
             PlatformSubscriptionOrder.MethodMercadoPagoSubscription =>
@@ -1025,7 +966,7 @@ else
                     12 => $"🔄 Assinar Anual Automático no Cartão ({TotalOrderAmount.ToString("C")})",
                     _ => $"🔄 Assinar Mensal Automático no Cartão ({TotalOrderAmount.ToString("C")}/mês)"
                 },
-            _ => $"💳 Confirmar Compra e Liberar Chave Pix ({TotalOrderAmount.ToString("C")})"
+            _ => $"⚡ Gerar Pix Automático Mercado Pago ({TotalOrderAmount.ToString("C")})"
         };
     }
 
@@ -1105,7 +1046,6 @@ else
 
             _activePlanOrder = created;
             _lastAutoCheckAt = null;
-            _copiedPix = false;
             _copiedPlanBrCode = false;
             _copiedCheckoutUrl = false;
             _successMessage = created.Message;

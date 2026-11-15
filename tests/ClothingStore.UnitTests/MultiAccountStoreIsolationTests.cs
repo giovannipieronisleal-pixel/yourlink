@@ -372,6 +372,11 @@ public class MultiAccountStoreIsolationTests
         var plansPage = File.ReadAllText(Path.Combine(root, "Components", "Pages", "PlansPage.razor"));
         Assert.IsFalse(plansPage.Contains("Verificar Conta Google Pro (-R$ 5/mês)", StringComparison.Ordinal));
 
+        var planCheckout = File.ReadAllText(Path.Combine(root, "Components", "Pages", "PlanCheckoutPage.razor"));
+        Assert.IsFalse(planCheckout.Contains("Pix Direto (Aprovação Admin)", StringComparison.Ordinal));
+        Assert.IsFalse(planCheckout.Contains("Pagar com Pix Direto (Aprovação Admin)", StringComparison.Ordinal));
+        Assert.IsFalse(planCheckout.Contains("Confirmar Compra e Liberar Chave Pix", StringComparison.Ordinal));
+
         var notFound = File.ReadAllText(Path.Combine(root, "Components", "Pages", "NotFound.razor"));
         Assert.IsTrue(notFound.Contains("Página não encontrada", StringComparison.Ordinal));
     }
