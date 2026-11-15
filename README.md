@@ -57,14 +57,14 @@ Todos os níveis incluem endereço da loja (`/loja/{slug}`), HTTPS, PWA e public
 
 | Projeto | Caminho | Responsabilidade |
 | :--- | :--- | :--- |
-| **YouLink App** | [appmaui.blazor.csproj](appmaui.blazor.csproj) | Aplicativo `.NET MAUI Blazor Hybrid` para Windows x64 e Android (catálogo, estoque visual, equipe, pedidos, planos, estúdio visual, atualização in-app e publicação em 1 clique). |
+| **YouLink App** | [appmaui.blazor.csproj](appmaui.blazor.csproj) | Aplicativo `.NET MAUI Blazor Hybrid` para Windows x64 e Android (catálogo, estoque visual, pedidos, vendas, planos, estúdio visual, atualização in-app e publicação em 1 clique). |
 | **ClothingStore.Web** | [ClothingStore.Web.csproj](src/ClothingStore.Web/ClothingStore.Web.csproj) | Portal Central (`/`), downloads do app e vitrines públicas multi-loja PWA (`/loja/{slug}`, `/loja/{slug}/catalogo`, `/loja/{slug}/produto/{slug}`) em Blazor Web App com [Dockerfile](src/ClothingStore.Web/Dockerfile). |
 | **ClothingStore.Api** | [ClothingStore.Api.csproj](src/ClothingStore.Api/ClothingStore.Api.csproj) | ASP.NET Core Web API multi-tenant com autenticação JWT + 2FA, sincronização segura, webhooks e endpoints públicos/administrativos ([Dockerfile](src/ClothingStore.Api/Dockerfile)). |
 | **ClothingStore.Application** | [ClothingStore.Application.csproj](src/ClothingStore.Application/ClothingStore.Application.csproj) | Casos de uso (`AuthService`, `CatalogService`, `ProductManagementService`, `StockManagementService`, `EmployeeAndSettingsService`, `CloudSyncStateService`, `OrderAndShippingService`, `MercadoPagoPixService`, `MultiTenantGatewayService`, `PlatformSubscriptionService`, `StoreDesignMapper`). |
 | **ClothingStore.Domain** | [ClothingStore.Domain.csproj](src/ClothingStore.Domain/ClothingStore.Domain.csproj) | Entidades e regras de domínio (`User`, `Employee`, `Category`, `Product`, `ProductImage`, `ProductVariant`, `StockMovement`, `StoreSettings`, `StoreOrder`, `PlanActivationCode`, `PlatformSubscriptionOrder`). |
 | **ClothingStore.Infrastructure** | [ClothingStore.Infrastructure.csproj](src/ClothingStore.Infrastructure/ClothingStore.Infrastructure.csproj) | Persistência transacional (`ClothingStoreRepository`), gerenciador multi-loja (`MultiTenantStoreManager`), espelhamento em nuvem PostgreSQL/Supabase (`CloudAppDataMirror`, `SupabasePostgresClient`), criptografia OAuth (`TokenProtectionHelper`), segurança PBKDF2/JWT e armazenamento de imagens (`SupabaseImageStorageService`). |
 | **ClothingStore.Shared** | [ClothingStore.Shared.csproj](src/ClothingStore.Shared/ClothingStore.Shared.csproj) | DTOs, clientes HTTP (`CatalogApiClient`, `AdminApiClient`), `AppUpdateCatalog`, `PixPayloadBuilder`, `BrazilShippingCalculator`, `FreeDomainFinder`, `GoogleAccountTierVerifier`, `PwaManifestBuilder`, `RenderProvisioningHelper` e `WhatsAppLinkBuilder`. |
-| **ClothingStore.UnitTests** | [ClothingStore.UnitTests.csproj](tests/ClothingStore.UnitTests/ClothingStore.UnitTests.csproj) | Suíte com **154 testes automatizados** cobrindo domínio, segurança/2FA, multi-tenant, Mercado Pago (OAuth/Pix/Checkout Pro/assinaturas), portal web/PWA, publicação 1-clique, auto-update, layout/responsividade e validações Windows/NTFS. |
+| **ClothingStore.UnitTests** | [ClothingStore.UnitTests.csproj](tests/ClothingStore.UnitTests/ClothingStore.UnitTests.csproj) | Suíte com **155 testes automatizados** cobrindo domínio, segurança/2FA, multi-tenant, Mercado Pago (OAuth/Pix/Checkout Pro/assinaturas), portal web/PWA, publicação 1-clique, auto-update, layout/responsividade e validações Windows/NTFS. |
 
 ---
 
@@ -85,7 +85,7 @@ dotnet publish appmaui.blazor.csproj -f net10.0-windows10.0.19041.0 -c Release -
 dotnet publish appmaui.blazor.csproj -f net10.0-android -c Release -p:AndroidPackageFormat=apk
 ```
 
-### 3. Executar a Suíte de Testes (154 testes)
+### 3. Executar a Suíte de Testes (155 testes)
 ```powershell
 dotnet run --project tests/ClothingStore.UnitTests/ClothingStore.UnitTests.csproj -c Release
 ```

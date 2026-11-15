@@ -36,11 +36,6 @@
             Administração
         </div>
 
-        <NavLink class="adm-nav-item adm-nav-secondary" href="/funcionarios">
-            <span class="adm-nav-icon">👥</span>
-            <span>Equipe</span>
-        </NavLink>
-
         <NavLink class="adm-nav-item adm-nav-secondary" href="/configuracoes-loja">
             <span class="adm-nav-icon">🎨</span>
             <span>Loja &amp; Visual</span>
@@ -89,7 +84,7 @@
                     <div class="adm-sidebar-account-name-row">
                         <strong class="adm-sidebar-account-name">@Gateway.CurrentEmployee.FullName</strong>
                         <span class="pill-badge @(Gateway.IsAdmin ? "pill-green" : "pill-slate") adm-sidebar-role-badge">
-                            @(Gateway.IsAdmin ? "Admin" : "Equipe")
+                            @(Gateway.IsAdmin ? "Admin" : "Lojista")
                         </span>
                     </div>
                     <span class="adm-sidebar-account-sub" title="@accountSubText">@accountSubText</span>
@@ -130,7 +125,7 @@
                             <div style="display: flex; align-items: center; gap: 0.45rem; flex-wrap: wrap;">
                                 <strong class="adm-mobile-account-name">@Gateway.CurrentEmployee.FullName</strong>
                                 <span class="pill-badge @(Gateway.IsAdmin ? "pill-green" : "pill-slate")">
-                                    @(Gateway.IsAdmin ? "Admin" : "Equipe")
+                                    @(Gateway.IsAdmin ? "Admin" : "Lojista")
                                 </span>
                             </div>
                             <span class="adm-mobile-account-email">@(!string.IsNullOrWhiteSpace(Gateway.CurrentEmployee.Email) ? Gateway.CurrentEmployee.Email : Gateway.CurrentEmployee.EffectiveUsername)</span>
@@ -173,14 +168,6 @@
                         <span class="adm-mobile-sheet-copy">
                             <span class="adm-mobile-sheet-item-title">Pedidos Pix</span>
                             <span class="adm-mobile-sheet-item-desc">Confirmar pagamentos e entregas</span>
-                        </span>
-                        <span class="adm-mobile-sheet-chevron" aria-hidden="true">›</span>
-                    </NavLink>
-                    <NavLink class="adm-mobile-sheet-link" href="/funcionarios" @onclick="CloseMobileMore">
-                        <span class="adm-mobile-sheet-icon">👥</span>
-                        <span class="adm-mobile-sheet-copy">
-                            <span class="adm-mobile-sheet-item-title">Equipe</span>
-                            <span class="adm-mobile-sheet-item-desc">Acessos e funcionários da loja</span>
                         </span>
                         <span class="adm-mobile-sheet-chevron" aria-hidden="true">›</span>
                     </NavLink>
@@ -270,7 +257,6 @@
     {
         var path = Navigation.ToBaseRelativePath(Navigation.Uri).Trim('/').ToLowerInvariant();
         return path.StartsWith("estoque")
-            || path.StartsWith("funcionarios")
             || path.StartsWith("configuracoes")
             || path.StartsWith("planos")
             || path.StartsWith("loja");

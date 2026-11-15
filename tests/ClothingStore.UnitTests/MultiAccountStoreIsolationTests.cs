@@ -333,4 +333,46 @@ public class MultiAccountStoreIsolationTests
         var mauiProgram = File.ReadAllText(Path.Combine(root, "MauiProgram.cs"));
         Assert.IsTrue(mauiProgram.Contains("SwitchableClothingStoreRepository", StringComparison.Ordinal));
     }
+
+    [TestMethod]
+    public void SingleOwnerUiCleanup_ShouldRemoveTeamAndDevClutterAcrossPages()
+    {
+        var root = ResolveRepoRoot();
+
+        Assert.IsFalse(File.Exists(Path.Combine(root, "Components", "Pages", "Employees.razor")),
+            "Página /funcionarios deve ser removida em aplicativo com 1 dono por loja.");
+
+        var navMenu = File.ReadAllText(Path.Combine(root, "Components", "Layout", "NavMenu.razor"));
+        Assert.IsFalse(navMenu.Contains("/funcionarios", StringComparison.OrdinalIgnoreCase));
+        Assert.IsFalse(navMenu.Contains("\"Equipe\"", StringComparison.Ordinal));
+
+        var mainLayout = File.ReadAllText(Path.Combine(root, "Components", "Layout", "MainLayout.razor"));
+        Assert.IsFalse(mainLayout.Contains("\"Equipe\"", StringComparison.Ordinal));
+
+        var profileModal = File.ReadAllText(Path.Combine(root, "Components", "Pages", "UserProfileModal.razor"));
+        Assert.IsFalse(profileModal.Contains("\"Equipe\"", StringComparison.Ordinal));
+        Assert.IsFalse(profileModal.Contains("Cargo / Nível de Acesso", StringComparison.Ordinal));
+
+        var stockControl = File.ReadAllText(Path.Combine(root, "Components", "Pages", "StockControl.razor"));
+        Assert.IsFalse(stockControl.Contains("Funcionário Responsável", StringComparison.Ordinal));
+        Assert.IsTrue(stockControl.Contains("<th>Responsável</th>", StringComparison.Ordinal));
+
+        var portal = File.ReadAllText(Path.Combine(root, "src", "ClothingStore.Web", "Components", "Shared", "PlatformPortalView.razor"));
+        Assert.IsFalse(portal.Contains("controle de equipe", StringComparison.OrdinalIgnoreCase));
+
+        var storeSettings = File.ReadAllText(Path.Combine(root, "Components", "Pages", "StoreSettingsPage.razor"));
+        Assert.IsFalse(storeSettings.Contains("Para Devs", StringComparison.OrdinalIgnoreCase));
+        Assert.IsFalse(storeSettings.Contains("oauthplayground", StringComparison.OrdinalIgnoreCase));
+        Assert.IsFalse(storeSettings.Contains("Segue o Android", StringComparison.Ordinal));
+
+        var loginRazor = File.ReadAllText(Path.Combine(root, "Components", "Pages", "Login.razor"));
+        Assert.IsFalse(loginRazor.Contains("_setupSyncNotice", StringComparison.Ordinal));
+        Assert.IsFalse(loginRazor.Contains("Abrir Catálogo Público (/loja/", StringComparison.Ordinal));
+
+        var plansPage = File.ReadAllText(Path.Combine(root, "Components", "Pages", "PlansPage.razor"));
+        Assert.IsFalse(plansPage.Contains("Verificar Conta Google Pro (-R$ 5/mês)", StringComparison.Ordinal));
+
+        var notFound = File.ReadAllText(Path.Combine(root, "Components", "Pages", "NotFound.razor"));
+        Assert.IsTrue(notFound.Contains("Página não encontrada", StringComparison.Ordinal));
+    }
 }

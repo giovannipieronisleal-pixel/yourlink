@@ -44,13 +44,13 @@
 <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr)); gap: 1.25rem; align-items: start;">
     <!-- Coluna Esquerda: Tema do App + Identidade da Loja -->
     <div style="display: flex; flex-direction: column; gap: 1.25rem;">
-        <!-- Card 1: Aparência e Tema do Aplicativo (Android) -->
+        <!-- Card 1: Aparência e Tema do Aplicativo -->
         <section class="adm-card" style="border-left: 4px solid var(--adm-accent);">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
                 <h2 style="font-size: 1.1rem; font-weight: 700; margin: 0; color: var(--adm-text);">
                     🎨 Tema do Aplicativo (Modo Claro &amp; Escuro)
                 </h2>
-                <span class="pill-badge pill-blue">Android</span>
+                <span class="pill-badge pill-blue">App</span>
             </div>
             <p style="font-size: 0.85rem; color: var(--adm-muted); margin-top: 0; margin-bottom: 0.75rem;">
                 Escolha a aparência visual do aplicativo de acordo com a sua preferência:
@@ -61,7 +61,7 @@
                      @onclick='() => ChangeTheme("system")'>
                     <div style="font-size: 1.3rem; margin-bottom: 0.2rem;">🌓</div>
                     <div>Automático</div>
-                    <div style="font-size: 0.72rem; color: var(--adm-muted); font-weight: 500;">Segue o Android</div>
+                    <div style="font-size: 0.72rem; color: var(--adm-muted); font-weight: 500;">Segue o sistema</div>
                 </div>
 
                 <div class="theme-card-option @(Theme.ThemePreference == "light" ? "active" : "")"
@@ -223,7 +223,7 @@
                 @if (isPlaceholderOrLocal)
                 {
                     <span>
-                        Sua vitrine já funciona <strong>direto aqui no aplicativo</strong> para cadastrar produtos e vender no Pix pelo celular! Quando quiser divulgar um link na internet (Instagram/Bio), <a href="#publicar-site-24h" style="color: var(--adm-accent); font-weight: 700;">publique seu site grátis em 3 passos logo abaixo</a>.
+                        Sua vitrine já funciona <strong>direto aqui no aplicativo</strong> para cadastrar produtos e vender no Pix pelo celular! Quando quiser divulgar um link na internet (Instagram/Bio), <a href="#publicar-site-24h" style="color: var(--adm-accent); font-weight: 700;">publique seu site online em 1 clique logo abaixo</a>.
                     </span>
                 }
                 else
@@ -275,7 +275,7 @@
                 <div style="flex: 1; min-width: 170px;">
                     <div style="font-weight: 800; font-size: 0.95rem; color: var(--adm-text);">📱 QR Code do Balcão &amp; Sacolas</div>
                     <div style="font-size: 0.8rem; color: var(--adm-muted); margin-top: 0.25rem; line-height: 1.4;">
-                        Imprima e coloque no balcão ou nas sacolas ou balcão: seus clientes apontam a câmera do celular e abrem o catálogo na hora!
+                        Imprima e coloque no balcão ou nas sacolas: seus clientes apontam a câmera do celular e abrem o catálogo na hora!
                     </div>
                 </div>
             </div>
@@ -482,28 +482,28 @@
                     OnShareWhatsApp="() => ShareOnWhatsAppAsync(storeCatalogUrl)"
                     OnOpenCatalogUrl="() => OpenBrowserAsync(storeCatalogUrl)" />
 
-<!-- Bloco Técnico Opcional (Fechado por padrão para quem não precisa de integração central/OAuth) -->
+<!-- Bloco Técnico Opcional (Fechado por padrão para servidor central manual) -->
 <details class="adm-card" style="margin-top: 1.25rem; border: 1px dashed var(--adm-border);">
     <summary style="cursor: pointer; font-weight: 700; font-size: 0.94rem; color: var(--adm-text); user-select: none;">
-        ⚙️ Configurações Técnicas (Sincronizar com YouLink Admin &amp; OAuth Google) — Para Devs / Opcional
+        ⚙️ Sincronização Avançada com Servidor Central (Opcional)
     </summary>
     <p style="font-size: 0.82rem; color: var(--adm-muted); margin: 0.5rem 0 1rem; line-height: 1.45;">
-        Para publicar sua loja grátis na internet, use apenas o assistente de 3 passos acima. Abra esta seção somente se quiser conectar este aparelho ao servidor central (<strong>YouLink Admin</strong>) ou verificar sua conta Google via OAuth.
+        Para publicar sua loja na internet, use apenas o botão em <strong>1 Clique</strong> acima. Abra esta seção somente se desejar apontar o aplicativo para um servidor central próprio.
     </p>
     <div style="display: flex; flex-direction: column; gap: 1rem;">
         <section class="adm-card" style="margin: 0; border-left: 4px solid var(--adm-accent);">
             <h2 style="font-size: 1.05rem; font-weight: 700; margin: 0 0 0.35rem; color: var(--adm-text);">
-                📡 Sincronizar Celular com YouLink Admin (Servidor Central)
+                📡 Conectar Servidor Central Próprio
             </h2>
             <p style="font-size: 0.82rem; color: var(--adm-muted); margin: 0 0 0.75rem; line-height: 1.45;">
-                Conecte a URL da sua API central (mesmo endereço exibido na aba <strong>👑 Usuários</strong> do <strong>YouLink Admin</strong>, ex.: <code>http://192.168.0.15:5000</code> ou <code>https://sua-api.run.app</code>) para que contas criadas no celular apareçam no painel Admin.
+                Informe a URL do seu servidor central próprio caso utilize infraestrutura dedicada separada.
             </p>
             <div style="display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center;">
                 <input type="url"
                        class="adm-input"
                        style="flex: 1; min-width: 220px;"
                        @bind="_centralServerUrlInput"
-                       placeholder="Ex.: http://192.168.0.15:5000" />
+                       placeholder="Ex.: https://sua-api.onrender.com" />
                 <button type="button"
                         class="adm-btn adm-btn-primary"
                         disabled="@_connectingCentralServer"
@@ -516,10 +516,10 @@
                             class="adm-btn adm-btn-outline"
                             disabled="@_connectingCentralServer"
                             @onclick="PushLocalAccountsNowFromSettingsAsync">
-                        ⬆️ Enviar Contas p/ Admin Agora
+                        ⬆️ Enviar Contas p/ Servidor Agora
                     </button>
                     <button type="button" class="adm-btn adm-btn-outline" @onclick="DisconnectCentralServerFromSettingsAsync">
-                        Usar apenas local
+                        Usar padrão
                     </button>
                 }
             </div>
@@ -530,123 +530,6 @@
                 </div>
             }
         </section>
-
-<!-- Card: Verificação de Conta Google (Google One Pro / Workspace) -->
-<section class="adm-card" style="margin-top: 1.25rem; border-left: 4px solid #7C3AED;">
-    <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 0.75rem; flex-wrap: wrap; margin-bottom: 0.75rem;">
-        <div>
-            <div style="font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.14em; color: #7C3AED;">
-                Identidade &amp; Benefícios Google OAuth 2.0
-            </div>
-            <h2 style="font-size: 1.15rem; font-weight: 800; margin: 0.2rem 0 0; color: var(--adm-text);">
-                🔐 Verificar Nível da Conta Google (Google Pro / Workspace)
-            </h2>
-            <p style="font-size: 0.84rem; color: var(--adm-muted); margin: 0.25rem 0 0; line-height: 1.45;">
-                Conecte sua conta Google via OAuth 2.0 oficial para comprovar cota do Google Drive (&gt; 15 GB / 1 TB+ do Google One Pro / AI Pro) ou domínio Google Workspace e liberar <strong>-R$ 5,00/mês extras</strong> + selo Pro.
-            </p>
-        </div>
-        <div>
-            @if (_qualifiesForDedicatedBenefit)
-            {
-                <span class="pill-badge pill-green">✓ Benefício Conta Pro Ativo (-R$ 5/mês)</span>
-            }
-            else if (!string.IsNullOrWhiteSpace(_googleAccountEmail))
-            {
-                <span class="pill-badge pill-gold">@GoogleAccountTierVerifier.GetTierFriendlyLabel(_googleAccountTier)</span>
-            }
-            else
-            {
-                <span class="pill-badge">Não verificada</span>
-            }
-        </div>
-    </div>
-
-    <div style="padding: 0.7rem 0.9rem; border-radius: 8px; background: var(--adm-surface-subtle); border: 1px solid var(--adm-border); font-size: 0.79rem; color: var(--adm-muted); line-height: 1.45; margin-bottom: 0.9rem;">
-        <strong>Transparência técnica:</strong> O Google não possui uma API de consumidor para ler o nome do plano "Google AI Pro" nem libera servidores de hospedagem dentro da assinatura Google One. A verificação lê de forma real o e-mail/domínio Workspace (<code>userinfo</code>) e a cota total do Google Drive (<code>drive/v3/about</code>). Contas com <strong>1 TB+ no Drive</strong> ou <strong>Google Workspace</strong> qualificam para o selo Pro.
-    </div>
-
-    @if (!string.IsNullOrWhiteSpace(_googleAccountEmail))
-    {
-        <div style="padding: 0.85rem 1rem; border-radius: 10px; margin-bottom: 0.9rem; @(_qualifiesForDedicatedBenefit ? "background: rgba(22,163,74,0.1); border: 1.5px solid var(--adm-success);" : "background: var(--adm-surface-subtle); border: 1px solid var(--adm-border);")">
-            <div style="display: flex; justify-content: space-between; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
-                <div>
-                    <div style="font-weight: 800; font-size: 0.95rem; color: var(--adm-text);">
-                        @(_qualifiesForDedicatedBenefit ? "👑 Conta Google Pro / Workspace Verificada" : "✓ Conta Google Verificada")
-                    </div>
-                    <div style="font-size: 0.83rem; margin-top: 0.2rem;">
-                        <strong>E-mail:</strong> @_googleAccountEmail
-                        @if (!string.IsNullOrWhiteSpace(_googleHostedDomain))
-                        {
-                            <span> • <strong>Workspace:</strong> @_googleHostedDomain</span>
-                        }
-                    </div>
-                    <div style="font-size: 0.81rem; color: var(--adm-muted); margin-top: 0.15rem;">
-                        <strong>Nível:</strong> @GoogleAccountTierVerifier.GetTierFriendlyLabel(_googleAccountTier)
-                        • <strong>Cota Drive:</strong> @GoogleAccountTierVerifier.FormatStorageQuota(_googleDriveQuotaBytes, !string.IsNullOrWhiteSpace(_googleHostedDomain))
-                        @if (_googleAccountVerifiedAt.HasValue)
-                        {
-                            <span> • Verificada em @_googleAccountVerifiedAt.Value.ToLocalTime().ToString("dd/MM/yyyy HH:mm")</span>
-                        }
-                    </div>
-                </div>
-                <button type="button"
-                        class="adm-btn adm-btn-outline"
-                        style="color: var(--adm-danger); font-size: 0.78rem;"
-                        disabled="@_verifyingGoogle"
-                        @onclick="ClearGoogleVerificationAsync">
-                    ✕ Remover Verificação
-                </button>
-            </div>
-        </div>
-    }
-
-    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 0.9rem;">
-        <!-- Modo 1: Login via Navegador (OAuth PKCE) -->
-        <div style="padding: 0.85rem; border-radius: 10px; border: 1px solid var(--adm-border); background: var(--adm-surface-subtle); display: flex; flex-direction: column; gap: 0.55rem;">
-            <div style="font-weight: 700; font-size: 0.86rem;">Opção 1 — Login Google no Navegador (PKCE)</div>
-            <input type="text" class="adm-input" @bind="_googleOAuthClientId"
-                   placeholder="Seu Google OAuth Client ID (Desktop/App)" />
-            <span style="font-size: 0.73rem; color: var(--adm-muted);">
-                Abre a tela oficial de login do Google e recebe o retorno automático neste aparelho.
-            </span>
-            <div>
-                <button type="button"
-                        class="adm-btn adm-btn-primary"
-                        style="font-size: 0.82rem;"
-                        disabled="@_verifyingGoogle"
-                        @onclick="VerifyGoogleViaBrowserAsync">
-                    @(_verifyingGoogle ? "⏳ Aguardando Google..." : "🌐 Verificar via Login Google")
-                </button>
-            </div>
-        </div>
-
-        <!-- Modo 2: Access Token direto (OAuth Playground / Celular) -->
-        <div style="padding: 0.85rem; border-radius: 10px; border: 1px solid var(--adm-border); background: var(--adm-surface-subtle); display: flex; flex-direction: column; gap: 0.55rem;">
-            <div style="font-weight: 700; font-size: 0.86rem;">Opção 2 — Colar Access Token Google (Rápido / Mobile)</div>
-            <input type="password" class="adm-input" @bind="_googleAccessTokenInput"
-                   placeholder="Cole aqui o Access Token (ya29....)" />
-            <span style="font-size: 0.73rem; color: var(--adm-muted);">
-                Sem Client ID? Gere em <a href="https://developers.google.com/oauthplayground" target="_blank" rel="noopener">Google OAuth Playground</a> com escopos <code>userinfo.email</code> e <code>drive.readonly</code>.
-            </span>
-            <div>
-                <button type="button"
-                        class="adm-btn adm-btn-accent"
-                        style="font-size: 0.82rem;"
-                        disabled="@_verifyingGoogle"
-                        @onclick="VerifyGoogleByTokenAsync">
-                    @(_verifyingGoogle ? "⏳ Verificando..." : "🔍 Verificar Token Agora")
-                </button>
-            </div>
-        </div>
-    </div>
-
-    @if (_googleVerifyResult is not null)
-    {
-        <div style="margin-top: 0.75rem; padding: 0.7rem 0.9rem; border-radius: 8px; font-size: 0.82rem; @(_googleVerifyResult.Success ? (_googleVerifyResult.QualifiesForDedicatedServerBenefit ? "background: rgba(22,163,74,0.12); border: 1px solid var(--adm-success); color: var(--adm-success);" : "background: rgba(59,130,246,0.1); border: 1px solid #3B82F6; color: var(--adm-text);") : "background: rgba(239,68,68,0.12); border: 1px solid var(--adm-danger); color: var(--adm-danger);")">
-            <strong>@(_googleVerifyResult.Success ? "✓ " : "✕ ")@_googleVerifyResult.Message</strong>
-        </div>
-    }
-</section>
     </div>
 </details>
 
@@ -1060,21 +943,11 @@
     private bool _isSyncingDuckDns;
     private CheckDomainAvailabilityResponse? _domainCheckResult;
 
-    // Servidor Próprio + Verificação de Conta Google
+    // Servidor Próprio
     private string _serverHostingMode = "PlatformShared";
     private string _ownServerProvider = "GoogleCloudRun";
     private string _ownServerSyncSecretInput = string.Empty;
     private bool _hasOwnServerSyncSecret;
-    private string _googleOAuthClientId = string.Empty;
-    private string _googleAccessTokenInput = string.Empty;
-    private string? _googleAccountEmail;
-    private string _googleAccountTier = "None";
-    private long? _googleDriveQuotaBytes;
-    private string? _googleHostedDomain;
-    private DateTimeOffset? _googleAccountVerifiedAt;
-    private bool _qualifiesForDedicatedBenefit;
-    private bool _verifyingGoogle;
-    private GoogleAccountTierVerificationResult? _googleVerifyResult;
     private string _centralCatalogServerUrlInput = string.Empty;
     private string _wizardRenderUrl = string.Empty;
     private bool _publishingOneClick;
@@ -1315,7 +1188,6 @@
             _form.PlanTier = _planTier;
             _form.ServerHostingMode = _serverHostingMode;
             _form.OwnServerProvider = _ownServerProvider;
-            _form.GoogleOAuthClientId = _googleOAuthClientId;
             if (!string.IsNullOrWhiteSpace(_ownServerSyncSecretInput))
             {
                 _form.OwnServerSyncSecret = _ownServerSyncSecretInput.Trim();
@@ -1912,13 +1784,6 @@
         _serverHostingMode = string.IsNullOrWhiteSpace(s.ServerHostingMode) ? "PlatformShared" : s.ServerHostingMode;
         _ownServerProvider = string.IsNullOrWhiteSpace(s.OwnServerProvider) ? "Render" : s.OwnServerProvider;
         _hasOwnServerSyncSecret = s.HasOwnServerSyncSecret;
-        _googleOAuthClientId = s.GoogleOAuthClientId ?? string.Empty;
-        _googleAccountEmail = s.GoogleAccountEmail;
-        _googleAccountTier = string.IsNullOrWhiteSpace(s.GoogleAccountTier) ? "None" : s.GoogleAccountTier;
-        _googleDriveQuotaBytes = s.GoogleDriveQuotaBytes;
-        _googleHostedDomain = s.GoogleHostedDomain;
-        _googleAccountVerifiedAt = s.GoogleAccountVerifiedAt;
-        _qualifiesForDedicatedBenefit = s.QualifiesForDedicatedServerBenefit;
 
         _wizardRenderUrl = !IsPlaceholderOrLocalUrl(s.OnlineBaseUrl)
             ? s.OnlineBaseUrl!
@@ -1941,7 +1806,6 @@
 
         _form.ServerHostingMode = _serverHostingMode;
         _form.OwnServerProvider = _ownServerProvider;
-        _form.GoogleOAuthClientId = _googleOAuthClientId;
         _form.CentralCatalogBaseUrl = GoogleCloudSyncService.NormalizePublicServerUrl(_centralCatalogServerUrlInput);
     }
 
@@ -2179,7 +2043,6 @@
             _form.PlanTier = _planTier;
             _form.ServerHostingMode = "DedicatedOwnServer";
             _form.OwnServerProvider = InferOwnServerProvider(normalizedUrl);
-            _form.GoogleOAuthClientId = _googleOAuthClientId;
             _form.ClearOwnServerSyncSecret = false;
             _form.OwnServerSyncSecret = string.IsNullOrWhiteSpace(cleanedSecret)
                 ? null
@@ -2267,76 +2130,6 @@
         finally
         {
             _publishingOneClick = false;
-        }
-    }
-
-    private async Task VerifyGoogleViaBrowserAsync()
-    {
-        _googleVerifyResult = null;
-        _verifyingGoogle = true;
-        try
-        {
-            var res = await Gateway.VerifyGoogleAccountViaBrowserOAuthAsync(_googleOAuthClientId);
-            _googleVerifyResult = res;
-            if (res.Success)
-            {
-                await LoadSettingsAsync();
-            }
-        }
-        catch (Exception ex)
-        {
-            _googleVerifyResult = new GoogleAccountTierVerificationResult(
-                false, null, null, null, null, null, "None", false, false, "Erro", ex.Message, null);
-        }
-        finally
-        {
-            _verifyingGoogle = false;
-        }
-    }
-
-    private async Task VerifyGoogleByTokenAsync()
-    {
-        _googleVerifyResult = null;
-        _verifyingGoogle = true;
-        try
-        {
-            var res = await Gateway.VerifyGoogleAccountByTokenAsync(_googleAccessTokenInput, _googleOAuthClientId);
-            _googleVerifyResult = res;
-            if (res.Success)
-            {
-                _googleAccessTokenInput = string.Empty;
-                await LoadSettingsAsync();
-            }
-        }
-        catch (Exception ex)
-        {
-            _googleVerifyResult = new GoogleAccountTierVerificationResult(
-                false, null, null, null, null, null, "None", false, false, "Erro", ex.Message, null);
-        }
-        finally
-        {
-            _verifyingGoogle = false;
-        }
-    }
-
-    private async Task ClearGoogleVerificationAsync()
-    {
-        _error = null;
-        _verifyingGoogle = true;
-        try
-        {
-            var updated = await Gateway.ClearGoogleAccountVerificationAsync();
-            ApplyHostingAndGoogleFields(updated);
-            _googleVerifyResult = null;
-            _success = "Verificação da conta Google removida.";
-        }
-        catch (Exception ex)
-        {
-            _error = ex.Message;
-        }
-        finally
-        {
-            _verifyingGoogle = false;
         }
     }
 

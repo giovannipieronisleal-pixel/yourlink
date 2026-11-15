@@ -23,7 +23,7 @@
                             <span>Gmail: <strong>@(Gateway.CurrentEmployee?.Email)</strong></span>
                             <span>&bull;</span>
                             <span class="pill-badge @(Gateway.IsAdmin ? "pill-green" : "pill-slate")" style="font-size: 0.72rem; padding: 0.1rem 0.4rem;">
-                                @(Gateway.IsAdmin ? "Administrador" : "Equipe")
+                                @(Gateway.IsAdmin ? "Administrador" : "Lojista")
                             </span>
                         </div>
                     </div>
@@ -94,11 +94,6 @@
                     <div>
                         <label class="adm-label">Telefone / WhatsApp</label>
                         <input type="text" class="adm-input" @bind="_profilePhone" placeholder="Ex.: 11999990000" />
-                    </div>
-
-                    <div>
-                        <label class="adm-label">Cargo / Nível de Acesso</label>
-                        <input type="text" class="adm-input" value="@(Gateway.CurrentEmployee?.JobTitle ?? "Administrador")" disabled style="opacity: 0.75;" />
                     </div>
 
                     <button type="button"

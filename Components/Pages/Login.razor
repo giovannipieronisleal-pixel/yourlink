@@ -354,12 +354,6 @@
                     ✨ Criar Minha Conta Grátis
                 </button>
             </div>
-
-            <a href="/loja/@_storeSlug"
-               class="adm-btn adm-btn-success"
-               style="width: 100%; padding: 0.75rem; text-align: center; text-decoration: none; margin-top: 0.25rem;">
-                🌐 Abrir Catálogo Público (/loja/@_storeSlug)
-            </a>
         </div>
     }
 
@@ -397,11 +391,6 @@
             @if (!string.IsNullOrWhiteSpace(_setupErrorMessage))
             {
                 <div class="alert-banner alert-error" style="margin-bottom: 1rem;">@_setupErrorMessage</div>
-            }
-
-            @if (!string.IsNullOrWhiteSpace(_setupSyncNotice))
-            {
-                <div class="alert-banner alert-info" style="margin-bottom: 1rem; font-size: 0.8rem; line-height: 1.4;">@_setupSyncNotice</div>
             }
 
             <div style="display: flex; flex-direction: column; gap: 1rem;">
@@ -526,7 +515,6 @@
     private string? _successMessage;
 
     private string _storeName = "Minha Loja";
-    private string _storeSlug = "minha-loja";
 
     // Campos de Login (suporta usuário ou e-mail)
     private string _login = string.Empty;
@@ -560,7 +548,6 @@
     private bool _isCheckingDomain;
     private CheckDomainAvailabilityResponse? _domainCheckResult;
     private string? _setupErrorMessage;
-    private string? _setupSyncNotice;
 
     protected override async Task OnInitializedAsync()
     {
@@ -571,7 +558,6 @@
         {
             var store = await CatalogService.GetPublicStoreSettingsAsync();
             _storeName = store.StoreName;
-            _storeSlug = store.StoreSlug;
         }
         catch
         {
@@ -728,10 +714,6 @@
                 _regPassword,
                 Username: _regUsername.Trim()));
 
-            _setupSyncNotice = Gateway.LastAccountActionWasLocalOnly
-                ? "ℹ️ Conta criada neste dispositivo! Ela já funciona na hora aqui. Para que apareça também no YouLink Admin em outro computador, conecte o endereço do YouLink Admin em Loja & Visual → Sincronizar Celular."
-                : null;
-
             // Garante que o assistente da nova loja comece 100% em branco, sem herdar dados de outra conta.
             _initStoreName = string.Empty;
             _initStoreBio = "Catálogo oficial com nossos produtos e novidades.";
@@ -745,7 +727,6 @@
             {
                 var freshStore = await CatalogService.GetPublicStoreSettingsAsync();
                 _storeName = freshStore.StoreName;
-                _storeSlug = freshStore.StoreSlug;
             }
             catch
             {

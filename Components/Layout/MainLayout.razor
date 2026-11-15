@@ -52,7 +52,7 @@
                             @(BrandState.IsPremiumPlan ? "✦ Premium Sob Medida" : BrandState.IsIntermediatePlan ? "◈ Meia Versão (5 Temas)" : BrandState.IsBasicPlan ? "● Plano Básico" : BrandState.IsPlanExpired ? "⚠ Plano Expirado" : "Sem Plano Ativo")
                         </a>
                         <span class="adm-topbar-hide-sm pill-badge @(Gateway.IsAdmin ? "pill-green" : "pill-slate")">
-                            @(Gateway.IsAdmin ? "Admin" : "Equipe")
+                            @(Gateway.IsAdmin ? "Admin" : "Lojista")
                         </span>
 
                         @if (!string.IsNullOrWhiteSpace(_onlineBaseUrl))
