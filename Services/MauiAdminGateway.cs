@@ -1,5 +1,6 @@
 using System.Text.Json;
 using ClothingStore.Application.Services;
+using ClothingStore.Domain.Entities;
 using ClothingStore.Domain.Exceptions;
 using ClothingStore.Infrastructure.Persistence;
 using ClothingStore.Shared.Clients;
@@ -38,7 +39,7 @@ public sealed class MauiAdminGateway
     }
 
     private static readonly HttpClient FallbackDnsHttpClient = new() { Timeout = TimeSpan.FromSeconds(6) };
-    private static readonly HttpClient RemotePlatformBillingHttpClient = new() { Timeout = TimeSpan.FromSeconds(25) };
+    private static readonly HttpClient RemotePlatformBillingHttpClient = new() { Timeout = TimeSpan.FromSeconds(65) };
 
     private readonly AdminApiClient _apiClient;
     private readonly AuthService _authService;
@@ -1699,6 +1700,31 @@ public sealed class MauiAdminGateway
         return allowDefaultFallback ? AppUpdateCatalog.DefaultCentralPlatformServerUrl : null;
     }
 
+    private static async Task<PlatformSubscriptionOrderDto> ExecutePlanOrderWithPixFallbackAsync(
+        Func<CreatePlatformPlanOrderRequest, CancellationToken, Task<PlatformSubscriptionOrderDto>> createOrderAsync,
+        CreatePlatformPlanOrderRequest request,
+        CancellationToken ct)
+    {
+        try
+        {
+            return await createOrderAsync(request, ct);
+        }
+        catch (Exception ex) when (
+            string.Equals(request.PaymentMethod, PlatformSubscriptionOrder.MethodMercadoPagoPix, StringComparison.OrdinalIgnoreCase) &&
+            MercadoPagoPixService.IsCollectorPixKeyMissingError(ex.Message))
+        {
+            var checkoutFallbackRequest = request with
+            {
+                PaymentMethod = PlatformSubscriptionOrder.MethodMercadoPagoCheckoutPro
+            };
+            return await createOrderAsync(checkoutFallbackRequest, ct);
+        }
+        catch (InvalidOperationException ex) when (MercadoPagoPixService.IsCollectorPixKeyMissingError(ex.Message))
+        {
+            throw new DomainException(MercadoPagoPixService.TranslateMercadoPagoError(ex.Message));
+        }
+    }
+
     public async Task<PlatformSubscriptionOrderDto> CreatePlatformPlanPurchaseOrderAsync(
         CreatePlatformPlanOrderRequest request,
         CancellationToken ct = default)
@@ -1713,7 +1739,10 @@ public sealed class MauiAdminGateway
             if (!string.IsNullOrWhiteSpace(centralUrl))
             {
                 var remoteClient = CreateCentralBillingClient(centralUrl);
-                var mpCreated = await remoteClient.CreatePlatformPlanOrderAsync(request, ct);
+                var mpCreated = await ExecutePlanOrderWithPixFallbackAsync(
+                    (req, token) => remoteClient.CreatePlatformPlanOrderAsync(req, token),
+                    request,
+                    ct);
                 SavePendingPlanOrderTicket(mpCreated, centralUrl);
                 return mpCreated;
             }
@@ -1724,7 +1753,10 @@ public sealed class MauiAdminGateway
         {
             try
             {
-                created = await _apiClient.CreatePlatformPlanOrderAsync(request, ct);
+                created = await ExecutePlanOrderWithPixFallbackAsync(
+                    (req, token) => _apiClient.CreatePlatformPlanOrderAsync(req, token),
+                    request,
+                    ct);
                 SavePendingPlanOrderTicket(created, _apiClient.CurrentBaseAddress);
                 return created;
             }
@@ -1740,7 +1772,10 @@ public sealed class MauiAdminGateway
         if (_subscriptionService is null)
             throw new DomainException("Serviço de pedidos de plano indisponível.");
 
-        created = await _subscriptionService.CreatePlanOrderAsync(request, ct);
+        created = await ExecutePlanOrderWithPixFallbackAsync(
+            (req, token) => _subscriptionService.CreatePlanOrderAsync(req, token),
+            request,
+            ct);
         SavePendingPlanOrderTicket(created);
         return created;
     }

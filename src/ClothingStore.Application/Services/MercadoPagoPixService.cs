@@ -833,6 +833,35 @@ public sealed class MercadoPagoPixService : IMercadoPagoPixService
         return chars.Length == 0 ? "pedido" : new string(chars).ToLowerInvariant();
     }
 
+    public static bool IsCollectorPixKeyMissingError(string? errorMessage) =>
+        !string.IsNullOrWhiteSpace(errorMessage) &&
+        (errorMessage.Contains("without key enabled", StringComparison.OrdinalIgnoreCase) ||
+         errorMessage.Contains("QR render", StringComparison.OrdinalIgnoreCase) ||
+         errorMessage.Contains("Chave Pix ativada", StringComparison.OrdinalIgnoreCase) ||
+         errorMessage.Contains("Chave Pix habilitada", StringComparison.OrdinalIgnoreCase));
+
+    public static string TranslateMercadoPagoError(string? rawError, string fallback = "Não foi possível processar o pagamento no Mercado Pago.")
+    {
+        if (string.IsNullOrWhiteSpace(rawError))
+            return fallback;
+
+        var cleaned = SanitizeRawErrorText(rawError);
+        if (IsCollectorPixKeyMissingError(cleaned))
+        {
+            return "A conta Mercado Pago recebedora ainda não possui uma Chave Pix habilitada no aplicativo do Mercado Pago. Cadastre uma chave na Área Pix do Mercado Pago ou utilize o pagamento pelo Checkout Mercado Pago (Pix / Cartão).";
+        }
+
+        return string.IsNullOrWhiteSpace(cleaned) ? fallback : cleaned;
+    }
+
+    private static string SanitizeRawErrorText(string text)
+    {
+        var trimmed = text.Trim();
+        if (trimmed.EndsWith("rendernull", StringComparison.OrdinalIgnoreCase))
+            trimmed = trimmed[..^4].Trim();
+        return trimmed;
+    }
+
     private static string? ExtractErrorMessage(string? rawJson)
     {
         if (string.IsNullOrWhiteSpace(rawJson))
@@ -842,15 +871,15 @@ public sealed class MercadoPagoPixService : IMercadoPagoPixService
             using var doc = JsonDocument.Parse(rawJson);
             var root = doc.RootElement;
             if (root.TryGetProperty("message", out var msg) && !string.IsNullOrWhiteSpace(msg.GetString()))
-                return msg.GetString();
+                return SanitizeRawErrorText(msg.GetString()!);
             if (root.TryGetProperty("error_description", out var ed) && !string.IsNullOrWhiteSpace(ed.GetString()))
-                return ed.GetString();
+                return SanitizeRawErrorText(ed.GetString()!);
             if (root.TryGetProperty("error", out var er) && !string.IsNullOrWhiteSpace(er.GetString()))
-                return er.GetString();
+                return SanitizeRawErrorText(er.GetString()!);
         }
         catch
         {
         }
-        return rawJson.Length > 180 ? rawJson[..180] : rawJson;
+        return rawJson.Length > 180 ? SanitizeRawErrorText(rawJson[..180]) : SanitizeRawErrorText(rawJson);
     }
 }

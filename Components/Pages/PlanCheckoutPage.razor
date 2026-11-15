@@ -429,6 +429,11 @@ else
                     </div>
                 }
 
+                @if (!string.IsNullOrWhiteSpace(_error))
+                {
+                    <div class="adm-alert adm-alert-error" style="margin: 0;">@_error</div>
+                }
+
                 <button type="button"
                         class="adm-btn adm-btn-success"
                         style="text-align: center; padding: 0.95rem; font-size: 0.96rem; font-weight: 800;"
@@ -439,6 +444,14 @@ else
             }
             else
             {
+                @if (!string.IsNullOrWhiteSpace(_error))
+                {
+                    <div class="adm-alert adm-alert-error" style="margin: 0;">@_error</div>
+                }
+                @if (!string.IsNullOrWhiteSpace(_successMessage))
+                {
+                    <div class="adm-alert adm-alert-success" style="margin: 0;">@_successMessage</div>
+                }
                 <div style="background: var(--adm-surface-subtle); border: 1.5px solid var(--adm-accent); border-radius: 10px; padding: 0.95rem; display: flex; flex-direction: column; gap: 0.7rem;">
                     <div style="display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
                         <div style="font-size: 0.88rem; font-weight: 800;">
@@ -1046,6 +1059,7 @@ else
             _copiedCheckoutUrl = false;
             _successMessage = created.Message;
             StartPlanPollingLoop();
+            await InvokeAsync(StateHasChanged);
 
             if (!string.IsNullOrWhiteSpace(created.MercadoPagoCheckoutUrl))
             {
@@ -1054,7 +1068,7 @@ else
         }
         catch (Exception ex)
         {
-            _error = ex.Message;
+            _error = MercadoPagoPixService.TranslateMercadoPagoError(ex.Message, ex.Message);
         }
         finally
         {

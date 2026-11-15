@@ -38,6 +38,7 @@ public sealed class PlatformMercadoPagoPlanBillingTests
         public string AuthorizedPaymentStatus { get; set; } = "approved";
 
         public bool IncludeSearchResultPayment { get; set; }
+        public bool SimulateCollectorMissingPixKeyOnPixEndpoint { get; set; }
         public decimal SearchPaymentAmount { get; set; } = 179.70m;
         public string SearchPaymentStatus { get; set; } = "approved";
 
@@ -99,6 +100,17 @@ public sealed class PlatformMercadoPagoPlanBillingTests
                     LastPaymentExternalReference = ext.GetString();
                 if (doc.RootElement.TryGetProperty("notification_url", out var notif))
                     LastPaymentNotificationUrl = notif.GetString();
+
+                if (SimulateCollectorMissingPixKeyOnPixEndpoint)
+                {
+                    return new HttpResponseMessage(HttpStatusCode.BadRequest)
+                    {
+                        Content = new StringContent(
+                            JsonSerializer.Serialize(new { message = "Collector user without key enabled for QR rendernull", error = "bad_request", status = 400 }),
+                            Encoding.UTF8,
+                            "application/json")
+                    };
+                }
 
                 return JsonOk(new
                 {
@@ -508,6 +520,66 @@ public sealed class PlatformMercadoPagoPlanBillingTests
             var envStatus = await envPriorityStore.GetConnectionStatusAsync(isAppConfigured: true);
             Assert.IsTrue(envStatus.IsConnected);
             Assert.IsTrue(envStatus.UsingEnvironmentToken);
+        }
+        finally
+        {
+            Directory.Delete(env.TempDir, recursive: true);
+        }
+    }
+
+    [TestMethod]
+    public async Task PlatformPlanOrder_MercadoPagoPixWithoutCollectorKey_ShouldFallbackToCheckoutPro_AndAutoApproveViaPolling()
+    {
+        var env = CreatePlatformBillingEnv(envToken: "APP_USR-PLATFORM-TOKEN-1");
+        try
+        {
+            await SeedOwnerPricingAsync(env.Repo);
+            env.Handler.SimulateCollectorMissingPixKeyOnPixEndpoint = true;
+
+            Assert.IsTrue(MercadoPagoPixService.IsCollectorPixKeyMissingError("Collector user without key enabled for QR rendernull"));
+            var translated = MercadoPagoPixService.TranslateMercadoPagoError("Collector user without key enabled for QR rendernull");
+            Assert.IsFalse(translated.Contains("rendernull", StringComparison.OrdinalIgnoreCase));
+            Assert.IsTrue(translated.Contains("Chave Pix", StringComparison.OrdinalIgnoreCase));
+
+            var order = await env.Service.CreatePlanOrderAsync(new CreatePlatformPlanOrderRequest(
+                PlanTier: StoreSettings.PlanTierBasic,
+                DurationMonths: 1,
+                Amount: 59.90m,
+                StoreName: "Loja Sem Chave Pix MP",
+                BuyerEmail: "lojista@teste.com",
+                PaymentMethod: PlatformSubscriptionOrder.MethodMercadoPagoPix),
+                publicBaseOrigin: "https://youlink-loja.onrender.com");
+
+            Assert.AreEqual(1, env.Handler.CreatePixCalls);
+            Assert.AreEqual(1, env.Handler.CreatePreferenceCalls);
+            Assert.IsTrue(!string.IsNullOrWhiteSpace(order.MercadoPagoCheckoutUrl) &&
+                          order.MercadoPagoCheckoutUrl!.Contains("pref_id=PREF-PLAN-9001", StringComparison.OrdinalIgnoreCase));
+            var savedEntity = await env.Repo.GetPlatformSubscriptionOrderByNumberAsync(order.OrderNumber);
+            Assert.IsNotNull(savedEntity);
+            Assert.AreEqual("PREF-PLAN-9001", savedEntity!.MercadoPagoPreferenceId);
+
+            // Polling via GetPlanOrderStatusAsync deve pesquisar external_reference mesmo quando PaymentMethod original era Pix
+            env.Handler.IncludeSearchResultPayment = true;
+            env.Handler.SearchPaymentAmount = order.Amount;
+            env.Handler.SearchPaymentStatus = "approved";
+
+            var status = await env.Service.GetPlanOrderStatusAsync(order.OrderNumber, order.ClaimToken);
+            Assert.IsTrue(status.IsApproved);
+            Assert.AreEqual(1, env.Handler.SearchCalls);
+            Assert.IsFalse(string.IsNullOrWhiteSpace(status.IssuedGiftCardCode));
+
+            // Verificações estruturais no cliente MAUI e UI para nunca falhar silenciosamente
+            var root = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", ".."));
+            var gatewaySource = await File.ReadAllTextAsync(Path.Combine(root, "Services", "MauiAdminGateway.cs"));
+            var checkoutRazor = await File.ReadAllTextAsync(Path.Combine(root, "Components", "Pages", "PlanCheckoutPage.razor"));
+
+            Assert.IsTrue(gatewaySource.Contains("ExecutePlanOrderWithPixFallbackAsync", StringComparison.Ordinal));
+            var sec3Idx = checkoutRazor.IndexOf("else if (_activePlanOrder is null)", StringComparison.Ordinal);
+            var confirmBtnIdx = checkoutRazor.IndexOf("ConfirmDirectMobilePlanOrderAsync", sec3Idx, StringComparison.Ordinal);
+            Assert.IsTrue(sec3Idx > 0 && confirmBtnIdx > sec3Idx);
+            var sec3Block = checkoutRazor[sec3Idx..confirmBtnIdx];
+            Assert.IsTrue(sec3Block.Contains("@_error", StringComparison.Ordinal),
+                "PlanCheckoutPage precisa exibir _error dentro da seção 3 perto do botão de pagamento.");
         }
         finally
         {

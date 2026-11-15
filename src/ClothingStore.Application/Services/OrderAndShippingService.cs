@@ -293,8 +293,9 @@ public sealed class OrderAndShippingService
 
             if (!mpPixResult.Success)
             {
+                var translated = MercadoPagoPixService.TranslateMercadoPagoError(mpPixResult.ErrorMessage);
                 throw new DomainException(
-                    $"Não foi possível gerar a cobrança Pix automática no Mercado Pago: {mpPixResult.ErrorMessage}");
+                    $"Não foi possível gerar a cobrança Pix automática no Mercado Pago: {translated}");
             }
 
             normalizedPixKey = !string.IsNullOrWhiteSpace(settings.StorePixKey)

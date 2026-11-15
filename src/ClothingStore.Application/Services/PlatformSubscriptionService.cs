@@ -360,79 +360,112 @@ public sealed class PlatformSubscriptionService
         switch (order.PaymentMethod)
         {
             case PlatformSubscriptionOrder.MethodMercadoPagoPix:
-            {
-                var mpPix = await _mercadoPago.CreatePixPaymentAsync(
-                    accessToken,
-                    order.Amount,
-                    planTitle,
-                    order.OrderNumber,
-                    order.BuyerFullName,
-                    order.BuyerEmail,
-                    webhookUrl,
-                    $"plan-pix-{order.Id:N}",
-                    ct);
-
-                if (!mpPix.Success)
-                    throw new DomainException(mpPix.ErrorMessage ?? "Não foi possível gerar o Pix automático no Mercado Pago.");
-
-                order.MercadoPagoPaymentId = mpPix.ProviderPaymentId;
-                order.PixBrCode = mpPix.PixQrCode;
-                order.MercadoPagoQrCodeBase64 = mpPix.PixQrCodeBase64;
-                order.MercadoPagoStatus = mpPix.Status;
-                return "Pix oficial do Mercado Pago gerado! Ao pagar, seu plano libera automaticamente em poucos segundos.";
-            }
-
-            case PlatformSubscriptionOrder.MethodMercadoPagoCheckoutPro:
-            {
-                var pref = await _mercadoPago.CreateCheckoutPreferenceAsync(
-                    accessToken,
-                    order.Amount,
-                    planTitle,
-                    order.OrderNumber,
-                    order.BuyerFullName,
-                    order.BuyerEmail,
-                    returnBaseUrl,
-                    webhookUrl,
-                    $"plan-pref-{order.Id:N}",
-                    ct);
-
-                if (!pref.Success)
-                    throw new DomainException(pref.ErrorMessage ?? "Não foi possível iniciar o Checkout Pro do Mercado Pago.");
-
-                order.MercadoPagoPreferenceId = pref.PreferenceId;
-                order.MercadoPagoCheckoutUrl = pref.InitPoint;
-                order.MercadoPagoStatus = "pending";
-                return "Checkout seguro do Mercado Pago pronto! Conclua com Cartão, Saldo Mercado Pago ou Pix na janela aberta.";
-            }
-
-            case PlatformSubscriptionOrder.MethodMercadoPagoSubscription:
-            {
-                var payerEmail = (order.BuyerEmail ?? string.Empty).Trim();
-                if (!payerEmail.Contains('@', StringComparison.Ordinal) || !payerEmail.Contains('.', StringComparison.Ordinal))
                 {
-                    throw new DomainException(
-                        "Para assinatura recorrente no cartão pelo Mercado Pago, informe um e-mail válido no campo Usuário / Gmail de Acesso.");
+                    var mpPix = await _mercadoPago.CreatePixPaymentAsync(
+                        accessToken,
+                        order.Amount,
+                        planTitle,
+                        order.OrderNumber,
+                        order.BuyerFullName,
+                        order.BuyerEmail,
+                        webhookUrl,
+                        $"plan-pix-{order.Id:N}",
+                        ct);
+
+                    if (mpPix.Success)
+                    {
+                        order.MercadoPagoPaymentId = mpPix.ProviderPaymentId;
+                        order.PixBrCode = mpPix.PixQrCode;
+                        order.MercadoPagoQrCodeBase64 = mpPix.PixQrCodeBase64;
+                        order.MercadoPagoStatus = mpPix.Status;
+                        return "Pix oficial do Mercado Pago gerado! Ao pagar, seu plano libera automaticamente em poucos segundos.";
+                    }
+
+                    // Se a conta Mercado Pago recebedora ainda não ativou chave Pix para QR direto,
+                    // abre automaticamente o Checkout Pro do Mercado Pago (Pix / Cartão / Saldo MP).
+                    if (MercadoPagoPixService.IsCollectorPixKeyMissingError(mpPix.ErrorMessage))
+                    {
+                        var fallbackPref = await _mercadoPago.CreateCheckoutPreferenceAsync(
+                            accessToken,
+                            order.Amount,
+                            planTitle,
+                            order.OrderNumber,
+                            order.BuyerFullName,
+                            order.BuyerEmail,
+                            returnBaseUrl,
+                            webhookUrl,
+                            $"plan-pix-fallback-{order.Id:N}",
+                            ct);
+
+                        if (fallbackPref.Success)
+                        {
+                            order.MercadoPagoPreferenceId = fallbackPref.PreferenceId;
+                            order.MercadoPagoCheckoutUrl = fallbackPref.InitPoint;
+                            order.MercadoPagoStatus = "pending";
+                            return "Checkout seguro do Mercado Pago aberto! Escolha Pix, Cartão ou Saldo Mercado Pago — assim que aprovar, seu plano libera automaticamente.";
+                        }
+                    }
+
+                    throw new DomainException(MercadoPagoPixService.TranslateMercadoPagoError(
+                        mpPix.ErrorMessage,
+                        "Não foi possível gerar o Pix automático no Mercado Pago."));
                 }
 
-                var sub = await _mercadoPago.CreatePreapprovalSubscriptionAsync(
-                    accessToken,
-                    order.Amount,
-                    order.DurationMonths,
-                    planTitle,
-                    order.OrderNumber,
-                    payerEmail,
-                    $"{returnBaseUrl}?orderNumber={Uri.EscapeDataString(order.OrderNumber)}",
-                    webhookUrl,
-                    ct);
+            case PlatformSubscriptionOrder.MethodMercadoPagoCheckoutPro:
+                {
+                    var pref = await _mercadoPago.CreateCheckoutPreferenceAsync(
+                        accessToken,
+                        order.Amount,
+                        planTitle,
+                        order.OrderNumber,
+                        order.BuyerFullName,
+                        order.BuyerEmail,
+                        returnBaseUrl,
+                        webhookUrl,
+                        $"plan-pref-{order.Id:N}",
+                        ct);
 
-                if (!sub.Success)
-                    throw new DomainException(sub.ErrorMessage ?? "Não foi possível criar a assinatura automática no Mercado Pago.");
+                    if (!pref.Success)
+                        throw new DomainException(MercadoPagoPixService.TranslateMercadoPagoError(
+                            pref.ErrorMessage,
+                            "Não foi possível iniciar o Checkout Pro do Mercado Pago."));
 
-                order.MercadoPagoPreapprovalId = sub.SubscriptionId;
-                order.MercadoPagoCheckoutUrl = sub.InitPoint;
-                order.MercadoPagoStatus = sub.Status;
-                return "Assinatura automática criada! Conclua a autorização no cartão pelo Mercado Pago para liberar e renovar automaticamente.";
-            }
+                    order.MercadoPagoPreferenceId = pref.PreferenceId;
+                    order.MercadoPagoCheckoutUrl = pref.InitPoint;
+                    order.MercadoPagoStatus = "pending";
+                    return "Checkout seguro do Mercado Pago pronto! Conclua com Cartão, Saldo Mercado Pago ou Pix na janela aberta.";
+                }
+
+            case PlatformSubscriptionOrder.MethodMercadoPagoSubscription:
+                {
+                    var payerEmail = (order.BuyerEmail ?? string.Empty).Trim();
+                    if (!payerEmail.Contains('@', StringComparison.Ordinal) || !payerEmail.Contains('.', StringComparison.Ordinal))
+                    {
+                        throw new DomainException(
+                            "Para assinatura recorrente no cartão pelo Mercado Pago, informe um e-mail válido no campo Usuário / Gmail de Acesso.");
+                    }
+
+                    var sub = await _mercadoPago.CreatePreapprovalSubscriptionAsync(
+                        accessToken,
+                        order.Amount,
+                        order.DurationMonths,
+                        planTitle,
+                        order.OrderNumber,
+                        payerEmail,
+                        $"{returnBaseUrl}?orderNumber={Uri.EscapeDataString(order.OrderNumber)}",
+                        webhookUrl,
+                        ct);
+
+                    if (!sub.Success)
+                        throw new DomainException(MercadoPagoPixService.TranslateMercadoPagoError(
+                            sub.ErrorMessage,
+                            "Não foi possível criar a assinatura automática no Mercado Pago."));
+
+                    order.MercadoPagoPreapprovalId = sub.SubscriptionId;
+                    order.MercadoPagoCheckoutUrl = sub.InitPoint;
+                    order.MercadoPagoStatus = sub.Status;
+                    return "Assinatura automática criada! Conclua a autorização no cartão pelo Mercado Pago para liberar e renovar automaticamente.";
+                }
 
             default:
                 throw new DomainException("Forma de pagamento de plano inválida.");
@@ -476,7 +509,8 @@ public sealed class PlatformSubscriptionService
             {
                 lookup = await _mercadoPago.GetPaymentStatusAsync(accessToken, order.MercadoPagoPaymentId, ct);
             }
-            else if (string.Equals(order.PaymentMethod, PlatformSubscriptionOrder.MethodMercadoPagoCheckoutPro, StringComparison.OrdinalIgnoreCase))
+            else if (string.Equals(order.PaymentMethod, PlatformSubscriptionOrder.MethodMercadoPagoCheckoutPro, StringComparison.OrdinalIgnoreCase) ||
+                     !string.IsNullOrWhiteSpace(order.MercadoPagoPreferenceId))
             {
                 lookup = await _mercadoPago.SearchLatestPaymentByExternalReferenceAsync(accessToken, order.OrderNumber, ct);
             }
