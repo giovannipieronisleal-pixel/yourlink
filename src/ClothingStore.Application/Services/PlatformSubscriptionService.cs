@@ -381,31 +381,6 @@ public sealed class PlatformSubscriptionService
                         return "Pix oficial do Mercado Pago gerado! Ao pagar, seu plano libera automaticamente em poucos segundos.";
                     }
 
-                    // Se a conta Mercado Pago recebedora ainda não ativou chave Pix para QR direto,
-                    // abre automaticamente o Checkout Pro do Mercado Pago (Pix / Cartão / Saldo MP).
-                    if (MercadoPagoPixService.IsCollectorPixKeyMissingError(mpPix.ErrorMessage))
-                    {
-                        var fallbackPref = await _mercadoPago.CreateCheckoutPreferenceAsync(
-                            accessToken,
-                            order.Amount,
-                            planTitle,
-                            order.OrderNumber,
-                            order.BuyerFullName,
-                            order.BuyerEmail,
-                            returnBaseUrl,
-                            webhookUrl,
-                            $"plan-pix-fallback-{order.Id:N}",
-                            ct);
-
-                        if (fallbackPref.Success)
-                        {
-                            order.MercadoPagoPreferenceId = fallbackPref.PreferenceId;
-                            order.MercadoPagoCheckoutUrl = fallbackPref.InitPoint;
-                            order.MercadoPagoStatus = "pending";
-                            return "Checkout seguro do Mercado Pago aberto! Escolha Pix, Cartão ou Saldo Mercado Pago — assim que aprovar, seu plano libera automaticamente.";
-                        }
-                    }
-
                     throw new DomainException(MercadoPagoPixService.TranslateMercadoPagoError(
                         mpPix.ErrorMessage,
                         "Não foi possível gerar o Pix automático no Mercado Pago."));

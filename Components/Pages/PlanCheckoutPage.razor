@@ -386,7 +386,7 @@ else
                                 @onclick="() => SelectPaymentMethod(PlatformSubscriptionOrder.MethodMercadoPagoCheckoutPro)">
                             <div style="font-weight: 800; font-size: 0.88rem;">💳 Cartão ou Conta Mercado Pago</div>
                             <div style="font-size: 0.77rem; color: var(--adm-muted); margin-top: 0.25rem;">
-                                Cartão de crédito/débito, saldo Mercado Pago ou Pix no checkout oficial.
+                                Cartão de crédito/débito, Boleto ou Saldo Mercado Pago no checkout oficial.
                             </div>
                         </button>
 
@@ -432,6 +432,34 @@ else
                 @if (!string.IsNullOrWhiteSpace(_error))
                 {
                     <div class="adm-alert adm-alert-error" style="margin: 0;">@_error</div>
+                    @if (_pixCollectorKeyMissing)
+                    {
+                        <div style="background: var(--adm-surface-subtle); border: 1px solid var(--adm-accent); border-radius: 10px; padding: 0.85rem; display: flex; flex-direction: column; gap: 0.55rem; font-size: 0.8rem;">
+                            <div style="font-weight: 700; color: var(--adm-text);">
+                                Não redirecionamos para Cartão automaticamente porque você escolheu pagar por Pix. Se desejar, escolha uma alternativa:
+                            </div>
+                            <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+                                @if (Gateway.LatestPlatformCatalog?.HasOfficialPixKey == true)
+                                {
+                                    <button type="button"
+                                            class="adm-btn adm-btn-success"
+                                            disabled="@_creatingPlanOrder"
+                                            @onclick="() => SwitchPaymentMethodAndCreateAsync(PlatformSubscriptionOrder.MethodDirectPix)">
+                                        🏦 Pagar com Pix Direto (Aprovação Admin)
+                                    </button>
+                                }
+                                <button type="button"
+                                        class="adm-btn adm-btn-primary"
+                                        disabled="@_creatingPlanOrder"
+                                        @onclick="() => SwitchPaymentMethodAndCreateAsync(PlatformSubscriptionOrder.MethodMercadoPagoCheckoutPro)">
+                                    💳 Prefiro Pagar com Cartão ou Boleto (Mercado Pago)
+                                </button>
+                            </div>
+                            <div style="color: var(--adm-muted); font-size: 0.75rem; line-height: 1.4;">
+                                💡 <strong>Dica para o recebedor:</strong> para liberar o QR Code Pix Automático do Mercado Pago, acesse o app/site do Mercado Pago → <strong>Área Pix → Minhas Chaves Pix</strong> e cadastre uma chave na conta recebedora.
+                            </div>
+                        </div>
+                    }
                 }
 
                 <button type="button"
@@ -468,7 +496,7 @@ else
                             <div style="font-size: 0.82rem; font-weight: 700; color: var(--adm-text);">
                                 @(_activePlanOrder.PaymentMethod == PlatformSubscriptionOrder.MethodMercadoPagoSubscription
                                     ? "Conclua a autorização mensal do cartão na página oficial do Mercado Pago:"
-                                    : "Conclua o pagamento com Cartão, Conta Mercado Pago ou Pix no ambiente seguro do Mercado Pago:")
+                                    : "Conclua o pagamento com Cartão, Boleto ou Saldo Mercado Pago no ambiente seguro do Mercado Pago:")
                             </div>
                             <button type="button"
                                     class="adm-btn adm-btn-primary"
@@ -529,28 +557,40 @@ else
                         </div>
                     }
 
-                    <div style="border-top: 1px solid var(--adm-border); padding-top: 0.6rem; font-size: 0.79rem; color: var(--adm-muted); line-height: 1.45;">
-                        @if (_activePlanOrder.PaymentMethod == PlatformSubscriptionOrder.MethodDirectPix)
+                    <div style="border-top: 1px solid var(--adm-border); padding-top: 0.65rem; display: flex; align-items: center; justify-content: space-between; gap: 0.6rem; flex-wrap: wrap; padding: 0.65rem 0.75rem; border-radius: 8px; background: rgba(22, 163, 74, 0.1); border: 1px solid rgba(22, 163, 74, 0.35); font-size: 0.79rem; line-height: 1.45;">
+                        <div>
+                            <strong style="color: var(--adm-success);">⚡ Verificação 100% automática ativa — não precisa clicar em nada</strong>
+                            <div style="color: var(--adm-muted); margin-top: 0.15rem;">
+                                @if (_activePlanOrder.PaymentMethod == PlatformSubscriptionOrder.MethodDirectPix)
+                                {
+                                    <span>Checando o pedido a cada 4 segundos automaticamente até o administrador confirmar seu Pix.</span>
+                                }
+                                else
+                                {
+                                    <span>Checando o Mercado Pago a cada 4 segundos: assim que seu pagamento aprovar, o plano libera sozinho.</span>
+                                }
+                            </div>
+                        </div>
+                        @if (_lastAutoCheckAt.HasValue)
                         {
-                            <span>⏳ <strong>Verificação automática ativa:</strong> assim que você transferir e o administrador confirmar no painel, a sua versão paga será entregue automaticamente aqui neste aparelho.</span>
-                        }
-                        else
-                        {
-                            <span>⚡ <strong>Liberação 100% automática:</strong> assim que o Mercado Pago aprovar o Pix ou cartão, o YouLink libera seu plano sozinho em poucos segundos.</span>
+                            <span style="font-size: 0.72rem; color: var(--adm-muted); font-family: monospace; white-space: nowrap;">
+                                Checado: @_lastAutoCheckAt.Value.ToLocalTime().ToString("HH:mm:ss")
+                            </span>
                         }
                     </div>
 
-                    <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
-                        <button type="button"
-                                class="adm-btn adm-btn-success"
-                                disabled="@_checkingOrderStatus"
-                                @onclick="CheckOrderStatusNowAsync">
-                            @(_checkingOrderStatus ? "Verificando..." : "🔄 Já paguei — Verificar Agora")
-                        </button>
+                    <div style="display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center;">
                         <button type="button"
                                 class="adm-btn adm-btn-outline"
                                 @onclick="CancelActivePendingOrder">
                             ✕ Alterar Plano / Cancelar
+                        </button>
+                        <button type="button"
+                                class="adm-btn adm-btn-outline"
+                                style="font-size: 0.76rem; opacity: 0.85;"
+                                disabled="@_checkingOrderStatus"
+                                @onclick="CheckOrderStatusNowAsync">
+                            @(_checkingOrderStatus ? "Checando..." : "↻ Atualizar agora (opcional)")
                         </button>
                     </div>
                 </div>
@@ -709,6 +749,8 @@ else
     private bool _copiedCheckoutUrl;
     private bool _creatingPlanOrder;
     private bool _checkingOrderStatus;
+    private bool _pixCollectorKeyMissing;
+    private DateTimeOffset? _lastAutoCheckAt;
     private PlatformSubscriptionOrderDto? _activePlanOrder;
     private PlatformPlanOrderStatusDto? _planAutoActivatedResult;
     private CancellationTokenSource? _pollingCts;
@@ -955,7 +997,14 @@ else
     private void SelectPaymentMethod(string paymentMethod)
     {
         _selectedPaymentMethod = PlatformSubscriptionOrder.NormalizePaymentMethod(paymentMethod);
+        _pixCollectorKeyMissing = false;
         _error = null;
+    }
+
+    private async Task SwitchPaymentMethodAndCreateAsync(string paymentMethod)
+    {
+        SelectPaymentMethod(paymentMethod);
+        await ConfirmDirectMobilePlanOrderAsync();
     }
 
     private string GetPrimaryCheckoutButtonLabel()
@@ -1027,6 +1076,7 @@ else
 
         _error = null;
         _successMessage = null;
+        _pixCollectorKeyMissing = false;
         _planAutoActivatedResult = null;
         _creatingPlanOrder = true;
 
@@ -1054,6 +1104,7 @@ else
                 PaymentMethod: _selectedPaymentMethod));
 
             _activePlanOrder = created;
+            _lastAutoCheckAt = null;
             _copiedPix = false;
             _copiedPlanBrCode = false;
             _copiedCheckoutUrl = false;
@@ -1068,6 +1119,9 @@ else
         }
         catch (Exception ex)
         {
+            _pixCollectorKeyMissing =
+                _selectedPaymentMethod == PlatformSubscriptionOrder.MethodMercadoPagoPix &&
+                MercadoPagoPixService.IsCollectorPixKeyMissingError(ex.Message);
             _error = MercadoPagoPixService.TranslateMercadoPagoError(ex.Message, ex.Message);
         }
         finally
@@ -1088,6 +1142,7 @@ else
             var status = await Gateway.CheckAndApplyPendingPlanOrderAsync(
                 _activePlanOrder.OrderNumber,
                 _activePlanOrder.ClaimToken);
+            _lastAutoCheckAt = DateTimeOffset.UtcNow;
 
             if (status is null)
                 return;
@@ -1145,13 +1200,28 @@ else
         _ = Task.Run(async () =>
         {
             using var timer = new PeriodicTimer(TimeSpan.FromSeconds(4));
-            try
+            while (true)
             {
-                while (await timer.WaitForNextTickAsync(cts.Token))
+                try
+                {
+                    if (!await timer.WaitForNextTickAsync(cts.Token))
+                        break;
+                }
+                catch (OperationCanceledException)
+                {
+                    break;
+                }
+
+                try
                 {
                     var status = await Gateway.CheckAndApplyPendingPlanOrderAsync(orderNumber, claimToken, cts.Token);
+                    _lastAutoCheckAt = DateTimeOffset.UtcNow;
+
                     if (status is null)
+                    {
+                        await InvokeAsync(StateHasChanged);
                         continue;
+                    }
 
                     if (status.IsApproved)
                     {
@@ -1179,10 +1249,17 @@ else
                         });
                         break;
                     }
+
+                    await InvokeAsync(StateHasChanged);
                 }
-            }
-            catch
-            {
+                catch (OperationCanceledException) when (cts.Token.IsCancellationRequested)
+                {
+                    break;
+                }
+                catch
+                {
+                    // Falha transitória de rede não pode interromper a verificação automática em segundo plano.
+                }
             }
         }, cts.Token);
     }

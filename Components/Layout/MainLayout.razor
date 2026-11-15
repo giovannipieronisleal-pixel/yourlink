@@ -185,6 +185,7 @@
     private ApiCompatibilityStatusDto? _compatibilityStatus;
     private bool _dismissedUpdateBanner;
     private string? _autoActivatedPlanBanner;
+    private CancellationTokenSource? _pendingPlanMonitorCts;
 
     private static string GetUserInitials(string? fullName)
     {
@@ -235,6 +236,7 @@
     private async Task RunStartupBackgroundChecksAsync()
     {
         await TryDeliverPendingPlanQuietlyAsync();
+        EnsurePendingPlanBackgroundMonitor();
         await RefreshUpdatesInBackgroundAsync();
 
         try
@@ -243,6 +245,73 @@
         }
         catch
         {
+        }
+    }
+
+    private void EnsurePendingPlanBackgroundMonitor()
+    {
+        if (!Gateway.IsAuthenticated || Gateway.GetPendingPlanOrder() is null)
+        {
+            StopPendingPlanBackgroundMonitor();
+            return;
+        }
+
+        if (_pendingPlanMonitorCts is not null)
+            return;
+
+        var cts = new CancellationTokenSource();
+        _pendingPlanMonitorCts = cts;
+
+        _ = Task.Run(async () =>
+        {
+            using var timer = new PeriodicTimer(TimeSpan.FromSeconds(5));
+            while (true)
+            {
+                try
+                {
+                    if (!await timer.WaitForNextTickAsync(cts.Token))
+                        break;
+                }
+                catch (OperationCanceledException)
+                {
+                    break;
+                }
+
+                if (!Gateway.IsAuthenticated || Gateway.GetPendingPlanOrder() is null)
+                {
+                    StopPendingPlanBackgroundMonitor();
+                    break;
+                }
+
+                try
+                {
+                    await TryDeliverPendingPlanQuietlyAsync();
+                    if (Gateway.GetPendingPlanOrder() is null)
+                    {
+                        StopPendingPlanBackgroundMonitor();
+                        break;
+                    }
+                }
+                catch
+                {
+                }
+            }
+        }, cts.Token);
+    }
+
+    private void StopPendingPlanBackgroundMonitor()
+    {
+        try
+        {
+            _pendingPlanMonitorCts?.Cancel();
+            _pendingPlanMonitorCts?.Dispose();
+        }
+        catch
+        {
+        }
+        finally
+        {
+            _pendingPlanMonitorCts = null;
         }
     }
 
@@ -291,6 +360,7 @@
     private async void OnLocationChanged(object? sender, LocationChangedEventArgs e)
     {
         await TryDeliverPendingPlanQuietlyAsync();
+        EnsurePendingPlanBackgroundMonitor();
         await RefreshStoreInfoAsync();
         _ = RefreshUpdatesInBackgroundAsync();
         await InvokeAsync(StateHasChanged);
@@ -303,11 +373,13 @@
             if (!Gateway.IsAuthenticated)
             {
                 _autoActivatedPlanBanner = null;
+                StopPendingPlanBackgroundMonitor();
             }
 
             await RefreshStoreInfoAsync();
             _ = RefreshUpdatesInBackgroundAsync();
             _ = TryDeliverPendingPlanQuietlyAsync();
+            EnsurePendingPlanBackgroundMonitor();
             await InvokeAsync(StateHasChanged);
         }
         catch
@@ -377,6 +449,7 @@
 
     public void Dispose()
     {
+        StopPendingPlanBackgroundMonitor();
         Gateway.AuthStateChanged -= OnAuthStateChanged;
         Gateway.PlanEntitlementActivated -= OnPlanEntitlementActivated;
         Navigation.LocationChanged -= OnLocationChanged;

@@ -838,7 +838,9 @@ public sealed class MercadoPagoPixService : IMercadoPagoPixService
         (errorMessage.Contains("without key enabled", StringComparison.OrdinalIgnoreCase) ||
          errorMessage.Contains("QR render", StringComparison.OrdinalIgnoreCase) ||
          errorMessage.Contains("Chave Pix ativada", StringComparison.OrdinalIgnoreCase) ||
-         errorMessage.Contains("Chave Pix habilitada", StringComparison.OrdinalIgnoreCase));
+         errorMessage.Contains("Chave Pix habilitada", StringComparison.OrdinalIgnoreCase) ||
+         errorMessage.Contains("Chave Pix cadastrada", StringComparison.OrdinalIgnoreCase) ||
+         errorMessage.Contains("Chave Pix ativa", StringComparison.OrdinalIgnoreCase));
 
     public static string TranslateMercadoPagoError(string? rawError, string fallback = "Não foi possível processar o pagamento no Mercado Pago.")
     {
@@ -848,7 +850,7 @@ public sealed class MercadoPagoPixService : IMercadoPagoPixService
         var cleaned = SanitizeRawErrorText(rawError);
         if (IsCollectorPixKeyMissingError(cleaned))
         {
-            return "A conta Mercado Pago recebedora ainda não possui uma Chave Pix habilitada no aplicativo do Mercado Pago. Cadastre uma chave na Área Pix do Mercado Pago ou utilize o pagamento pelo Checkout Mercado Pago (Pix / Cartão).";
+            return "A conta Mercado Pago recebedora ainda não possui uma Chave Pix cadastrada na Área Pix do aplicativo do Mercado Pago (sem ela, o Mercado Pago não gera QR Code Pix e libera apenas Cartão ou Boleto). Cadastre uma chave na Área Pix do Mercado Pago ou escolha outra forma de pagamento abaixo.";
         }
 
         return string.IsNullOrWhiteSpace(cleaned) ? fallback : cleaned;

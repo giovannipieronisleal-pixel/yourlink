@@ -528,7 +528,7 @@ public sealed class PlatformMercadoPagoPlanBillingTests
     }
 
     [TestMethod]
-    public async Task PlatformPlanOrder_MercadoPagoPixWithoutCollectorKey_ShouldFallbackToCheckoutPro_AndAutoApproveViaPolling()
+    public async Task PlatformPlanOrder_MercadoPagoPixWithoutCollectorKey_ShouldNotRedirectToCard_AndCheckoutProShouldAutoApproveViaPolling()
     {
         var env = CreatePlatformBillingEnv(envToken: "APP_USR-PLATFORM-TOKEN-1");
         try
@@ -541,16 +541,41 @@ public sealed class PlatformMercadoPagoPlanBillingTests
             Assert.IsFalse(translated.Contains("rendernull", StringComparison.OrdinalIgnoreCase));
             Assert.IsTrue(translated.Contains("Chave Pix", StringComparison.OrdinalIgnoreCase));
 
+            // Quando usuário escolhe Pix e a conta recebedora do Mercado Pago ainda não tem Chave Pix ativa,
+            // o sistema NÃO deve redirecionar silenciosamente para Cartão/Checkout Pro.
+            DomainException? pixMissingEx = null;
+            try
+            {
+                await env.Service.CreatePlanOrderAsync(new CreatePlatformPlanOrderRequest(
+                    PlanTier: StoreSettings.PlanTierBasic,
+                    DurationMonths: 1,
+                    Amount: 59.90m,
+                    StoreName: "Loja Sem Chave Pix MP",
+                    BuyerEmail: "lojista@teste.com",
+                    PaymentMethod: PlatformSubscriptionOrder.MethodMercadoPagoPix),
+                    publicBaseOrigin: "https://youlink-loja.onrender.com");
+            }
+            catch (DomainException ex)
+            {
+                pixMissingEx = ex;
+            }
+
+            Assert.IsNotNull(pixMissingEx);
+            Assert.IsTrue(MercadoPagoPixService.IsCollectorPixKeyMissingError(pixMissingEx!.Message));
+            Assert.AreEqual(1, env.Handler.CreatePixCalls);
+            Assert.AreEqual(0, env.Handler.CreatePreferenceCalls,
+                "Escolha explícita de Pix não pode abrir preferência de Cartão/Checkout Pro automaticamente.");
+
+            // Somente quando usuário seleciona Checkout Pro (Cartão/Boleto/Saldo MP), gera a preferência e auto-aprova por polling.
             var order = await env.Service.CreatePlanOrderAsync(new CreatePlatformPlanOrderRequest(
                 PlanTier: StoreSettings.PlanTierBasic,
                 DurationMonths: 1,
                 Amount: 59.90m,
-                StoreName: "Loja Sem Chave Pix MP",
+                StoreName: "Loja Escolha Explicita Checkout Pro",
                 BuyerEmail: "lojista@teste.com",
-                PaymentMethod: PlatformSubscriptionOrder.MethodMercadoPagoPix),
+                PaymentMethod: PlatformSubscriptionOrder.MethodMercadoPagoCheckoutPro),
                 publicBaseOrigin: "https://youlink-loja.onrender.com");
 
-            Assert.AreEqual(1, env.Handler.CreatePixCalls);
             Assert.AreEqual(1, env.Handler.CreatePreferenceCalls);
             Assert.IsTrue(!string.IsNullOrWhiteSpace(order.MercadoPagoCheckoutUrl) &&
                           order.MercadoPagoCheckoutUrl!.Contains("pref_id=PREF-PLAN-9001", StringComparison.OrdinalIgnoreCase));
@@ -558,7 +583,7 @@ public sealed class PlatformMercadoPagoPlanBillingTests
             Assert.IsNotNull(savedEntity);
             Assert.AreEqual("PREF-PLAN-9001", savedEntity!.MercadoPagoPreferenceId);
 
-            // Polling via GetPlanOrderStatusAsync deve pesquisar external_reference mesmo quando PaymentMethod original era Pix
+            // Polling via GetPlanOrderStatusAsync deve pesquisar external_reference e aprovar automaticamente
             env.Handler.IncludeSearchResultPayment = true;
             env.Handler.SearchPaymentAmount = order.Amount;
             env.Handler.SearchPaymentStatus = "approved";
@@ -572,14 +597,25 @@ public sealed class PlatformMercadoPagoPlanBillingTests
             var root = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", ".."));
             var gatewaySource = await File.ReadAllTextAsync(Path.Combine(root, "Services", "MauiAdminGateway.cs"));
             var checkoutRazor = await File.ReadAllTextAsync(Path.Combine(root, "Components", "Pages", "PlanCheckoutPage.razor"));
+            var layoutRazor = await File.ReadAllTextAsync(Path.Combine(root, "Components", "Layout", "MainLayout.razor"));
 
-            Assert.IsTrue(gatewaySource.Contains("ExecutePlanOrderWithPixFallbackAsync", StringComparison.Ordinal));
+            Assert.IsTrue(gatewaySource.Contains("ExecutePlanOrderWithoutSilentCardRedirectAsync", StringComparison.Ordinal));
+            Assert.IsFalse(gatewaySource.Contains("MethodMercadoPagoCheckoutPro", StringComparison.Ordinal),
+                "MauiAdminGateway não deve converter Pix para Checkout Pro automaticamente.");
+
             var sec3Idx = checkoutRazor.IndexOf("else if (_activePlanOrder is null)", StringComparison.Ordinal);
             var confirmBtnIdx = checkoutRazor.IndexOf("ConfirmDirectMobilePlanOrderAsync", sec3Idx, StringComparison.Ordinal);
             Assert.IsTrue(sec3Idx > 0 && confirmBtnIdx > sec3Idx);
             var sec3Block = checkoutRazor[sec3Idx..confirmBtnIdx];
             Assert.IsTrue(sec3Block.Contains("@_error", StringComparison.Ordinal),
                 "PlanCheckoutPage precisa exibir _error dentro da seção 3 perto do botão de pagamento.");
+            Assert.IsTrue(sec3Block.Contains("_pixCollectorKeyMissing", StringComparison.Ordinal));
+
+            Assert.IsTrue(checkoutRazor.Contains("Verificação 100% automática ativa", StringComparison.Ordinal));
+            Assert.IsTrue(checkoutRazor.Contains("_lastAutoCheckAt", StringComparison.Ordinal));
+            Assert.IsFalse(checkoutRazor.Contains("Já paguei — Verificar Agora", StringComparison.Ordinal),
+                "Checkout automático não deve exibir botão primário sugerindo verificação manual obrigatória.");
+            Assert.IsTrue(layoutRazor.Contains("EnsurePendingPlanBackgroundMonitor", StringComparison.Ordinal));
         }
         finally
         {

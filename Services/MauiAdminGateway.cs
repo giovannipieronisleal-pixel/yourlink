@@ -1700,7 +1700,7 @@ public sealed class MauiAdminGateway
         return allowDefaultFallback ? AppUpdateCatalog.DefaultCentralPlatformServerUrl : null;
     }
 
-    private static async Task<PlatformSubscriptionOrderDto> ExecutePlanOrderWithPixFallbackAsync(
+    private static async Task<PlatformSubscriptionOrderDto> ExecutePlanOrderWithoutSilentCardRedirectAsync(
         Func<CreatePlatformPlanOrderRequest, CancellationToken, Task<PlatformSubscriptionOrderDto>> createOrderAsync,
         CreatePlatformPlanOrderRequest request,
         CancellationToken ct)
@@ -1708,16 +1708,6 @@ public sealed class MauiAdminGateway
         try
         {
             return await createOrderAsync(request, ct);
-        }
-        catch (Exception ex) when (
-            string.Equals(request.PaymentMethod, PlatformSubscriptionOrder.MethodMercadoPagoPix, StringComparison.OrdinalIgnoreCase) &&
-            MercadoPagoPixService.IsCollectorPixKeyMissingError(ex.Message))
-        {
-            var checkoutFallbackRequest = request with
-            {
-                PaymentMethod = PlatformSubscriptionOrder.MethodMercadoPagoCheckoutPro
-            };
-            return await createOrderAsync(checkoutFallbackRequest, ct);
         }
         catch (InvalidOperationException ex) when (MercadoPagoPixService.IsCollectorPixKeyMissingError(ex.Message))
         {
@@ -1739,7 +1729,7 @@ public sealed class MauiAdminGateway
             if (!string.IsNullOrWhiteSpace(centralUrl))
             {
                 var remoteClient = CreateCentralBillingClient(centralUrl);
-                var mpCreated = await ExecutePlanOrderWithPixFallbackAsync(
+                var mpCreated = await ExecutePlanOrderWithoutSilentCardRedirectAsync(
                     (req, token) => remoteClient.CreatePlatformPlanOrderAsync(req, token),
                     request,
                     ct);
@@ -1753,7 +1743,7 @@ public sealed class MauiAdminGateway
         {
             try
             {
-                created = await ExecutePlanOrderWithPixFallbackAsync(
+                created = await ExecutePlanOrderWithoutSilentCardRedirectAsync(
                     (req, token) => _apiClient.CreatePlatformPlanOrderAsync(req, token),
                     request,
                     ct);
@@ -1772,7 +1762,7 @@ public sealed class MauiAdminGateway
         if (_subscriptionService is null)
             throw new DomainException("Serviço de pedidos de plano indisponível.");
 
-        created = await ExecutePlanOrderWithPixFallbackAsync(
+        created = await ExecutePlanOrderWithoutSilentCardRedirectAsync(
             (req, token) => _subscriptionService.CreatePlanOrderAsync(req, token),
             request,
             ct);
@@ -1801,10 +1791,7 @@ public sealed class MauiAdminGateway
                 var remoteClient = CreateCentralBillingClient(ticket.BillingServerUrl);
                 status = await remoteClient.GetPlatformPlanOrderStatusAsync(effectiveOrderNumber, effectiveClaimToken, ct);
             }
-            catch (InvalidOperationException)
-            {
-            }
-            catch (HttpRequestException)
+            catch (Exception) when (!ct.IsCancellationRequested)
             {
             }
         }
