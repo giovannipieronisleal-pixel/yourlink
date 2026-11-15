@@ -123,6 +123,7 @@
                        style="font-size: 1.6rem; text-align: center; letter-spacing: 0.35em; font-weight: 800; font-family: monospace;"
                        maxlength="9"
                        @bind="_twoFactorCode"
+                       @bind:event="oninput"
                        @onkeydown="Handle2FaKeyDown"
                        placeholder="000000"
                        autocomplete="one-time-code" />
@@ -162,6 +163,7 @@
                     <input type="text"
                            class="adm-input"
                            @bind="_forgotLoginOrEmail"
+                           @bind:event="oninput"
                            placeholder="Ex.: seu.usuario ou seu.email@gmail.com" />
                     <button type="button"
                             class="adm-btn adm-btn-outline"
@@ -178,6 +180,7 @@
                 <input type="text"
                        class="adm-input"
                        @bind="_forgotCode"
+                       @bind:event="oninput"
                        placeholder="Ex.: 123456"
                        maxlength="10" />
             </div>
@@ -187,6 +190,7 @@
                 <input type="password"
                        class="adm-input"
                        @bind="_forgotNewPassword"
+                       @bind:event="oninput"
                        placeholder="Digite sua nova senha" />
             </div>
 
@@ -195,6 +199,7 @@
                 <input type="password"
                        class="adm-input"
                        @bind="_forgotConfirmPassword"
+                       @bind:event="oninput"
                        placeholder="Repita a nova senha" />
             </div>
 
@@ -223,6 +228,7 @@
                 <input type="text"
                        class="adm-input"
                        @bind="_regFullName"
+                       @bind:event="oninput"
                        @onkeydown="HandleRegisterKeyDown"
                        placeholder="Ex.: Marina Costa" />
             </div>
@@ -232,6 +238,7 @@
                 <input type="text"
                        class="adm-input"
                        @bind="_regUsername"
+                       @bind:event="oninput"
                        @onkeydown="HandleRegisterKeyDown"
                        placeholder="Ex.: marina" />
             </div>
@@ -241,6 +248,7 @@
                 <input type="email"
                        class="adm-input"
                        @bind="_regEmail"
+                       @bind:event="oninput"
                        @onkeydown="HandleRegisterKeyDown"
                        placeholder="Ex.: seu.email@gmail.com" />
                 <span style="font-size: 0.75rem; color: var(--adm-muted);">
@@ -253,6 +261,7 @@
                 <input type="password"
                        class="adm-input"
                        @bind="_regPassword"
+                       @bind:event="oninput"
                        @onkeydown="HandleRegisterKeyDown"
                        placeholder="Crie uma senha de acesso" />
             </div>
@@ -262,6 +271,7 @@
                 <input type="password"
                        class="adm-input"
                        @bind="_regConfirmPassword"
+                       @bind:event="oninput"
                        @onkeydown="HandleRegisterKeyDown"
                        placeholder="Repita a mesma senha" />
             </div>
@@ -301,6 +311,7 @@
                        class="adm-input"
                        autocomplete="username"
                        @bind="_login"
+                       @bind:event="oninput"
                        @onkeydown="HandleLoginKeyDown"
                        placeholder="seu-usuario ou seu@email.com" />
             </div>
@@ -312,6 +323,7 @@
                            class="adm-input"
                            autocomplete="current-password"
                            @bind="_password"
+                           @bind:event="oninput"
                            @onkeydown="HandleLoginKeyDown"
                            placeholder="Digite sua senha" />
                     <button type="button"
@@ -506,8 +518,8 @@
 </style>
 
 @code {
-    // A tela inicial padrão agora é "register" (Bem-vindo e criar conta)
-    private string _activeTab = "register";
+    // Inicia em "login" quando já existem contas no dispositivo (ou "register" no primeiro uso)
+    private string _activeTab = "login";
     private bool _isBusy;
     private bool _showPassword;
     private bool _rememberMe = true;
@@ -551,8 +563,26 @@
 
     protected override async Task OnInitializedAsync()
     {
+        if (Gateway.IsAuthenticated && !_showInitialSetupModal)
+        {
+            Navigation.NavigateTo("/", replace: true);
+            return;
+        }
+
         UpdateService.StateChanged += OnLoginUpdateStateChanged;
         _ = UpdateService.CheckForUpdatesAsync();
+
+        try
+        {
+            var setup = await Gateway.GetSetupStatusAsync();
+            if (setup.RequiresInitialSetup)
+            {
+                _activeTab = "register";
+            }
+        }
+        catch
+        {
+        }
 
         try
         {
@@ -561,6 +591,14 @@
         }
         catch
         {
+        }
+    }
+
+    protected override void OnParametersSet()
+    {
+        if (Gateway.IsAuthenticated && !_showInitialSetupModal)
+        {
+            Navigation.NavigateTo("/", replace: true);
         }
     }
 
@@ -615,6 +653,9 @@
 
     private async Task HandleLoginAsync()
     {
+        if (_isBusy)
+            return;
+
         _errorMessage = null;
         _isBusy = true;
         try
@@ -630,7 +671,7 @@
                 return;
             }
 
-            Navigation.NavigateTo("/");
+            Navigation.NavigateTo("/", replace: true);
         }
         catch (Exception ex)
         {
@@ -644,6 +685,9 @@
 
     private async Task HandleVerifyTwoFactorAsync()
     {
+        if (_isBusy)
+            return;
+
         _errorMessage = null;
         _isBusy = true;
         try
@@ -651,7 +695,7 @@
             await Gateway.VerifyTwoFactorLoginAsync(
                 new VerifyTwoFactorLoginRequest(_twoFactorEmail, _twoFactorCode, _twoFactorChallengeToken),
                 _rememberMe);
-            Navigation.NavigateTo("/");
+            Navigation.NavigateTo("/", replace: true);
         }
         catch (Exception ex)
         {

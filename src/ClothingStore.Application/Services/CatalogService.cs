@@ -86,6 +86,7 @@ public sealed class CatalogService
             .ToList();
 
         var colors = activeVariants
+            .Where(v => !ProductVariant.IsDefaultPlaceholderColor(v.Color))
             .GroupBy(v => v.Color.Trim(), StringComparer.OrdinalIgnoreCase)
             .Select(g => new ColorOptionDto(
                 g.Key,
@@ -100,6 +101,7 @@ public sealed class CatalogService
         };
 
         var sizes = activeVariants
+            .Where(v => !ProductVariant.IsDefaultPlaceholderSize(v.Size))
             .Select(v => v.Size.Trim().ToUpperInvariant())
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .OrderBy(s => sizeOrder.TryGetValue(s, out var rank) ? rank : 100)
@@ -169,6 +171,7 @@ public sealed class CatalogService
                 var activeVariants = p.Variants.Where(v => v.IsActive).ToList();
 
                 var availableColors = activeVariants
+                    .Where(v => !ProductVariant.IsDefaultPlaceholderColor(v.Color))
                     .GroupBy(v => v.Color, StringComparer.OrdinalIgnoreCase)
                     .Select(g => new ColorOptionDto(
                         g.Key,
@@ -176,7 +179,7 @@ public sealed class CatalogService
                     .ToList();
 
                 var availableSizes = activeVariants
-                    .Where(v => v.StockQuantity > 0)
+                    .Where(v => v.StockQuantity > 0 && !ProductVariant.IsDefaultPlaceholderSize(v.Size))
                     .Select(v => v.Size)
                     .Distinct(StringComparer.OrdinalIgnoreCase)
                     .ToList();

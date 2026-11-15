@@ -367,41 +367,52 @@
 
                     @if (_selectedProduct.Variants.Count > 0)
                     {
-                        <!-- 1. Cor -->
-                        <div style="margin-bottom: 1.25rem;">
-                            <label class="adm-label">1. Selecione a Cor / Modelo: <strong>@_detailColor</strong></label>
-                            <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
-                                @foreach (var c in _selectedProduct.Variants.GroupBy(v => v.Color, StringComparer.OrdinalIgnoreCase))
-                                {
-                                    var isCurrent = string.Equals(_detailColor, c.Key, StringComparison.OrdinalIgnoreCase);
-                                    <button type="button"
-                                            class="adm-btn @(isCurrent ? "adm-btn-primary" : "adm-btn-outline")"
-                                            @onclick="() => SelectDetailColor(c.Key)">
-                                        <span style="width: 12px; height: 12px; border-radius: 50%; background: @c.First().ColorHex; border: 1px solid rgba(0,0,0,0.2);"></span>
-                                        <span>@c.Key</span>
-                                    </button>
-                                }
-                            </div>
-                        </div>
+                        var colorGroups = _selectedProduct.Variants.GroupBy(v => v.Color, StringComparer.OrdinalIgnoreCase).ToList();
+                        var hasMeaningfulColors = colorGroups.Count > 1 || colorGroups.Any(c => !WhatsAppLinkBuilder.IsPlaceholderColor(c.Key));
+                        var variantsForColor = _selectedProduct.Variants.Where(v => string.Equals(v.Color, _detailColor, StringComparison.OrdinalIgnoreCase)).ToList();
+                        var hasMeaningfulSizes = variantsForColor.Count > 1 || variantsForColor.Any(v => !WhatsAppLinkBuilder.IsPlaceholderSize(v.Size));
 
-                        <!-- 2. Tamanho -->
-                        <div style="margin-bottom: 1.35rem;">
-                            <label class="adm-label">2. Selecione o Tamanho / Opção: <strong>@_detailSize</strong></label>
-                            <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
-                                @foreach (var v in _selectedProduct.Variants.Where(v => string.Equals(v.Color, _detailColor, StringComparison.OrdinalIgnoreCase)))
-                                {
-                                    var isCurrent = string.Equals(_detailSize, v.Size, StringComparison.OrdinalIgnoreCase);
-                                    <button type="button"
-                                            class="adm-btn @(isCurrent ? "adm-btn-primary" : "adm-btn-outline")"
-                                            @onclick="() => _detailSize = v.Size">
-                                        <span>@v.Size</span>
-                                        <span style="font-size: 0.75rem; opacity: 0.85;">
-                                            (@(v.StockQuantity > 3 ? "Disponível" : v.StockQuantity > 0 ? "Últimas" : "Esgotado"))
-                                        </span>
-                                    </button>
-                                }
+                        @if (hasMeaningfulColors)
+                        {
+                            <!-- 1. Cor -->
+                            <div style="margin-bottom: 1.25rem;">
+                                <label class="adm-label">1. Selecione a Cor / Modelo: <strong>@_detailColor</strong></label>
+                                <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+                                    @foreach (var c in colorGroups)
+                                    {
+                                        var isCurrent = string.Equals(_detailColor, c.Key, StringComparison.OrdinalIgnoreCase);
+                                        <button type="button"
+                                                class="adm-btn @(isCurrent ? "adm-btn-primary" : "adm-btn-outline")"
+                                                @onclick="() => SelectDetailColor(c.Key)">
+                                            <span style="width: 12px; height: 12px; border-radius: 50%; background: @c.First().ColorHex; border: 1px solid rgba(0,0,0,0.2);"></span>
+                                            <span>@c.Key</span>
+                                        </button>
+                                    }
+                                </div>
                             </div>
-                        </div>
+                        }
+
+                        @if (hasMeaningfulSizes)
+                        {
+                            <!-- 2. Tamanho -->
+                            <div style="margin-bottom: 1.35rem;">
+                                <label class="adm-label">@(hasMeaningfulColors ? "2. Selecione o Tamanho / Opção:" : "Selecione o Tamanho / Opção:") <strong>@_detailSize</strong></label>
+                                <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+                                    @foreach (var v in variantsForColor)
+                                    {
+                                        var isCurrent = string.Equals(_detailSize, v.Size, StringComparison.OrdinalIgnoreCase);
+                                        <button type="button"
+                                                class="adm-btn @(isCurrent ? "adm-btn-primary" : "adm-btn-outline")"
+                                                @onclick="() => _detailSize = v.Size">
+                                            <span>@v.Size</span>
+                                            <span style="font-size: 0.75rem; opacity: 0.85;">
+                                                (@(v.StockQuantity > 3 ? "Disponível" : v.StockQuantity > 0 ? "Últimas" : "Esgotado"))
+                                            </span>
+                                        </button>
+                                    }
+                                </div>
+                            </div>
+                        }
                     }
                     else
                     {

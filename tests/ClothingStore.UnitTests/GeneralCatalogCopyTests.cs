@@ -139,4 +139,60 @@ public class GeneralCatalogCopyTests
         Assert.AreEqual(1, feed.Count);
         Assert.AreEqual("1x Produto", feed[0].WhatSold);
     }
+
+    [TestMethod]
+    public void OptionalSizeAndColor_And_SingleStepLoginBinding_ShouldBeEnforced()
+    {
+        var root = ResolveRepoRoot();
+
+        // 1. Domínio permite criar e editar variantes sem tamanho e sem cor (ex.: eletrônicos, cosméticos, acessórios)
+        var product = new ClothingStore.Domain.Entities.Product(
+            Guid.NewGuid(),
+            "Mouse Gamer",
+            "Mouse sem fio",
+            149.90m,
+            true);
+
+        var defaultVariant = product.AddVariant(color: "", size: "");
+        Assert.AreEqual("Padrão", defaultVariant.Color);
+        Assert.AreEqual("ÚNICO", defaultVariant.Size);
+        Assert.IsTrue(ClothingStore.Domain.Entities.ProductVariant.IsDefaultPlaceholderColor(defaultVariant.Color));
+        Assert.IsTrue(ClothingStore.Domain.Entities.ProductVariant.IsDefaultPlaceholderSize(defaultVariant.Size));
+
+        // 2. Mensagem do WhatsApp omite "na cor padrão e tamanho ÚNICO" quando o produto não usa cor/tamanho
+        var msgNoSizeOrColor = WhatsAppLinkBuilder.BuildProductConsultationMessage("mause hazor", "Padrão", "ÚNICO");
+        Assert.AreEqual("Olá! Tenho interesse no produto mause hazor. Gostaria de saber mais informações.", msgNoSizeOrColor);
+
+        var msgColorOnly = WhatsAppLinkBuilder.BuildProductConsultationMessage("mause hazor", "Preto", "ÚNICO");
+        Assert.AreEqual("Olá! Tenho interesse no produto mause hazor, na cor preto. Gostaria de saber mais informações.", msgColorOnly);
+
+        var msgWithBoth = WhatsAppLinkBuilder.BuildProductConsultationMessage("Camiseta Básica", "Preta", "M");
+        Assert.AreEqual("Olá! Tenho interesse no produto Camiseta Básica, na cor preta e tamanho M. Gostaria de saber mais informações.", msgWithBoth);
+
+        // 3. Vitrine pública usa pt-BR para moeda e oculta seletores de tamanho/cor quando são apenas placeholders
+        var productDetailRazor = File.ReadAllText(Path.Combine(root, "src", "ClothingStore.Web", "Components", "Pages", "ProductDetail.razor"));
+        Assert.IsTrue(productDetailRazor.Contains("HasMeaningfulSizes", StringComparison.Ordinal));
+        Assert.IsTrue(productDetailRazor.Contains("HasMeaningfulColors", StringComparison.Ordinal));
+        Assert.IsTrue(productDetailRazor.Contains("CultureInfo(\"pt-BR\")", StringComparison.Ordinal));
+
+        // 4. Login.razor usa @bind:event="oninput" em _login e _password e inicia na aba "login"
+        var loginRazor = File.ReadAllText(Path.Combine(root, "Components", "Pages", "Login.razor"));
+        Assert.IsTrue(loginRazor.Contains("private string _activeTab = \"login\";", StringComparison.Ordinal));
+        Assert.IsTrue(loginRazor.Contains("@bind=\"_login\"", StringComparison.Ordinal));
+        Assert.IsTrue(loginRazor.Contains("@bind=\"_password\"", StringComparison.Ordinal));
+        Assert.IsTrue(loginRazor.Contains("@bind:event=\"oninput\"", StringComparison.Ordinal));
+
+        // 5. Imagens por URL: desempacota Google Imagens / Google Drive / Dropbox, extrai og:image de páginas HTML e dispara auto-sync
+        var googleImg = WhatsAppLinkBuilder.NormalizeExternalImageUrl(
+            "https://www.google.com/imgres?imgurl=https%3A%2F%2Fimages.kabum.com.br%2Fprodutos%2Ffotos%2Fmause.jpg&imgrefurl=https%3A%2F%2Fkabum.com.br");
+        Assert.AreEqual("https://images.kabum.com.br/produtos/fotos/mause.jpg", googleImg);
+
+        var driveImg = WhatsAppLinkBuilder.NormalizeExternalImageUrl(
+            "https://drive.google.com/file/d/1AbCdEfGhIjKlMnOpQrStUvWxYz/view?usp=sharing");
+        Assert.AreEqual("https://drive.google.com/uc?export=view&id=1AbCdEfGhIjKlMnOpQrStUvWxYz", driveImg);
+
+        var ogExtracted = WhatsAppLinkBuilder.ExtractOpenGraphImageUrl(
+            "<html><head><meta property=\"og:image\" content=\"https://cdn.loja.com/fotos/mouse-hazor.webp\" /></head></html>");
+        Assert.AreEqual("https://cdn.loja.com/fotos/mouse-hazor.webp", ogExtracted);
+    }
 }

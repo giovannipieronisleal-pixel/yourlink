@@ -667,20 +667,29 @@ public static class LocalWebServerLauncher
         {
             var colors = product.Variants.GroupBy(v => v.Color, StringComparer.OrdinalIgnoreCase).Select(g => g.Key).ToList();
             var sizes = product.Variants.Select(v => v.Size).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+            var hasMeaningfulColors = colors.Count > 1 || colors.Any(c => !WhatsAppLinkBuilder.IsPlaceholderColor(c));
+            var hasMeaningfulSizes = sizes.Count > 1 || sizes.Any(s => !WhatsAppLinkBuilder.IsPlaceholderSize(s));
 
-            sb.AppendLine("<div style=\"margin:1rem 0;\"><label>1. Selecione a Cor / Modelo: <strong id=\"lblColor\">" + H(defaultColor) + "</strong></label><div class=\"chips\">");
-            foreach (var c in colors)
+            if (hasMeaningfulColors)
             {
-                sb.AppendLine($"<button type=\"button\" class=\"chip\" onclick=\"setColor('{HJs(c)}')\">{H(c)}</button>");
+                sb.AppendLine("<div style=\"margin:1rem 0;\"><label>1. Selecione a Cor / Modelo: <strong id=\"lblColor\">" + H(defaultColor) + "</strong></label><div class=\"chips\">");
+                foreach (var c in colors)
+                {
+                    sb.AppendLine($"<button type=\"button\" class=\"chip\" onclick=\"setColor('{HJs(c)}')\">{H(c)}</button>");
+                }
+                sb.AppendLine("</div></div>");
             }
-            sb.AppendLine("</div></div>");
 
-            sb.AppendLine("<div style=\"margin:1rem 0;\"><label>2. Selecione o Tamanho / Opção: <strong id=\"lblSize\">" + H(defaultSize) + "</strong></label><div class=\"chips\">");
-            foreach (var s in sizes)
+            if (hasMeaningfulSizes)
             {
-                sb.AppendLine($"<button type=\"button\" class=\"chip\" onclick=\"setSize('{HJs(s)}')\">{H(s)}</button>");
+                var sizeStepLabel = hasMeaningfulColors ? "2. Selecione o Tamanho / Opção:" : "Selecione o Tamanho / Opção:";
+                sb.AppendLine("<div style=\"margin:1rem 0;\"><label>" + sizeStepLabel + " <strong id=\"lblSize\">" + H(defaultSize) + "</strong></label><div class=\"chips\">");
+                foreach (var s in sizes)
+                {
+                    sb.AppendLine($"<button type=\"button\" class=\"chip\" onclick=\"setSize('{HJs(s)}')\">{H(s)}</button>");
+                }
+                sb.AppendLine("</div></div>");
             }
-            sb.AppendLine("</div></div>");
         }
 
         sb.AppendLine($"<a id=\"waBtn\" href=\"{H(initialWaUrl)}\" target=\"_blank\" rel=\"noopener\" class=\"btn-wa-big\">Consultar pelo WhatsApp</a>");
@@ -732,10 +741,16 @@ public static class LocalWebServerLauncher
         sb.AppendLine($"var selColor = '{HJs(defaultColor)}';");
         sb.AppendLine($"var selSize = '{HJs(defaultSize)}';");
         sb.AppendLine("function getSelectedVariant(){ return variantsData.find(function(v){ return (!selColor || v.color.toLowerCase()===selColor.toLowerCase()) && (!selSize || v.size.toLowerCase()===selSize.toLowerCase()) && v.stock>0; }) || variantsData[0]; }");
+        sb.AppendLine("function isPlaceholderColor(v){ if(!v) return true; var u=v.trim().toUpperCase(); return u==='PADRÃO'||u==='PADRAO'||u==='ÚNICO'||u==='UNICO'||u==='-'||u==='—'||u==='N/A'; }");
+        sb.AppendLine("function isPlaceholderSize(v){ if(!v) return true; var u=v.trim().toUpperCase(); return u==='ÚNICO'||u==='UNICO'||u==='ÚNICA'||u==='UNICA'||u==='PADRÃO'||u==='PADRAO'||u==='-'||u==='—'||u==='N/A'; }");
         sb.AppendLine("function updateWa(){");
-        sb.AppendLine("  var c = selColor ? selColor.toLowerCase() : 'padrão';");
-        sb.AppendLine("  var s = selSize ? selSize.toUpperCase() : 'único';");
-        sb.AppendLine("  var msg = 'Olá! Tenho interesse no produto ' + prodName + ', na cor ' + c + ' e tamanho ' + s + '. Gostaria de saber mais informações.';");
+        sb.AppendLine("  var hasC = !isPlaceholderColor(selColor);");
+        sb.AppendLine("  var hasS = !isPlaceholderSize(selSize);");
+        sb.AppendLine("  var msg = 'Olá! Tenho interesse no produto ' + prodName;");
+        sb.AppendLine("  if(hasC && hasS) msg += ', na cor ' + selColor.trim().toLowerCase() + ' e tamanho ' + selSize.trim().toUpperCase();");
+        sb.AppendLine("  else if(hasC) msg += ', na cor ' + selColor.trim().toLowerCase();");
+        sb.AppendLine("  else if(hasS) msg += ', no tamanho ' + selSize.trim().toUpperCase();");
+        sb.AppendLine("  msg += '. Gostaria de saber mais informações.';");
         sb.AppendLine("  var elMsg = document.getElementById('waMsg'); if(elMsg) elMsg.textContent = '\"' + msg + '\"';");
         sb.AppendLine("  var elBtn = document.getElementById('waBtn'); if(elBtn) elBtn.href = 'https://wa.me/' + storePhone + '?text=' + encodeURIComponent(msg);");
         sb.AppendLine("}");

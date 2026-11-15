@@ -44,7 +44,7 @@ else
             <div class="lux-detail-stage">
                 @if (WhatsAppLinkBuilder.IsSafeMediaUrl(CurrentImageUrl))
                 {
-                    <img src="@WhatsAppLinkBuilder.SanitizeMediaUrl(CurrentImageUrl)" alt="@_product.Name" />
+                    <img src="@WhatsAppLinkBuilder.SanitizeMediaUrl(CurrentImageUrl)" alt="@_product.Name" referrerpolicy="no-referrer" />
                 }
                 else
                 {
@@ -63,7 +63,7 @@ else
                         <button type="button"
                                 class="lux-thumb-btn @(CurrentImageUrl == img.PublicUrl ? "active" : "")"
                                 @onclick="() => _selectedImageUrl = safeThumbUrl">
-                            <img src="@safeThumbUrl" alt="@(img.AltText ?? _product.Name)" />
+                            <img src="@safeThumbUrl" alt="@(img.AltText ?? _product.Name)" referrerpolicy="no-referrer" />
                         </button>
                     }
                 </div>
@@ -73,14 +73,14 @@ else
         <div class="lux-detail-info">
             <span class="lux-hero-eyebrow">@_product.CategoryName</span>
             <h1 class="lux-section-title">@_product.Name</h1>
-            <div class="lux-detail-price">@_product.BasePrice.ToString("C")</div>
+            <div class="lux-detail-price">@_product.BasePrice.ToString("C", new System.Globalization.CultureInfo("pt-BR"))</div>
 
             @if (!string.IsNullOrWhiteSpace(_product.Description))
             {
                 <p class="lux-hero-subtitle">@_product.Description</p>
             }
 
-            @if (DistinctColors.Count > 0)
+            @if (HasMeaningfulColors)
             {
                 <div class="lux-filter-group">
                     <span class="lux-filter-label">Cor / Modelo: @(_selectedColor ?? "Escolha")</span>
@@ -101,10 +101,10 @@ else
                 </div>
             }
 
-            @if (SizesForSelectedColor.Count > 0)
+            @if (HasMeaningfulSizes)
             {
                 <div class="lux-filter-group">
-                    <span class="lux-filter-label">2. Escolha o Tamanho / Opção: @(_selectedSize ?? "Toque para escolher")</span>
+                    <span class="lux-filter-label">@(HasMeaningfulColors ? "2. Escolha o Tamanho / Opção:" : "Escolha o Tamanho / Opção:") @(_selectedSize ?? "Toque para escolher")</span>
                     <div class="lux-option-chips">
                         @foreach (var size in SizesForSelectedColor)
                         {
@@ -127,18 +127,23 @@ else
                     if (SelectedVariant.StockQuantity > 3)
                     {
                         <strong>✓ Disponível agora para pedido</strong>
-                        <span> — Pronta entrega na opção selecionada.</span>
+                        <span>@(HasMeaningfulColors || HasMeaningfulSizes ? " — Pronta entrega na opção selecionada." : " — Produto à pronta entrega.")</span>
                     }
                     else if (SelectedVariant.StockQuantity > 0)
                     {
-                        <strong>🔥 Últimas unidades nesta opção</strong>
+                        <strong>@(HasMeaningfulColors || HasMeaningfulSizes ? "🔥 Últimas unidades nesta opção" : "🔥 Últimas unidades em estoque")</strong>
                         <span> — Garanta a sua unidade rapidamente pelo WhatsApp abaixo.</span>
                     }
                     else
                     {
-                        <strong>Esta opção acabou no momento</strong>
-                        <span> — Chame nossa equipe no WhatsApp para saber sobre reposição ou outra opção.</span>
+                        <strong>@(HasMeaningfulColors || HasMeaningfulSizes ? "Esta opção acabou no momento" : "Produto esgotado no momento")</strong>
+                        <span>@(HasMeaningfulColors || HasMeaningfulSizes ? " — Chame nossa equipe no WhatsApp para saber sobre reposição ou outra opção." : " — Chame nossa equipe no WhatsApp para saber sobre reposição.")</span>
                     }
+                }
+                else if (_product.HasAvailableStock)
+                {
+                    <strong>✓ Disponível agora para pedido</strong>
+                    <span> — Produto à pronta entrega.</span>
                 }
                 else
                 {
@@ -335,13 +340,16 @@ else
                 }
             }
 
-            @if (_product.Variants.Count > 0)
+            @if (_product.Variants.Count > 1 || HasMeaningfulColors || ProductHasAnyMeaningfulSizes)
             {
-                <table class="lux-variant-table" aria-label="Cores e tamanhos">
+                <table class="lux-variant-table" aria-label="Opções disponíveis">
                     <thead>
                         <tr>
-                            <th>Cor</th>
-                            <th>Tamanho</th>
+                            <th>Cor / Modelo</th>
+                            @if (ProductHasAnyMeaningfulSizes)
+                            {
+                                <th>Tamanho / Opção</th>
+                            }
                             <th>Situação</th>
                         </tr>
                     </thead>
@@ -350,7 +358,10 @@ else
                         {
                             <tr>
                                 <td>@v.Color</td>
-                                <td>@v.Size</td>
+                                @if (ProductHasAnyMeaningfulSizes)
+                                {
+                                    <td>@(WhatsAppLinkBuilder.IsPlaceholderSize(v.Size) ? "—" : v.Size)</td>
+                                }
                                 <td>@(v.StockQuantity > 3 ? "Disponível" : v.StockQuantity > 0 ? "Últimas unidades" : "Esgotado")</td>
                             </tr>
                         }
@@ -386,6 +397,17 @@ else
             .GroupBy(v => v.Color, StringComparer.OrdinalIgnoreCase)
             .Select(g => new ColorOptionDto(g.Key, g.First().ColorHex))
             .ToList() ?? [];
+
+    private bool HasMeaningfulColors =>
+        DistinctColors.Count > 1 ||
+        DistinctColors.Any(c => !WhatsAppLinkBuilder.IsPlaceholderColor(c.Color));
+
+    private bool HasMeaningfulSizes =>
+        SizesForSelectedColor.Count > 1 ||
+        SizesForSelectedColor.Any(s => !WhatsAppLinkBuilder.IsPlaceholderSize(s));
+
+    private bool ProductHasAnyMeaningfulSizes =>
+        _product?.Variants.Any(v => !WhatsAppLinkBuilder.IsPlaceholderSize(v.Size)) ?? false;
 
     private IReadOnlyList<string> SizesForSelectedColor
     {

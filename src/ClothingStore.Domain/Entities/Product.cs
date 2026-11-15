@@ -76,20 +76,14 @@ public sealed class Product
             .FirstOrDefault();
 
     public ProductVariant AddVariant(
-        string color,
-        string size,
+        string? color,
+        string? size,
         string? colorHex = null,
         string? customSku = null,
         int lowStockThreshold = 3)
     {
-        if (string.IsNullOrWhiteSpace(color))
-            throw new DomainException("A cor da variante é obrigatória.");
-
-        if (string.IsNullOrWhiteSpace(size))
-            throw new DomainException("O tamanho da variante é obrigatório.");
-
-        var normalizedColor = color.Trim();
-        var normalizedSize = size.Trim().ToUpperInvariant();
+        var normalizedColor = string.IsNullOrWhiteSpace(color) ? ProductVariant.DefaultColorName : color.Trim();
+        var normalizedSize = string.IsNullOrWhiteSpace(size) ? ProductVariant.DefaultSizeName : size.Trim().ToUpperInvariant();
 
         var exists = Variants.Any(v =>
             v.IsActive &&

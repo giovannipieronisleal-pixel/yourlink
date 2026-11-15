@@ -298,17 +298,20 @@ public sealed class ProductManagementService
         var product = await _repository.GetProductByIdAsync(variant.ProductId, ct)
             ?? throw new DomainException("Produto da variante não encontrado.");
 
+        var normalizedColor = string.IsNullOrWhiteSpace(request.Color) ? ProductVariant.DefaultColorName : request.Color.Trim();
+        var normalizedSize = string.IsNullOrWhiteSpace(request.Size) ? ProductVariant.DefaultSizeName : request.Size.Trim().ToUpperInvariant();
+
         var duplicate = product.Variants.Any(v =>
             v.Id != variantId &&
             v.IsActive &&
-            string.Equals(v.Color, request.Color.Trim(), StringComparison.OrdinalIgnoreCase) &&
-            string.Equals(v.Size, request.Size.Trim(), StringComparison.OrdinalIgnoreCase));
+            string.Equals(v.Color, normalizedColor, StringComparison.OrdinalIgnoreCase) &&
+            string.Equals(v.Size, normalizedSize, StringComparison.OrdinalIgnoreCase));
 
         if (duplicate)
             throw new DomainException("Já existe outra variante ativa com esta mesma cor e tamanho neste produto.");
 
         var sku = string.IsNullOrWhiteSpace(request.CustomSku) ? variant.Sku : request.CustomSku;
-        variant.UpdateDetails(sku, request.Color, request.Size, request.ColorHex, request.LowStockThreshold, request.IsActive);
+        variant.UpdateDetails(sku, normalizedColor, normalizedSize, request.ColorHex, request.LowStockThreshold, request.IsActive);
 
         if (request.UpdateStockQuantity && request.InitialStockQuantity >= 0 && request.InitialStockQuantity != variant.StockQuantity)
         {
@@ -388,25 +391,171 @@ public sealed class ProductManagementService
         return await AttachImageToProductAsync(product, storagePath, publicUrl, altText, isPrimary, ct);
     }
 
+    private static readonly HttpClient ExternalImageHttpClient = CreateExternalImageHttpClient();
+
+    private static HttpClient CreateExternalImageHttpClient()
+    {
+        var handler = new HttpClientHandler
+        {
+            AllowAutoRedirect = true,
+            MaxAutomaticRedirections = 5,
+            AutomaticDecompression = System.Net.DecompressionMethods.All
+        };
+        var client = new HttpClient(handler)
+        {
+            Timeout = TimeSpan.FromSeconds(8)
+        };
+        client.DefaultRequestHeaders.TryAddWithoutValidation(
+            "User-Agent",
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36");
+        client.DefaultRequestHeaders.TryAddWithoutValidation(
+            "Accept",
+            "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8");
+        return client;
+    }
+
     public async Task<ProductImageDto> AddProductImageByUrlAsync(
         Guid productId,
         AddProductImageByUrlRequest request,
         CancellationToken ct = default)
     {
-        if (!ClothingStore.Shared.Helpers.WhatsAppLinkBuilder.IsSafeMediaUrl(request?.ImageUrl))
+        var normalizedInput = ClothingStore.Shared.Helpers.WhatsAppLinkBuilder.NormalizeExternalImageUrl(request?.ImageUrl);
+        if (!ClothingStore.Shared.Helpers.WhatsAppLinkBuilder.IsSafeMediaUrl(normalizedInput))
             throw new DomainException("Informe uma URL de imagem válida (https://, http:// ou data:image segura).");
 
         var product = await _repository.GetProductByIdAsync(productId, ct)
             ?? throw new DomainException("Produto não encontrado.");
 
-        var sanitizedUrl = ClothingStore.Shared.Helpers.WhatsAppLinkBuilder.SanitizeMediaUrl(request!.ImageUrl);
+        var sanitizedUrl = ClothingStore.Shared.Helpers.WhatsAppLinkBuilder.SanitizeMediaUrl(normalizedInput);
+
+        if (Uri.TryCreate(sanitizedUrl, UriKind.Absolute, out var remoteUri) &&
+            (string.Equals(remoteUri.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase) ||
+             string.Equals(remoteUri.Scheme, Uri.UriSchemeHttp, StringComparison.OrdinalIgnoreCase)) &&
+            !remoteUri.IsLoopback)
+        {
+            var downloaded = await TryDownloadExternalImageAsync(productId, remoteUri, ct);
+            if (downloaded.HasValue)
+            {
+                return await AttachImageToProductAsync(
+                    product,
+                    downloaded.Value.StoragePath,
+                    downloaded.Value.PublicUrl,
+                    request!.AltText,
+                    request.IsPrimary,
+                    ct);
+            }
+
+            if (!string.IsNullOrWhiteSpace(_lastResolvedOgImageUrl) &&
+                ClothingStore.Shared.Helpers.WhatsAppLinkBuilder.IsSafeMediaUrl(_lastResolvedOgImageUrl))
+            {
+                sanitizedUrl = ClothingStore.Shared.Helpers.WhatsAppLinkBuilder.SanitizeMediaUrl(_lastResolvedOgImageUrl);
+            }
+        }
+
         return await AttachImageToProductAsync(
             product,
             sanitizedUrl,
             sanitizedUrl,
-            request.AltText,
+            request!.AltText,
             request.IsPrimary,
             ct);
+    }
+
+    private string? _lastResolvedOgImageUrl;
+
+    private async Task<(string StoragePath, string PublicUrl)?> TryDownloadExternalImageAsync(
+        Guid productId,
+        Uri initialUri,
+        CancellationToken ct)
+    {
+        _lastResolvedOgImageUrl = null;
+        try
+        {
+            using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            timeoutCts.CancelAfter(TimeSpan.FromSeconds(8));
+
+            var targetUri = initialUri;
+            for (var attempt = 0; attempt < 2; attempt++)
+            {
+                using var req = new HttpRequestMessage(HttpMethod.Get, targetUri);
+                using var resp = await ExternalImageHttpClient.SendAsync(
+                    req,
+                    HttpCompletionOption.ResponseHeadersRead,
+                    timeoutCts.Token);
+
+                if (!resp.IsSuccessStatusCode)
+                    return null;
+
+                var mediaType = resp.Content.Headers.ContentType?.MediaType?.Trim().ToLowerInvariant() ?? string.Empty;
+                if (mediaType.Contains("html", StringComparison.OrdinalIgnoreCase) && attempt == 0)
+                {
+                    var html = await resp.Content.ReadAsStringAsync(timeoutCts.Token);
+                    var ogUrl = ClothingStore.Shared.Helpers.WhatsAppLinkBuilder.ExtractOpenGraphImageUrl(html, targetUri);
+                    if (!string.IsNullOrWhiteSpace(ogUrl) &&
+                        ClothingStore.Shared.Helpers.WhatsAppLinkBuilder.IsSafeMediaUrl(ogUrl) &&
+                        Uri.TryCreate(ogUrl, UriKind.Absolute, out var nextUri) &&
+                        !nextUri.IsLoopback)
+                    {
+                        _lastResolvedOgImageUrl = ogUrl;
+                        targetUri = nextUri;
+                        continue;
+                    }
+                    return null;
+                }
+
+                var bytes = await resp.Content.ReadAsByteArrayAsync(timeoutCts.Token);
+                if (bytes.Length == 0 || bytes.Length > 5 * 1024 * 1024)
+                    return null;
+
+                var detectedMime = DetectImageMimeType(bytes, mediaType);
+                if (string.IsNullOrWhiteSpace(detectedMime))
+                    return null;
+
+                var ext = detectedMime switch
+                {
+                    "image/png" => ".png",
+                    "image/webp" => ".webp",
+                    "image/gif" => ".gif",
+                    _ => ".jpg"
+                };
+
+                await using var ms = new MemoryStream(bytes);
+                return await _imageStorage.UploadImageAsync(
+                    $"products/{productId:N}",
+                    $"url_import{ext}",
+                    ms,
+                    detectedMime,
+                    ct);
+            }
+        }
+        catch
+        {
+        }
+
+        return null;
+    }
+
+    private static string? DetectImageMimeType(byte[] bytes, string? declaredMediaType)
+    {
+        if (bytes.Length >= 3 && bytes[0] == 0xFF && bytes[1] == 0xD8 && bytes[2] == 0xFF)
+            return "image/jpeg";
+        if (bytes.Length >= 8 && bytes[0] == 0x89 && bytes[1] == 0x50 && bytes[2] == 0x4E && bytes[3] == 0x47)
+            return "image/png";
+        if (bytes.Length >= 6 && bytes[0] == 0x47 && bytes[1] == 0x49 && bytes[2] == 0x46)
+            return "image/gif";
+        if (bytes.Length >= 12 &&
+            bytes[0] == (byte)'R' && bytes[1] == (byte)'I' && bytes[2] == (byte)'F' && bytes[3] == (byte)'F' &&
+            bytes[8] == (byte)'W' && bytes[9] == (byte)'E' && bytes[10] == (byte)'B' && bytes[11] == (byte)'P')
+            return "image/webp";
+
+        if (!string.IsNullOrWhiteSpace(declaredMediaType) &&
+            declaredMediaType.StartsWith("image/", StringComparison.OrdinalIgnoreCase) &&
+            !declaredMediaType.Contains("svg", StringComparison.OrdinalIgnoreCase))
+        {
+            return declaredMediaType;
+        }
+
+        return null;
     }
 
     private async Task<ProductImageDto> AttachImageToProductAsync(

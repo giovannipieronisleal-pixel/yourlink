@@ -4,7 +4,7 @@
     <a href="@DetailHref" class="lux-product-media" aria-label="Ver detalhes de @Product.Name">
         @if (WhatsAppLinkBuilder.IsSafeMediaUrl(Product.PrimaryImageUrl))
         {
-            <img src="@WhatsAppLinkBuilder.SanitizeMediaUrl(Product.PrimaryImageUrl)" alt="@Product.Name" loading="lazy" />
+            <img src="@WhatsAppLinkBuilder.SanitizeMediaUrl(Product.PrimaryImageUrl)" alt="@Product.Name" referrerpolicy="no-referrer" loading="lazy" />
         }
         else
         {
@@ -28,11 +28,19 @@
     </a>
 
     <div class="lux-product-body">
+        @{
+            var meaningfulSizes = Product.AvailableSizes
+                .Where(s => !WhatsAppLinkBuilder.IsPlaceholderSize(s))
+                .ToList();
+            var meaningfulColors = Product.AvailableColors
+                .Where(c => !WhatsAppLinkBuilder.IsPlaceholderColor(c.Color))
+                .ToList();
+        }
         <div class="lux-product-meta">
             <span class="lux-product-category">@Product.CategoryName</span>
-            @if (Product.AvailableSizes.Count > 0)
+            @if (meaningfulSizes.Count > 0)
             {
-                <span class="lux-product-sizes">Opções: @string.Join(" · ", Product.AvailableSizes.Take(4))</span>
+                <span class="lux-product-sizes">Opções: @string.Join(" · ", meaningfulSizes.Take(4))</span>
             }
         </div>
 
@@ -41,12 +49,12 @@
         </h3>
 
         <div class="lux-product-footer">
-            <span class="lux-product-price">@Product.BasePrice.ToString("C")</span>
+            <span class="lux-product-price">@Product.BasePrice.ToString("C", new System.Globalization.CultureInfo("pt-BR"))</span>
 
-            @if (Product.AvailableColors.Count > 0)
+            @if (meaningfulColors.Count > 0)
             {
                 <div class="lux-swatch-row" aria-label="Cores disponíveis">
-                    @foreach (var color in Product.AvailableColors.Take(4))
+                    @foreach (var color in meaningfulColors.Take(4))
                     {
                         <span class="lux-swatch-item" title="@color.Color">
                             <svg width="13" height="13" viewBox="0 0 14 14" aria-hidden="true">
@@ -54,9 +62,9 @@
                             </svg>
                         </span>
                     }
-                    @if (Product.AvailableColors.Count > 4)
+                    @if (meaningfulColors.Count > 4)
                     {
-                        <span class="lux-swatch-more">+@(Product.AvailableColors.Count - 4)</span>
+                        <span class="lux-swatch-more">+@(meaningfulColors.Count - 4)</span>
                     }
                 </div>
             }

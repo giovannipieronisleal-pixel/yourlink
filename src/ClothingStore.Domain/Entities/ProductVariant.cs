@@ -8,6 +8,9 @@ namespace ClothingStore.Domain.Entities;
 /// </summary>
 public sealed class ProductVariant
 {
+    public const string DefaultColorName = "Padrão";
+    public const string DefaultSizeName = "ÚNICO";
+
     public Guid Id { get; set; } = Guid.NewGuid();
     public Guid ProductId { get; set; }
     public string Sku { get; set; } = string.Empty;
@@ -19,6 +22,24 @@ public sealed class ProductVariant
     public bool IsActive { get; set; } = true;
     public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.UtcNow;
 
+    public static bool IsDefaultPlaceholderSize(string? size)
+    {
+        if (string.IsNullOrWhiteSpace(size))
+            return true;
+
+        var normalized = size.Trim().ToUpperInvariant();
+        return normalized is "ÚNICO" or "UNICO" or "ÚNICA" or "UNICA" or "PADRÃO" or "PADRAO" or "-" or "—" or "N/A";
+    }
+
+    public static bool IsDefaultPlaceholderColor(string? color)
+    {
+        if (string.IsNullOrWhiteSpace(color))
+            return true;
+
+        var normalized = color.Trim().ToUpperInvariant();
+        return normalized is "PADRÃO" or "PADRAO" or "ÚNICO" or "UNICO" or "-" or "—" or "N/A";
+    }
+
     public ProductVariant()
     {
     }
@@ -26,8 +47,8 @@ public sealed class ProductVariant
     public ProductVariant(
         Guid productId,
         string sku,
-        string color,
-        string size,
+        string? color,
+        string? size,
         string? colorHex = null,
         int lowStockThreshold = 3)
     {
@@ -44,8 +65,8 @@ public sealed class ProductVariant
 
     public void UpdateDetails(
         string sku,
-        string color,
-        string size,
+        string? color,
+        string? size,
         string? colorHex,
         int lowStockThreshold,
         bool isActive)
@@ -53,18 +74,15 @@ public sealed class ProductVariant
         if (string.IsNullOrWhiteSpace(sku))
             throw new DomainException("O código SKU da variante é obrigatório.");
 
-        if (string.IsNullOrWhiteSpace(color))
-            throw new DomainException("A cor da variante é obrigatória.");
-
-        if (string.IsNullOrWhiteSpace(size))
-            throw new DomainException("O tamanho da variante é obrigatório.");
-
         if (lowStockThreshold < 0)
             throw new DomainException("O limite de alerta de estoque baixo não pode ser negativo.");
 
+        var resolvedColor = string.IsNullOrWhiteSpace(color) ? DefaultColorName : color.Trim();
+        var resolvedSize = string.IsNullOrWhiteSpace(size) ? DefaultSizeName : size.Trim().ToUpperInvariant();
+
         Sku = sku.Trim().ToUpperInvariant();
-        Color = color.Trim();
-        Size = size.Trim().ToUpperInvariant();
+        Color = resolvedColor;
+        Size = resolvedSize;
         ColorHex = string.IsNullOrWhiteSpace(colorHex) ? ResolveDefaultColorHex(Color) : colorHex.Trim();
         LowStockThreshold = lowStockThreshold;
         IsActive = isActive;

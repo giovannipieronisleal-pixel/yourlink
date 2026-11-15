@@ -80,16 +80,123 @@ public static class WhatsAppLinkBuilder
     }
 
     private static readonly Regex SafeDataImageRegex = new(
-        @"^data:image/(png|jpeg|jpg|webp|gif);base64,[A-Za-z0-9+/=\s]+$",
+        @"^data:image/(png|jpeg|jpg|webp|gif|avif|bmp);base64,[A-Za-z0-9+/=\s]+$",
         RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+    private static readonly Regex GoogleDriveFileIdRegex = new(
+        @"drive\.google\.com/(?:file/d/|open\?id=)([A-Za-z0-9_-]{10,})",
+        RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+    private static readonly Regex MetaOgImageRegex = new(
+        @"<meta\s+[^>]*?(?:property|name)\s*=\s*[""'](?:og:image|twitter:image)[""'][^>]*?content\s*=\s*[""']([^""']+)[""']|<meta\s+[^>]*?content\s*=\s*[""']([^""']+)[""'][^>]*?(?:property|name)\s*=\s*[""'](?:og:image|twitter:image)[""']",
+        RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+    public static string NormalizeExternalImageUrl(string? rawUrl)
+    {
+        if (string.IsNullOrWhiteSpace(rawUrl))
+            return string.Empty;
+
+        var candidate = rawUrl.Trim().Trim('"', '\'');
+        if (string.IsNullOrWhiteSpace(candidate))
+            return string.Empty;
+
+        if (candidate.StartsWith("data:", StringComparison.OrdinalIgnoreCase) ||
+            candidate.StartsWith("/uploads/", StringComparison.OrdinalIgnoreCase))
+        {
+            return candidate;
+        }
+
+        if (candidate.StartsWith("//", StringComparison.Ordinal))
+        {
+            candidate = "https:" + candidate;
+        }
+        else if (!candidate.Contains("://", StringComparison.Ordinal) &&
+                 !candidate.Contains(':', StringComparison.Ordinal) &&
+                 candidate.Contains('.', StringComparison.Ordinal) &&
+                 !candidate.StartsWith('/'))
+        {
+            candidate = "https://" + candidate;
+        }
+
+        // Desempacota links copiados do Google Imagens (ex.: https://www.google.com/imgres?imgurl=https%3A%2F%2F...)
+        if (Uri.TryCreate(candidate, UriKind.Absolute, out var parsedUri))
+        {
+            var query = parsedUri.Query;
+            if (!string.IsNullOrWhiteSpace(query))
+            {
+                foreach (var part in query.TrimStart('?').Split('&', StringSplitOptions.RemoveEmptyEntries))
+                {
+                    var kv = part.Split('=', 2);
+                    if (kv.Length == 2 &&
+                        (string.Equals(kv[0], "imgurl", StringComparison.OrdinalIgnoreCase) ||
+                         (parsedUri.Host.Contains("google.", StringComparison.OrdinalIgnoreCase) &&
+                          string.Equals(kv[0], "url", StringComparison.OrdinalIgnoreCase))))
+                    {
+                        var decoded = Uri.UnescapeDataString(kv[1]).Trim();
+                        if (Uri.TryCreate(decoded, UriKind.Absolute, out var innerUri) &&
+                            (string.Equals(innerUri.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase) ||
+                             string.Equals(innerUri.Scheme, Uri.UriSchemeHttp, StringComparison.OrdinalIgnoreCase)))
+                        {
+                            candidate = decoded;
+                            parsedUri = innerUri;
+                            break;
+                        }
+                    }
+                }
+            }
+
+            // Converte links de compartilhamento do Google Drive em link direto de imagem
+            var driveMatch = GoogleDriveFileIdRegex.Match(candidate);
+            if (driveMatch.Success)
+            {
+                candidate = $"https://drive.google.com/uc?export=view&id={driveMatch.Groups[1].Value}";
+            }
+            else if (parsedUri.Host.Contains("dropbox.com", StringComparison.OrdinalIgnoreCase) &&
+                     candidate.EndsWith("?dl=0", StringComparison.OrdinalIgnoreCase))
+            {
+                candidate = candidate[..^5] + "?raw=1";
+            }
+        }
+
+        return candidate;
+    }
+
+    public static string? ExtractOpenGraphImageUrl(string? html, Uri? pageUri = null)
+    {
+        if (string.IsNullOrWhiteSpace(html))
+            return null;
+
+        var match = MetaOgImageRegex.Match(html);
+        if (!match.Success)
+            return null;
+
+        var raw = !string.IsNullOrWhiteSpace(match.Groups[1].Value)
+            ? match.Groups[1].Value
+            : match.Groups[2].Value;
+
+        raw = System.Net.WebUtility.HtmlDecode(raw).Trim();
+        if (string.IsNullOrWhiteSpace(raw))
+            return null;
+
+        if (raw.StartsWith("//", StringComparison.Ordinal))
+            return "https:" + raw;
+
+        if (Uri.TryCreate(raw, UriKind.Absolute, out var absUri))
+            return absUri.ToString();
+
+        if (pageUri is not null && Uri.TryCreate(pageUri, raw, out var resolvedUri))
+            return resolvedUri.ToString();
+
+        return null;
+    }
 
     public static bool IsSafeMediaUrl(string? rawUrl)
     {
         if (string.IsNullOrWhiteSpace(rawUrl))
             return false;
 
-        var candidate = rawUrl.Trim();
-        if (candidate.Length > 8_500_000 || candidate.Any(c => char.IsControl(c)))
+        var candidate = NormalizeExternalImageUrl(rawUrl);
+        if (string.IsNullOrWhiteSpace(candidate) || candidate.Length > 8_500_000 || candidate.Any(c => char.IsControl(c)))
             return false;
 
         if (candidate.StartsWith("/uploads/", StringComparison.OrdinalIgnoreCase))
@@ -110,10 +217,11 @@ public static class WhatsAppLinkBuilder
 
     public static string SanitizeMediaUrl(string? rawUrl, string fallback = "")
     {
-        if (!IsSafeMediaUrl(rawUrl))
+        var normalized = NormalizeExternalImageUrl(rawUrl);
+        if (!IsSafeMediaUrl(normalized))
             return fallback;
 
-        return rawUrl!.Trim();
+        return normalized;
     }
 
     public static string NormalizeSyncSecretInput(string? rawSecret)
@@ -241,23 +349,43 @@ public static class WhatsAppLinkBuilder
         return $"{cleanBase}/loja/{slug}";
     }
 
+    public static bool IsPlaceholderSize(string? size)
+    {
+        if (string.IsNullOrWhiteSpace(size))
+            return true;
+
+        var normalized = size.Trim().ToUpperInvariant();
+        return normalized is "ÚNICO" or "UNICO" or "ÚNICA" or "UNICA" or "PADRÃO" or "PADRAO" or "-" or "—" or "N/A";
+    }
+
+    public static bool IsPlaceholderColor(string? color)
+    {
+        if (string.IsNullOrWhiteSpace(color))
+            return true;
+
+        var normalized = color.Trim().ToUpperInvariant();
+        return normalized is "PADRÃO" or "PADRAO" or "ÚNICO" or "UNICO" or "-" or "—" or "N/A";
+    }
+
     public static string BuildProductConsultationMessage(string productName, string? color = null, string? size = null)
     {
         var cleanName = string.IsNullOrWhiteSpace(productName) ? "Produto" : productName.Trim();
+        var hasColor = !IsPlaceholderColor(color);
+        var hasSize = !IsPlaceholderSize(size);
 
-        if (!string.IsNullOrWhiteSpace(color) && !string.IsNullOrWhiteSpace(size))
+        if (hasColor && hasSize)
         {
-            return $"Olá! Tenho interesse no produto {cleanName}, na cor {color.Trim().ToLowerInvariant()} e tamanho {size.Trim().ToUpperInvariant()}. Gostaria de saber mais informações.";
+            return $"Olá! Tenho interesse no produto {cleanName}, na cor {color!.Trim().ToLowerInvariant()} e tamanho {size!.Trim().ToUpperInvariant()}. Gostaria de saber mais informações.";
         }
 
-        if (!string.IsNullOrWhiteSpace(color))
+        if (hasColor)
         {
-            return $"Olá! Tenho interesse no produto {cleanName}, na cor {color.Trim().ToLowerInvariant()}. Gostaria de saber mais informações.";
+            return $"Olá! Tenho interesse no produto {cleanName}, na cor {color!.Trim().ToLowerInvariant()}. Gostaria de saber mais informações.";
         }
 
-        if (!string.IsNullOrWhiteSpace(size))
+        if (hasSize)
         {
-            return $"Olá! Tenho interesse no produto {cleanName}, no tamanho {size.Trim().ToUpperInvariant()}. Gostaria de saber mais informações.";
+            return $"Olá! Tenho interesse no produto {cleanName}, no tamanho {size!.Trim().ToUpperInvariant()}. Gostaria de saber mais informações.";
         }
 
         return $"Olá! Tenho interesse no produto {cleanName}. Gostaria de saber mais informações.";

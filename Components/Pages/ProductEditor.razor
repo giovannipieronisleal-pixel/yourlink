@@ -102,25 +102,25 @@
         {
             <div style="background: var(--adm-input-bg); border: 1px solid var(--adm-border); border-radius: 8px; padding: 1rem; margin-bottom: 1.25rem;">
                 <div style="font-weight: 600; font-size: 0.88rem; margin-bottom: 0.75rem;">
-                    @(_editingVariantId.HasValue ? "Editar Variante Selecionada" : "+ Adicionar Nova Variante (Cor/Modelo e Tamanho/Opção)")
+                    @(_editingVariantId.HasValue ? "Editar Variante Selecionada" : "+ Adicionar Variante / Estoque (Cor e Tamanho Opcionais)")
                 </div>
                 <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 150px), 1fr)); gap: 0.75rem; align-items: end;">
                     <div>
-                        <label class="adm-label">Cor / Modelo *</label>
+                        <label class="adm-label">Cor / Modelo (Opcional)</label>
                         <input type="text"
                                class="adm-input"
                                @bind="_variantForm.Color"
                                @bind:event="oninput"
                                @bind:after="OnVariantColorChanged"
-                               placeholder="Ex.: Preto, Branco, Padrão" />
+                               placeholder="Opcional (ex.: Preto, Branco...)" />
                     </div>
                     <div>
                         <label class="adm-label">Cor Hex (Seletor)</label>
                         <input type="color" class="adm-input" style="height: 38px; padding: 0.2rem;" @bind="_variantForm.ColorHex" />
                     </div>
                     <div>
-                        <label class="adm-label">Tamanho / Opção *</label>
-                        <input type="text" class="adm-input" @bind="_variantForm.Size" placeholder="Ex.: Único, 200ml, P, M, G, 110V..." />
+                        <label class="adm-label">Tamanho / Opção (Opcional)</label>
+                        <input type="text" class="adm-input" @bind="_variantForm.Size" @bind:event="oninput" placeholder="Opcional (ex.: P, M, G, 110V, 200ml...)" />
                     </div>
                     <div>
                         <label class="adm-label">SKU (Opcional)</label>
@@ -164,11 +164,20 @@
                     <tr>
                         <td data-label="Cor / Modelo">
                             <div style="display: flex; align-items: center; gap: 0.5rem;">
-                                <span style="width: 16px; height: 16px; border-radius: 50%; background: @v.ColorHex; border: 1px solid rgba(0,0,0,0.2); display: inline-block;"></span>
-                                <span style="font-weight: 700;">@v.Color</span>
+                                @if (!ClothingStore.Domain.Entities.ProductVariant.IsDefaultPlaceholderColor(v.Color))
+                                {
+                                    <span style="width: 16px; height: 16px; border-radius: 50%; background: @v.ColorHex; border: 1px solid rgba(0,0,0,0.2); display: inline-block;"></span>
+                                    <span style="font-weight: 700;">@v.Color</span>
+                                }
+                                else
+                                {
+                                    <span style="color: var(--adm-muted); font-weight: 600;">Padrão</span>
+                                }
                             </div>
                         </td>
-                        <td data-label="Tamanho / Opção" style="font-weight: 800;">@v.Size</td>
+                        <td data-label="Tamanho / Opção" style="font-weight: 800;">
+                            @(ClothingStore.Domain.Entities.ProductVariant.IsDefaultPlaceholderSize(v.Size) ? "— (Sem tamanho)" : v.Size)
+                        </td>
                         <td data-label="SKU" style="font-family: monospace; color: var(--adm-muted);">@v.Sku</td>
                         <td data-label="Quantidade" style="font-size: 1rem; font-weight: 800;">@v.StockQuantity un.</td>
                         <td data-label="Status">
@@ -251,10 +260,18 @@
             <div class="adm-url-add-row">
                 <div>
                     <label class="adm-label">Ou adicionar fotografia por URL pública</label>
-                    <input type="url" class="adm-input" @bind="_newImageUrl" placeholder="https://images.unsplash.com/..." />
+                    <input type="url"
+                           class="adm-input"
+                           @bind="_newImageUrl"
+                           @bind:event="oninput"
+                           @onkeydown="HandleImageUrlKeyDown"
+                           placeholder="Cole o link da imagem ou da página do produto (https://...)" />
                 </div>
-                <button type="button" class="adm-btn adm-btn-outline" @onclick="AddPhotoByUrlAsync">
-                    Adicionar URL
+                <button type="button"
+                        class="adm-btn adm-btn-outline"
+                        disabled="@_addingUrlImage"
+                        @onclick="AddPhotoByUrlAsync">
+                    @(_addingUrlImage ? "Adicionando..." : "Adicionar URL")
                 </button>
             </div>
         }
@@ -264,7 +281,10 @@
             {
                 <div style="border: 1px solid var(--adm-border); border-radius: 8px; overflow: hidden; background: var(--adm-card-bg);">
                     <div style="aspect-ratio: 3 / 4; background: var(--adm-input-bg); position: relative;">
-                        <img src="@img.PublicUrl" alt="@img.AltText" style="width: 100%; height: 100%; object-fit: cover;" />
+                        <img src="@WhatsAppLinkBuilder.SanitizeMediaUrl(img.PublicUrl)"
+                             alt="@img.AltText"
+                             referrerpolicy="no-referrer"
+                             style="width: 100%; height: 100%; object-fit: cover;" />
                         @if (img.IsPrimary)
                         {
                             <span class="pill-badge pill-green" style="position: absolute; top: 0.5rem; left: 0.5rem;">
@@ -317,6 +337,7 @@
     };
 
     private string _newImageUrl = string.Empty;
+    private bool _addingUrlImage;
     private string? _error;
     private string? _success;
 
@@ -513,13 +534,22 @@
         }
     }
 
+    private async Task HandleImageUrlKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter")
+        {
+            await AddPhotoByUrlAsync();
+        }
+    }
+
     private async Task AddPhotoByUrlAsync()
     {
-        if (string.IsNullOrWhiteSpace(_newImageUrl))
+        if (string.IsNullOrWhiteSpace(_newImageUrl) || _addingUrlImage)
             return;
 
         _error = null;
         _success = null;
+        _addingUrlImage = true;
         try
         {
             await Gateway.AddProductImageByUrlAsync(ProductId, new AddProductImageByUrlRequest
@@ -535,6 +565,10 @@
         catch (Exception ex)
         {
             _error = ex.Message;
+        }
+        finally
+        {
+            _addingUrlImage = false;
         }
     }
 

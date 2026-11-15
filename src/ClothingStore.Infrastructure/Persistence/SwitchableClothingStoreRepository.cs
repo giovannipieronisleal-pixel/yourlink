@@ -79,6 +79,31 @@ public sealed class SwitchableClothingStoreRepository : IClothingStoreRepository
         return IsDefaultWorkspace ? baseKey : $"{baseKey}__{_activeWorkspaceId}";
     }
 
+    public async Task<bool> HasAnyIndexedAccountAsync(CancellationToken ct = default)
+    {
+        await _switchLock.WaitAsync(ct);
+        try
+        {
+            _index = LoadIndexUnsafe();
+            if (_index.AccountToWorkspace.Count > 0)
+                return true;
+
+            foreach (var workspaceId in EnumerateCandidateWorkspaceIds())
+            {
+                var repo = GetOrCreateRepository(workspaceId);
+                var employees = await repo.GetEmployeesAsync(ct);
+                if (employees.Count > 0)
+                    return true;
+            }
+
+            return false;
+        }
+        finally
+        {
+            _switchLock.Release();
+        }
+    }
+
     public async Task<ProvisionedWorkspaceHandle> ProvisionIsolatedWorkspaceForNewAccountAsync(
         string email,
         string? username,

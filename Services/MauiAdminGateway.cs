@@ -442,10 +442,25 @@ public sealed class MauiAdminGateway
         }
     }
 
-    public Task<AuthSetupStatusDto> GetSetupStatusAsync() =>
-        ExecuteWithFallbackAsync(
+    public async Task<AuthSetupStatusDto> GetSetupStatusAsync()
+    {
+        if (_workspaceRepository is not null && !HasCustomServerUrl)
+        {
+            var localStatus = await _authService.GetSetupStatusAsync();
+            if (!localStatus.RequiresInitialSetup)
+                return localStatus;
+
+            var anyIndexed = await _workspaceRepository.HasAnyIndexedAccountAsync();
+            if (anyIndexed)
+                return new AuthSetupStatusDto(RequiresInitialSetup: false);
+
+            return localStatus;
+        }
+
+        return await ExecuteWithFallbackAsync(
             () => _apiClient.GetSetupStatusAsync(),
             () => _authService.GetSetupStatusAsync());
+    }
 
     public async Task<LoginResponse> RegisterUserAccountAsync(RegisterUserAccountRequest request)
     {
@@ -535,18 +550,30 @@ public sealed class MauiAdminGateway
         var matchedWorkspace = await _workspaceRepository.SwitchToWorkspaceForAccountAsync(loginOrEmail);
         if (!string.IsNullOrWhiteSpace(matchedWorkspace))
         {
-            RefreshActiveWorkspaceState(resetCloudStatus: true);
+            RefreshActiveWorkspaceState(resetCloudStatus: IsAuthenticated);
         }
         else if (!_workspaceRepository.IsDefaultWorkspace)
         {
             _workspaceRepository.ResetToDefaultWorkspace();
-            RefreshActiveWorkspaceState(resetCloudStatus: true);
+            RefreshActiveWorkspaceState(resetCloudStatus: IsAuthenticated);
         }
     }
 
     public async Task<LoginChallengeResponse> LoginWithChallengeAsync(LoginRequest request, bool rememberMe = true)
     {
         await SwitchWorkspaceForIdentifierAsync(request.Email);
+
+        if (_workspaceRepository is not null && !HasCustomServerUrl)
+        {
+            var localChallenge = await _authService.LoginWithChallengeAsync(request);
+            LastAccountActionWasLocalOnly = true;
+            if (!localChallenge.RequiresTwoFactor && localChallenge.AuthResult is not null)
+            {
+                _apiClient.SetSession(localChallenge.AuthResult.AccessToken, localChallenge.AuthResult.Employee);
+                await PersistSessionAsync(localChallenge.AuthResult, rememberMe);
+            }
+            return localChallenge;
+        }
 
         var usedFallback = false;
         var challenge = await ExecuteWithFallbackAsync(
@@ -581,6 +608,15 @@ public sealed class MauiAdminGateway
     {
         await SwitchWorkspaceForIdentifierAsync(request.Email);
 
+        if (_workspaceRepository is not null && !HasCustomServerUrl)
+        {
+            var localResp = await _authService.VerifyTwoFactorLoginAsync(request);
+            LastAccountActionWasLocalOnly = true;
+            _apiClient.SetSession(localResp.AccessToken, localResp.Employee);
+            await PersistSessionAsync(localResp, rememberMe);
+            return localResp;
+        }
+
         var usedFallback = false;
         var response = await ExecuteWithFallbackAsync(
             async () =>
@@ -607,6 +643,15 @@ public sealed class MauiAdminGateway
     public async Task<LoginResponse> LoginAsync(LoginRequest request, bool rememberMe = true)
     {
         await SwitchWorkspaceForIdentifierAsync(request.Email);
+
+        if (_workspaceRepository is not null && !HasCustomServerUrl)
+        {
+            var localResp = await _authService.LoginAsync(request);
+            LastAccountActionWasLocalOnly = true;
+            _apiClient.SetSession(localResp.AccessToken, localResp.Employee);
+            await PersistSessionAsync(localResp, rememberMe);
+            return localResp;
+        }
 
         var response = await ExecuteWithFallbackAsync(
             () => _apiClient.LoginAsync(request),
@@ -648,9 +693,6 @@ public sealed class MauiAdminGateway
 
     private async Task PersistSessionAsync(LoginResponse response, bool rememberMe = true)
     {
-        AccessToken = response.AccessToken;
-        CurrentEmployee = response.Employee;
-
         if (_workspaceRepository is not null)
         {
             await _workspaceRepository.IndexAccountAsync(
@@ -681,6 +723,9 @@ public sealed class MauiAdminGateway
         catch
         {
         }
+
+        AccessToken = response.AccessToken;
+        CurrentEmployee = response.Employee;
 
         AuthStateChanged?.Invoke();
     }
@@ -886,15 +931,26 @@ public sealed class MauiAdminGateway
     }
 
     // Imagens do Produto
-    public Task<ProductImageDto> AddProductImageByUrlAsync(Guid productId, AddProductImageByUrlRequest request)
+    public async Task<ProductImageDto> AddProductImageByUrlAsync(Guid productId, AddProductImageByUrlRequest request)
     {
         EnsureProductPermission();
-        return ExecuteWithFallbackAsync(
-            () => _apiClient.AddProductImageByUrlAsync(productId, request),
-            () => _productService.AddProductImageByUrlAsync(productId, request));
+        ProductImageDto result;
+        if (_workspaceRepository is not null && !HasCustomServerUrl)
+        {
+            result = await _productService.AddProductImageByUrlAsync(productId, request);
+        }
+        else
+        {
+            result = await ExecuteWithFallbackAsync(
+                () => _apiClient.AddProductImageByUrlAsync(productId, request),
+                () => _productService.AddProductImageByUrlAsync(productId, request));
+        }
+
+        _cloudSyncService?.TriggerAutoSyncIfEnabled();
+        return result;
     }
 
-    public Task<ProductImageDto> UploadProductImageFileAsync(
+    public async Task<ProductImageDto> UploadProductImageFileAsync(
         Guid productId,
         string fileName,
         Stream fileStream,
@@ -903,30 +959,61 @@ public sealed class MauiAdminGateway
         bool isPrimary)
     {
         EnsureProductPermission();
-        return ExecuteWithFallbackAsync(
-            () => _apiClient.UploadProductImageFileAsync(productId, fileName, fileStream, contentType, altText, isPrimary),
-            () =>
-            {
-                if (fileStream.CanSeek)
-                    fileStream.Position = 0;
-                return _productService.UploadProductImageAsync(productId, fileName, fileStream, contentType, altText, isPrimary);
-            });
+        ProductImageDto result;
+        if (_workspaceRepository is not null && !HasCustomServerUrl)
+        {
+            if (fileStream.CanSeek)
+                fileStream.Position = 0;
+            result = await _productService.UploadProductImageAsync(productId, fileName, fileStream, contentType, altText, isPrimary);
+        }
+        else
+        {
+            result = await ExecuteWithFallbackAsync(
+                () => _apiClient.UploadProductImageFileAsync(productId, fileName, fileStream, contentType, altText, isPrimary),
+                () =>
+                {
+                    if (fileStream.CanSeek)
+                        fileStream.Position = 0;
+                    return _productService.UploadProductImageAsync(productId, fileName, fileStream, contentType, altText, isPrimary);
+                });
+        }
+
+        _cloudSyncService?.TriggerAutoSyncIfEnabled();
+        return result;
     }
 
-    public Task SetPrimaryProductImageAsync(Guid productId, Guid imageId)
+    public async Task SetPrimaryProductImageAsync(Guid productId, Guid imageId)
     {
         EnsureProductPermission();
-        return ExecuteWithFallbackAsync(
-            () => _apiClient.SetPrimaryProductImageAsync(productId, imageId),
-            () => _productService.SetPrimaryProductImageAsync(productId, imageId));
+        if (_workspaceRepository is not null && !HasCustomServerUrl)
+        {
+            await _productService.SetPrimaryProductImageAsync(productId, imageId);
+        }
+        else
+        {
+            await ExecuteWithFallbackAsync(
+                () => _apiClient.SetPrimaryProductImageAsync(productId, imageId),
+                () => _productService.SetPrimaryProductImageAsync(productId, imageId));
+        }
+
+        _cloudSyncService?.TriggerAutoSyncIfEnabled();
     }
 
-    public Task DeleteProductImageAsync(Guid productId, Guid imageId)
+    public async Task DeleteProductImageAsync(Guid productId, Guid imageId)
     {
         EnsureProductPermission();
-        return ExecuteWithFallbackAsync(
-            () => _apiClient.DeleteProductImageAsync(productId, imageId),
-            () => _productService.DeleteProductImageAsync(productId, imageId));
+        if (_workspaceRepository is not null && !HasCustomServerUrl)
+        {
+            await _productService.DeleteProductImageAsync(productId, imageId);
+        }
+        else
+        {
+            await ExecuteWithFallbackAsync(
+                () => _apiClient.DeleteProductImageAsync(productId, imageId),
+                () => _productService.DeleteProductImageAsync(productId, imageId));
+        }
+
+        _cloudSyncService?.TriggerAutoSyncIfEnabled();
     }
 
     // Variantes

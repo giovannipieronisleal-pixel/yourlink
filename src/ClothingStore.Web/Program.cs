@@ -13,6 +13,10 @@ using ClothingStore.Web.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
+var ptBrCulture = new System.Globalization.CultureInfo("pt-BR");
+System.Globalization.CultureInfo.DefaultThreadCurrentCulture = ptBrCulture;
+System.Globalization.CultureInfo.DefaultThreadCurrentUICulture = ptBrCulture;
+
 var cloudPort = Environment.GetEnvironmentVariable("PORT");
 if (!string.IsNullOrWhiteSpace(cloudPort) && int.TryParse(cloudPort, out var parsedPort))
 {
