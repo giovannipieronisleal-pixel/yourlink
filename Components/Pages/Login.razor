@@ -767,6 +767,7 @@
             _setupErrorMessage = null;
 
             await BrandState.ReloadAsync();
+            await Gateway.SyncActiveAccountToCloudBestEffortAsync();
             try
             {
                 var freshStore = await CatalogService.GetPublicStoreSettingsAsync();
@@ -946,6 +947,7 @@
 
             await Gateway.UpdateStoreSettingsAsync(updateRequest);
             await BrandState.ReloadAsync();
+            await Gateway.SyncActiveAccountToCloudBestEffortAsync();
             _showInitialSetupModal = false;
             Navigation.NavigateTo("/");
         }

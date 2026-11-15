@@ -521,4 +521,242 @@ public class MultiAccountStoreIsolationTests
             CleanupDir(tempDir);
         }
     }
+
+    [TestMethod]
+    public async Task LoginNormalization_UsernameWithAtPrefix_AndProfileUpdate_KeepWorkspaceIndexSynced_AndSucceedOnSingleLookup()
+    {
+        var (repo, auth, _, _, _, _, hasher, _, tempDir, defaultDbPath) = CreateStack();
+        try
+        {
+            await repo.ProvisionIsolatedWorkspaceForNewAccountAsync("flavia.loja@gmail.com", "flavia.boutique");
+            var reg = await auth.RegisterUserAccountAsync(new RegisterUserAccountRequest(
+                "Flavia Store",
+                "Flavia.Loja@Gmail.Com",
+                "SenhaForte@2026",
+                Username: "flavia.boutique"));
+
+            var switchedByAtUsername = await repo.SwitchToWorkspaceForAccountAsync(" @FLAVIA.BOUTIQUE ");
+            Assert.IsNotNull(switchedByAtUsername);
+
+            var foundByAtUsername = await repo.GetUserByEmailAsync(" @flavia.boutique ");
+            Assert.IsNotNull(foundByAtUsername);
+            Assert.AreEqual(reg.Employee.UserId, foundByAtUsername!.Id);
+
+            var challenge = await auth.LoginWithChallengeAsync(new LoginRequest(" @Flavia.Boutique ", "SenhaForte@2026"));
+            Assert.IsFalse(challenge.RequiresTwoFactor);
+            Assert.IsNotNull(challenge.AuthResult);
+
+            // Atualiza e-mail e usuário — SwitchableClothingStoreRepository deve reindexar automaticamente account_workspaces.json
+            await auth.UpdateUserProfileAsync(reg.Employee.UserId, new UpdateUserProfileRequest(
+                "Flavia Vip",
+                "flavia.novo@gmail.com",
+                "11999998888",
+                "flavia.vip"));
+
+            var repoAfterReload = new SwitchableClothingStoreRepository(hasher, defaultDbPath, enablePlatformOwnerCompanion: false);
+            var switchedAfterUpdate = await repoAfterReload.SwitchToWorkspaceForAccountAsync("@flavia.vip");
+            Assert.AreEqual(switchedByAtUsername, switchedAfterUpdate);
+
+            var switchedByNewEmail = await repoAfterReload.SwitchToWorkspaceForAccountAsync("flavia.novo@gmail.com");
+            Assert.AreEqual(switchedByAtUsername, switchedByNewEmail);
+        }
+        finally
+        {
+            CleanupDir(tempDir);
+        }
+    }
+
+    [TestMethod]
+    public async Task CloudAccountRegistryService_UpsertVerifyLoginAndMirrorPersistence_AllowsCrossDeviceHydrationWithoutLeakingHashes()
+    {
+        var (repo, auth, catalog, _, _, _, hasher, _, tempDir, _) = CreateStack();
+        try
+        {
+            var registryDir = Path.Combine(tempDir, "cloud_server_root");
+            Directory.CreateDirectory(registryDir);
+            var registry = new CloudAccountRegistryService(registryDir, hasher);
+
+            var originalHash = hasher.HashPassword("sfgild1505s");
+            var upsertOk = await registry.UpsertAccountAsync(new CloudAccountCredentialSyncDto(
+                FullName: "Flavia Leal",
+                Username: "flavia",
+                Email: "giovannilealpr@gmail.com",
+                PasswordHash: originalHash,
+                Phone: "41999990000",
+                StoreName: "Atelier Flavia",
+                StoreSlug: "atelier-flavia"));
+            Assert.IsTrue(upsertOk.Success);
+            Assert.AreEqual(200, upsertOk.StatusCode);
+
+            // Senha incorreta NÃO vaza hash nem dados da conta
+            var wrongPwd = await registry.VerifyLoginAsync(new LoginRequest("giovannilealpr@gmail.com", "errada"));
+            Assert.IsFalse(wrongPwd.Verified);
+            Assert.IsTrue(wrongPwd.AccountExists);
+            Assert.IsNull(wrongPwd.Account);
+
+            // Outro cliente tentando sobrescrever o mesmo e-mail sem o hash anterior é bloqueado com 401
+            var rogueOverwrite = await registry.UpsertAccountAsync(new CloudAccountCredentialSyncDto(
+                FullName: "Invasor",
+                Username: "flavia",
+                Email: "giovannilealpr@gmail.com",
+                PasswordHash: hasher.HashPassword("outraSenha")));
+            Assert.IsFalse(rogueOverwrite.Success);
+            Assert.AreEqual(401, rogueOverwrite.StatusCode);
+
+            // Login válido em dispositivo novo / pós-reinstalação Android verifica e importa para workspace isolado
+            var verified = await registry.VerifyLoginAsync(new LoginRequest(" @flavia ", "sfgild1505s"));
+            Assert.IsTrue(verified.Verified);
+            Assert.IsNotNull(verified.Account);
+
+            var hydrated = await repo.UpsertCloudHydratedAccountAsync(verified.Account!);
+            Assert.IsTrue(hydrated);
+            Assert.AreEqual("Atelier Flavia", (await catalog.GetPublicStoreSettingsAsync()).StoreName);
+
+            var loginAfterHydration = await auth.LoginWithChallengeAsync(new LoginRequest("giovannilealpr@gmail.com", "sfgild1505s"));
+            Assert.IsFalse(loginAfterHydration.RequiresTwoFactor);
+            Assert.IsNotNull(loginAfterHydration.AuthResult);
+            Assert.IsTrue(loginAfterHydration.AuthResult!.Employee.IsAdmin);
+
+            // Troca de senha em outro aparelho atualiza registro com PreviousPasswordHash e reidrata no aparelho local
+            var updatedHash = hasher.HashPassword("NovaSenha@99");
+            var updatePwd = await registry.UpsertAccountAsync(new CloudAccountCredentialSyncDto(
+                FullName: "Flavia Leal",
+                Username: "flavia",
+                Email: "giovannilealpr@gmail.com",
+                PasswordHash: updatedHash,
+                PreviousPasswordHash: originalHash));
+            Assert.IsTrue(updatePwd.Success);
+
+            var verifiedNew = await registry.VerifyLoginAsync(new LoginRequest("giovannilealpr@gmail.com", "NovaSenha@99"));
+            Assert.IsTrue(verifiedNew.Verified);
+            Assert.IsTrue(await repo.UpsertCloudHydratedAccountAsync(verifiedNew.Account!));
+            var rehydratedLogin = await auth.LoginWithChallengeAsync(new LoginRequest("giovannilealpr@gmail.com", "NovaSenha@99"));
+            Assert.IsNotNull(rehydratedLogin.AuthResult);
+
+            // Garante que CloudAppDataMirror espelha e restaura cloud_accounts_registry.json após wipe em disco
+            var mirrorBackend = new InMemoryCloudStateBackend();
+            using (var mirror = new CloudAppDataMirror(registryDir, mirrorBackend))
+            {
+                var jsonPayload = await File.ReadAllTextAsync(registry.RegistryFilePath);
+                mirror.EnqueueUpsert(registry.RegistryFilePath, jsonPayload);
+                await mirror.FlushAsync(TimeSpan.FromSeconds(3));
+            }
+            Assert.IsTrue(mirrorBackend.Snapshots.ContainsKey(CloudAccountRegistryService.RegistryFileName));
+
+            File.Delete(registry.RegistryFilePath);
+            using (var restoreMirror = new CloudAppDataMirror(registryDir, mirrorBackend))
+            {
+                await restoreMirror.HydrateToDiskAsync();
+            }
+            Assert.IsTrue(File.Exists(registry.RegistryFilePath));
+            var restoredRegistry = new CloudAccountRegistryService(registryDir, hasher);
+            Assert.IsTrue((await restoredRegistry.VerifyLoginAsync(new LoginRequest("giovannilealpr@gmail.com", "NovaSenha@99"))).Verified);
+        }
+        finally
+        {
+            CleanupDir(tempDir);
+        }
+    }
+
+    [TestMethod]
+    public async Task PurgeAllUserAccountsAcrossAllWorkspaces_RemovesAllPreSalesUsersAndProducts_WhilePreservingRoles()
+    {
+        var (repo, auth, _, settings, products, _, hasher, _, tempDir, defaultDbPath) = CreateStack();
+        try
+        {
+            var h1 = await repo.ProvisionIsolatedWorkspaceForNewAccountAsync("teste1@gmail.com", "teste1");
+            var l1 = await auth.RegisterUserAccountAsync(new RegisterUserAccountRequest("Teste Um", "teste1@gmail.com", "1234", Username: "teste1"));
+            await settings.UpdateStoreSettingsAsync(l1.Employee.EmployeeId, new UpdateStoreSettingsRequest
+            {
+                StoreName = "Loja Teste 1",
+                WhatsappNumber = "11999990001",
+                StoreDescription = "Teste"
+            });
+            await products.CreateProductAsync(new SaveProductRequest
+            {
+                CategoryName = "Geral",
+                Name = "Produto Teste",
+                BasePrice = 50m,
+                InitialStockQuantity = 3
+            }, l1.Employee.EmployeeId);
+
+            await repo.ProvisionIsolatedWorkspaceForNewAccountAsync("teste2@gmail.com", "teste2");
+            await auth.RegisterUserAccountAsync(new RegisterUserAccountRequest("Teste Dois", "teste2@gmail.com", "5678", Username: "teste2"));
+
+            var purgedCount = await repo.PurgeAllUserAccountsAcrossAllWorkspacesAsync(alsoClearCatalog: true);
+            Assert.IsTrue(purgedCount >= 2);
+            Assert.IsFalse(await repo.HasAnyIndexedAccountAsync());
+            Assert.IsFalse(await repo.AccountExistsInAnyWorkspaceAsync("teste1@gmail.com"));
+            Assert.IsFalse(await repo.AccountExistsInAnyWorkspaceAsync("teste2"));
+            Assert.AreEqual(SwitchableClothingStoreRepository.DefaultWorkspaceId, repo.ActiveWorkspaceId);
+
+            var cleanRepo = new SwitchableClothingStoreRepository(hasher, defaultDbPath, enablePlatformOwnerCompanion: false);
+            var cleanAuth = new AuthService(cleanRepo, hasher, new JwtTokenService(new ConfigurationBuilder()
+                .AddInMemoryCollection(new Dictionary<string, string?> { ["Jwt:SecretKey"] = "unit-test-secret-key-with-at-least-32-characters-12345" })
+                .Build()));
+
+            var status = await cleanAuth.GetSetupStatusAsync();
+            Assert.IsTrue(status.RequiresInitialSetup);
+            Assert.IsTrue((await cleanRepo.GetRolesAsync()).Count > 0, "Perfis de acesso (Roles) devem ser preservados após limpeza.");
+        }
+        finally
+        {
+            CleanupDir(tempDir);
+        }
+    }
+
+    [TestMethod]
+    public void LoginFixes_CloudEndpoints_And_SalesLaunchReset_ShouldBeProperlyWired()
+    {
+        var root = ResolveRepoRoot();
+
+        var mainLayout = File.ReadAllText(Path.Combine(root, "Components", "Layout", "MainLayout.razor"));
+        var authChangedIdx = mainLayout.IndexOf("private async void OnAuthStateChanged()", StringComparison.Ordinal);
+        var stateChangedIdx = mainLayout.IndexOf("await InvokeAsync(StateHasChanged);", authChangedIdx, StringComparison.Ordinal);
+        var refreshStoreIdx = mainLayout.IndexOf("await RefreshStoreInfoAsync();", authChangedIdx, StringComparison.Ordinal);
+        Assert.IsTrue(authChangedIdx > 0 && stateChangedIdx > authChangedIdx && refreshStoreIdx > stateChangedIdx,
+            "OnAuthStateChanged deve chamar InvokeAsync(StateHasChanged) antes de RefreshStoreInfoAsync para transição em 1 clique.");
+
+        var gateway = File.ReadAllText(Path.Combine(root, "Services", "MauiAdminGateway.cs"));
+        Assert.IsTrue(gateway.Contains("TryVerifyAndImportAccountFromCentralCloudAsync", StringComparison.Ordinal));
+        Assert.IsTrue(gateway.Contains("SyncAccountByUserIdToCloudAsync", StringComparison.Ordinal));
+        Assert.IsTrue(gateway.Contains("ExecuteOneTimeSalesLaunchResetAsync", StringComparison.Ordinal));
+        Assert.IsTrue(gateway.Contains("EnsurePreSalesV1040CleanReset", StringComparison.Ordinal));
+
+        var mauiProgram = File.ReadAllText(Path.Combine(root, "MauiProgram.cs"));
+        Assert.IsTrue(mauiProgram.Contains("EnsurePreSalesV1040CleanReset()", StringComparison.Ordinal));
+
+        var webProgram = File.ReadAllText(Path.Combine(root, "src", "ClothingStore.Web", "Program.cs"));
+        Assert.IsTrue(webProgram.Contains("/api/cloud/accounts/upsert", StringComparison.Ordinal));
+        Assert.IsTrue(webProgram.Contains("/api/cloud/accounts/verify-login", StringComparison.Ordinal));
+        Assert.IsTrue(webProgram.Contains("/api/cloud/accounts/purge-all", StringComparison.Ordinal));
+
+        var updateService = File.ReadAllText(Path.Combine(root, "Services", "AppUpdateService.cs"));
+        var updateModal = File.ReadAllText(Path.Combine(root, "Components", "Shared", "AppUpdateModal.razor"));
+        Assert.IsTrue(updateService.Contains("ApplyCloudHotUpdateAsync", StringComparison.Ordinal));
+        Assert.IsTrue(updateService.Contains("ReplaceConflictingAndroidPackageAsync", StringComparison.Ordinal));
+        Assert.IsTrue(updateModal.Contains("Atualizar pela Nuvem", StringComparison.Ordinal));
+        Assert.IsTrue(updateModal.Contains("Substituir Pacote Antigo", StringComparison.Ordinal));
+    }
+
+    private sealed class InMemoryCloudStateBackend : ICloudStateBackend
+    {
+        public Dictionary<string, string> Snapshots { get; } = new(StringComparer.OrdinalIgnoreCase);
+        public string ProviderName => "InMemoryTest";
+
+        public Task<IReadOnlyDictionary<string, string>> LoadAllSnapshotsAsync(CancellationToken ct = default) =>
+            Task.FromResult<IReadOnlyDictionary<string, string>>(new Dictionary<string, string>(Snapshots, StringComparer.OrdinalIgnoreCase));
+
+        public Task UpsertSnapshotAsync(string stateKey, string payload, CancellationToken ct = default)
+        {
+            Snapshots[stateKey] = payload;
+            return Task.CompletedTask;
+        }
+
+        public Task DeleteSnapshotAsync(string stateKey, CancellationToken ct = default)
+        {
+            Snapshots.Remove(stateKey);
+            return Task.CompletedTask;
+        }
+    }
 }

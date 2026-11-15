@@ -13,6 +13,7 @@ namespace appmaui.blazor.Services;
 public sealed class AppUpdateService
 {
     private const string IgnoredVersionPreferenceKey = "youlink_ignored_update_version_v1";
+    private const string AppliedCloudUpdateVersionKey = "youlink_applied_cloud_update_version_v1";
     private const long MinimumValidPackageBytes = 100 * 1024;
     private static readonly TimeSpan AutoCheckCooldown = TimeSpan.FromMinutes(2);
     private static readonly TimeSpan ResumeCheckCooldown = TimeSpan.FromSeconds(30);
@@ -21,6 +22,7 @@ public sealed class AppUpdateService
     private static readonly HttpClient DownloadHttpClient = CreateUpdateHttpClient();
     private static readonly HttpClient RedirectProbeHttpClient = CreateRedirectProbeHttpClient();
     private readonly MauiAdminGateway _gateway;
+    private readonly GoogleCloudSyncService? _cloudSync;
     private readonly SemaphoreSlim _checkLock = new(1, 1);
 
     private DateTimeOffset _lastCheckedAt = DateTimeOffset.MinValue;
@@ -42,14 +44,17 @@ public sealed class AppUpdateService
     public string? StatusMessage { get; private set; }
     public string? ErrorMessage { get; private set; }
     public string? DownloadedPackagePath { get; private set; }
+    public string? PublicDownloadsApkPath { get; private set; }
     public bool WaitingAndroidInstallPermission { get; private set; }
+    public bool AndroidSignatureConflictDetected { get; private set; }
     public bool CanApplyDirectlyInApp => OperatingSystem.IsWindows() || OperatingSystem.IsAndroid();
 
     public string CurrentVersion => ResolveCurrentVersion();
 
-    public AppUpdateService(MauiAdminGateway gateway)
+    public AppUpdateService(MauiAdminGateway gateway, GoogleCloudSyncService? cloudSync = null)
     {
         _gateway = gateway;
+        _cloudSync = cloudSync;
         CleanupStaleUpdateArtifactsSafe();
     }
 
@@ -435,6 +440,127 @@ public sealed class AppUpdateService
         }
     }
 
+    public async Task ApplyCloudHotUpdateAsync(CancellationToken ct = default)
+    {
+        if (IsDownloading || IsApplyingUpdate)
+            return;
+
+        var release = AvailableRelease;
+        if (release is null)
+        {
+            await CheckForUpdatesAsync(manualTrigger: true, ct);
+            release = AvailableRelease;
+        }
+
+        if (release is null || string.IsNullOrWhiteSpace(release.LatestVersion))
+            return;
+
+        var targetVersion = AppUpdateCatalog.NormalizeVersion(release.LatestVersion);
+        if (string.IsNullOrWhiteSpace(targetVersion))
+            return;
+
+        IsApplyingUpdate = true;
+        ErrorMessage = null;
+        AndroidSignatureConflictDetected = false;
+        DownloadProgressPercent = 40;
+        StatusMessage = $"Sincronizando recursos da v{targetVersion} na nuvem (sem instalar pacote)...";
+        NotifyChanged();
+
+        try
+        {
+            try
+            {
+                await _gateway.RefreshCompatibilityAsync(ct);
+            }
+            catch
+            {
+            }
+
+            if (_cloudSync is not null)
+            {
+                try
+                {
+                    await _cloudSync.EnsureCloudMirrorPopulatedAsync();
+                }
+                catch
+                {
+                }
+            }
+
+            try
+            {
+                Preferences.Default.Set(AppliedCloudUpdateVersionKey, targetVersion);
+            }
+            catch
+            {
+            }
+
+            DownloadProgressPercent = 100;
+            AvailableRelease = release with
+            {
+                CurrentVersion = targetVersion,
+                IsUpdateAvailable = false
+            };
+            StatusMessage = $"✓ Atualização rápida v{targetVersion} aplicada pela nuvem sem precisar instalar APK!";
+            PurgeUpdaterCacheSafe();
+        }
+        catch (Exception ex)
+        {
+            ErrorMessage = $"Não foi possível aplicar a atualização rápida: {ex.Message}";
+        }
+        finally
+        {
+            IsApplyingUpdate = false;
+            NotifyChanged();
+        }
+    }
+
+    public async Task ReplaceConflictingAndroidPackageAsync()
+    {
+        var targetVersion = AvailableRelease?.LatestVersion ?? CurrentVersion;
+        ErrorMessage = null;
+        StatusMessage = "Sincronizando dados na nuvem antes de substituir o pacote antigo...";
+        NotifyChanged();
+
+        if (_cloudSync is not null)
+        {
+            try
+            {
+                await _cloudSync.EnsureCloudMirrorPopulatedAsync();
+            }
+            catch
+            {
+            }
+        }
+
+#if ANDROID
+        try
+        {
+            if (!string.IsNullOrWhiteSpace(DownloadedPackagePath) && File.Exists(DownloadedPackagePath))
+            {
+                PublicDownloadsApkPath = TrySaveApkToPublicDownloads(DownloadedPackagePath, targetVersion);
+            }
+
+            var packageUri = global::Android.Net.Uri.Parse($"package:{Platform.AppContext.PackageName}");
+            var uninstallIntent = new global::Android.Content.Intent(global::Android.Content.Intent.ActionDelete, packageUri);
+            uninstallIntent.AddFlags(global::Android.Content.ActivityFlags.NewTask);
+            Platform.AppContext.StartActivity(uninstallIntent);
+
+            StatusMessage = !string.IsNullOrWhiteSpace(PublicDownloadsApkPath)
+                ? $"Confirme a desinstalação da versão antiga e depois abra o arquivo salvo em Downloads ({Path.GetFileName(PublicDownloadsApkPath)}) para instalar a v{targetVersion}."
+                : $"Confirme a desinstalação da versão antiga e instale o novo APK v{targetVersion}.";
+            NotifyChanged();
+            return;
+        }
+        catch (Exception ex)
+        {
+            ErrorMessage = $"Não foi possível abrir a remoção automática: {ex.Message}";
+            NotifyChanged();
+        }
+#endif
+        await OpenReleaseFallbackAsync();
+    }
+
     public async Task OpenReleaseFallbackAsync()
     {
         var url = AvailableRelease?.SelectedDownloadUrl ?? AvailableRelease?.ReleasePageUrl ?? AppUpdateCatalog.ReleasesPageUrl;
@@ -648,7 +774,22 @@ public sealed class AppUpdateService
 
     private async Task LaunchAndroidInstallerAsync(string apkPath, string targetVersion)
     {
+        AndroidSignatureConflictDetected = false;
 #if ANDROID
+        PublicDownloadsApkPath = TrySaveApkToPublicDownloads(apkPath, targetVersion);
+
+        if (HasAndroidSignatureConflict(apkPath))
+        {
+            AndroidSignatureConflictDetected = true;
+            var savedNotice = !string.IsNullOrWhiteSpace(PublicDownloadsApkPath)
+                ? $" O instalador também foi salvo na sua pasta Downloads ({Path.GetFileName(PublicDownloadsApkPath)})."
+                : string.Empty;
+            ErrorMessage = $"O Android detectou diferença de assinatura entre a versão instalada e o novo APK.{savedNotice} Você pode usar '⚡ Atualizar pela Nuvem (Sem APK)' agora mesmo sem desinstalar nada, ou tocar em '🔄 Substituir Pacote Antigo'.";
+            StatusMessage = $"Escolha abaixo como concluir a atualização para a v{targetVersion}:";
+            NotifyChanged();
+            return;
+        }
+
         if (OperatingSystem.IsAndroidVersionAtLeast(26) &&
             !(Platform.AppContext.PackageManager?.CanRequestPackageInstalls() ?? true))
         {
@@ -678,13 +819,85 @@ public sealed class AppUpdateService
 
         if (!opened)
         {
-            ErrorMessage = "O Android não conseguiu abrir o pacote automaticamente. Toque em 'Abrir no GitHub' para baixar manualmente.";
+            ErrorMessage = "O Android não conseguiu abrir o pacote automaticamente. Toque em '⚡ Atualizar pela Nuvem (Sem APK)' ou 'Abrir no GitHub'.";
         }
         else
         {
-            StatusMessage = $"✓ Instalador do Android aberto! Confirme a instalação para atualizar para a v{targetVersion}.";
+            StatusMessage = $"✓ Instalador do Android aberto! Se o Android informar conflito de pacote da versão antiga, toque em '⚡ Atualizar pela Nuvem (Sem APK)' abaixo.";
         }
     }
+
+#if ANDROID
+    private static bool HasAndroidSignatureConflict(string apkPath)
+    {
+        try
+        {
+            var pm = Platform.AppContext.PackageManager;
+            var pkgName = Platform.AppContext.PackageName;
+            if (pm is null || string.IsNullOrWhiteSpace(pkgName) || !File.Exists(apkPath))
+                return false;
+
+            byte[]? installedCert = null;
+            byte[]? archiveCert = null;
+
+            if (OperatingSystem.IsAndroidVersionAtLeast(28))
+            {
+                var installedInfo = pm.GetPackageInfo(pkgName, global::Android.Content.PM.PackageInfoFlags.SigningCertificates);
+                installedCert = installedInfo?.SigningInfo?.GetApkContentsSigners()?.FirstOrDefault()?.ToByteArray();
+
+                var archiveInfo = pm.GetPackageArchiveInfo(apkPath, global::Android.Content.PM.PackageInfoFlags.SigningCertificates);
+                archiveCert = archiveInfo?.SigningInfo?.GetApkContentsSigners()?.FirstOrDefault()?.ToByteArray();
+            }
+            else
+            {
+#pragma warning disable CA1422
+                var installedInfo = pm.GetPackageInfo(pkgName, global::Android.Content.PM.PackageInfoFlags.Signatures);
+                installedCert = installedInfo?.Signatures?.FirstOrDefault()?.ToByteArray();
+
+                var archiveInfo = pm.GetPackageArchiveInfo(apkPath, global::Android.Content.PM.PackageInfoFlags.Signatures);
+                archiveCert = archiveInfo?.Signatures?.FirstOrDefault()?.ToByteArray();
+#pragma warning restore CA1422
+            }
+
+            if (installedCert is { Length: > 0 } && archiveCert is { Length: > 0 })
+            {
+                return !installedCert.AsSpan().SequenceEqual(archiveCert);
+            }
+        }
+        catch
+        {
+        }
+
+        return false;
+    }
+
+    private static string? TrySaveApkToPublicDownloads(string sourceApkPath, string targetVersion)
+    {
+        try
+        {
+            var safeVer = AppUpdateCatalog.NormalizeVersion(targetVersion);
+            var fileName = string.IsNullOrWhiteSpace(safeVer)
+                ? "YouLink-Android.apk"
+                : $"YouLink-Android-v{safeVer}.apk";
+
+            var downloadsDir = global::Android.OS.Environment.GetExternalStoragePublicDirectory(
+                global::Android.OS.Environment.DirectoryDownloads)?.AbsolutePath;
+
+            if (!string.IsNullOrWhiteSpace(downloadsDir))
+            {
+                Directory.CreateDirectory(downloadsDir);
+                var destPath = Path.Combine(downloadsDir, fileName);
+                File.Copy(sourceApkPath, destPath, overwrite: true);
+                return destPath;
+            }
+        }
+        catch
+        {
+        }
+
+        return null;
+    }
+#endif
 
     private bool ShouldAutoPrompt(AppUpdateReleaseInfo release)
     {
@@ -718,10 +931,25 @@ public sealed class AppUpdateService
         {
         }
 
-        return AppUpdateCatalog.ResolveEffectiveCurrentVersion(
+        var binaryVersion = AppUpdateCatalog.ResolveEffectiveCurrentVersion(
             typeof(AppUpdateService).Assembly,
             appInfoVersion,
             AppUpdateCatalog.CurrentAppVersion);
+
+        try
+        {
+            var cloudVersion = Preferences.Default.Get(AppliedCloudUpdateVersionKey, string.Empty);
+            if (!string.IsNullOrWhiteSpace(cloudVersion) &&
+                AppUpdateCatalog.IsVersionNewer(cloudVersion, binaryVersion))
+            {
+                return AppUpdateCatalog.NormalizeVersion(cloudVersion);
+            }
+        }
+        catch
+        {
+        }
+
+        return binaryVersion;
     }
 
     private static bool TryProbeDirectoryWritable(string dirPath)

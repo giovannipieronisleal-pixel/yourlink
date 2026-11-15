@@ -468,6 +468,10 @@ public sealed class CloudPublishOneClickTests
         Assert.IsTrue(File.Exists(Path.Combine(root, "installer", "build-windows-package.ps1")));
         Assert.IsTrue(File.Exists(Path.Combine(root, "installer", "launcher", "YouLinkLauncher.cpp")));
         Assert.IsTrue(File.Exists(Path.Combine(root, "installer", "launcher", "YouLinkLauncher.rc")));
+        Assert.IsTrue(File.Exists(Path.Combine(root, "Platforms", "Android", "youlink-official.keystore")),
+            "O repositório deve manter a keystore oficial unificada (youlink-official.keystore) para evitar conflito de assinatura no Android.");
+        Assert.IsTrue(workflow.Contains("Platforms/Android/youlink-official.keystore", StringComparison.Ordinal),
+            "Workflow precisa assinar o APK Android com a keystore oficial unificada.");
     }
 
     [TestMethod]

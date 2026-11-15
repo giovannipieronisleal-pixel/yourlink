@@ -99,6 +99,7 @@ public static class MauiProgram
         LocalWebServerLauncher.Initialize(
             app.Services.GetRequiredService<CatalogService>(),
             app.Services.GetRequiredService<OrderAndShippingService>());
+        app.Services.GetRequiredService<MauiAdminGateway>().EnsurePreSalesV1040CleanReset();
         _ = Task.Run(LocalWebServerLauncher.EnsureWebCatalogRunningAsync);
 
         return app;

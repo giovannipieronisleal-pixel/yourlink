@@ -465,23 +465,29 @@ public sealed class ClothingStoreRepository : IClothingStoreRepository
 
     public async Task<User?> GetUserByEmailAsync(string email, CancellationToken ct = default)
     {
+        if (string.IsNullOrWhiteSpace(email))
+            return null;
+
         await _lock.WaitAsync(ct);
         try
         {
             RefreshFromDiskIfModified();
-            var normalized = email.Trim().ToLowerInvariant();
+            var normalized = email.Trim().TrimStart('@').ToLowerInvariant();
+            if (string.IsNullOrWhiteSpace(normalized))
+                return null;
+
             var found = _state.Users.FirstOrDefault(u =>
-                string.Equals(u.Email, normalized, StringComparison.OrdinalIgnoreCase) ||
-                string.Equals(u.Username, normalized, StringComparison.OrdinalIgnoreCase));
+                string.Equals((u.Email ?? string.Empty).Trim(), normalized, StringComparison.OrdinalIgnoreCase) ||
+                string.Equals((u.Username ?? string.Empty).Trim().TrimStart('@'), normalized, StringComparison.OrdinalIgnoreCase));
 
             if (found is not null)
                 return found;
 
             // Permite login por Nome de Usuário, Nome Completo ou E-mail
             var matchedEmp = _state.Employees.FirstOrDefault(e =>
-                string.Equals(e.FullName, normalized, StringComparison.OrdinalIgnoreCase) ||
-                string.Equals(Category.GenerateSlug(e.FullName), normalized, StringComparison.OrdinalIgnoreCase) ||
-                string.Equals(Category.GenerateSlug(e.FullName).Replace("-", "."), normalized, StringComparison.OrdinalIgnoreCase));
+                string.Equals((e.FullName ?? string.Empty).Trim(), normalized, StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(Category.GenerateSlug(e.FullName ?? string.Empty), normalized, StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(Category.GenerateSlug(e.FullName ?? string.Empty).Replace("-", "."), normalized, StringComparison.OrdinalIgnoreCase));
 
             if (matchedEmp is not null)
             {
@@ -561,9 +567,18 @@ public sealed class ClothingStoreRepository : IClothingStoreRepository
         try
         {
             RefreshFromDiskIfModified();
-            if (_state.Users.Any(u => string.Equals(u.Email, user.Email, StringComparison.OrdinalIgnoreCase)))
+            var cleanEmail = (user.Email ?? string.Empty).Trim().ToLowerInvariant();
+            var cleanUsername = (user.Username ?? string.Empty).Trim().TrimStart('@').ToLowerInvariant();
+
+            if (_state.Users.Any(u => string.Equals((u.Email ?? string.Empty).Trim(), cleanEmail, StringComparison.OrdinalIgnoreCase)))
             {
                 throw new DomainException($"Já existe um usuário cadastrado com o e-mail '{user.Email}'.");
+            }
+
+            if (!string.IsNullOrWhiteSpace(cleanUsername) &&
+                _state.Users.Any(u => string.Equals((u.Username ?? string.Empty).Trim().TrimStart('@'), cleanUsername, StringComparison.OrdinalIgnoreCase)))
+            {
+                throw new DomainException($"Já existe um usuário cadastrado com o nome de usuário '{user.Username}'.");
             }
 
             _state.Users.Add(user);
@@ -582,6 +597,23 @@ public sealed class ClothingStoreRepository : IClothingStoreRepository
         await _lock.WaitAsync(ct);
         try
         {
+            RefreshFromDiskIfModified();
+
+            var empIdx = _state.Employees.FindIndex(e => e.Id == employee.Id);
+            if (empIdx >= 0)
+                _state.Employees[empIdx] = employee;
+            else
+                _state.Employees.Add(employee);
+
+            if (user is not null)
+            {
+                var usrIdx = _state.Users.FindIndex(u => u.Id == user.Id);
+                if (usrIdx >= 0)
+                    _state.Users[usrIdx] = user;
+                else
+                    _state.Users.Add(user);
+            }
+
             HydrateNavigationProperties(_state);
             PersistToDisk(_state);
         }
@@ -1097,6 +1129,39 @@ public sealed class ClothingStoreRepository : IClothingStoreRepository
                 _state.PlatformSubscriptionOrders.Add(order);
 
             PersistToDisk(_state);
+        }
+        finally
+        {
+            _lock.Release();
+        }
+    }
+
+    public async Task<int> PurgeAllUserAccountsAsync(bool alsoClearCatalog = false, CancellationToken ct = default)
+    {
+        await _lock.WaitAsync(ct);
+        try
+        {
+            RefreshFromDiskIfModified();
+            var removedCount = Math.Max(_state.Users.Count, _state.Employees.Count);
+            var hadCatalog = alsoClearCatalog &&
+                (_state.Products.Count > 0 || _state.Categories.Count > 0 || (_state.Orders?.Count ?? 0) > 0 || _state.StockMovements.Count > 0);
+
+            if (removedCount == 0 && !hadCatalog)
+                return 0;
+
+            _state.Users.Clear();
+            _state.Employees.Clear();
+
+            if (alsoClearCatalog)
+            {
+                _state.Categories.Clear();
+                _state.Products.Clear();
+                _state.StockMovements.Clear();
+                _state.Orders?.Clear();
+            }
+
+            PersistToDisk(_state);
+            return removedCount;
         }
         finally
         {
