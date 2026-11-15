@@ -974,6 +974,12 @@ public sealed class CloudPublishOneClickTests
             Assert.IsFalse(adminModal.Contains("style=\"", StringComparison.OrdinalIgnoreCase),
                 "AdminUpdateModal.razor não deve conter atributos style inline.");
             Assert.IsTrue(adminModal.Contains("ReplaceConflictingAndroidAsync", StringComparison.Ordinal));
+
+            var platformAdminService = File.ReadAllText(Path.Combine(adminRoot, "Services", "PlatformAdminService.cs"));
+            var clientStoresPage = File.ReadAllText(Path.Combine(adminRoot, "Components", "Pages", "ClientStoresPage.razor"));
+            Assert.IsTrue(platformAdminService.Contains("IsAutoSeededPlaceholderStore", StringComparison.Ordinal));
+            Assert.IsTrue(clientStoresPage.Contains("DeleteClientStoreConfirmedAsync", StringComparison.Ordinal));
+            Assert.IsTrue(clientStoresPage.Contains("SyncRemoteFromStoresPageAsync", StringComparison.Ordinal));
         }
     }
 }

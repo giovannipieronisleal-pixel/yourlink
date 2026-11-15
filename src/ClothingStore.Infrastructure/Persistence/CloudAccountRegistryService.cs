@@ -238,6 +238,30 @@ public sealed class CloudAccountRegistryService
         }
     }
 
+    public async Task<IReadOnlyList<CloudAccountSummary>> GetAllAccountsAsync(CancellationToken ct = default)
+    {
+        await _lock.WaitAsync(ct);
+        try
+        {
+            RefreshFromDiskIfModifiedUnsafe();
+            return _state.Accounts
+                .Select(a => new CloudAccountSummary(
+                    a.FullName,
+                    a.Username,
+                    a.Email,
+                    a.Phone,
+                    a.StoreName,
+                    a.StoreSlug,
+                    a.CreatedAt,
+                    a.UpdatedAt))
+                .ToList();
+        }
+        finally
+        {
+            _lock.Release();
+        }
+    }
+
     private void RefreshFromDiskIfModifiedUnsafe()
     {
         try
@@ -324,3 +348,13 @@ public sealed class CloudAccountRegistryService
 }
 
 public sealed record CloudAccountUpsertResult(bool Success, int StatusCode, string Message);
+
+public sealed record CloudAccountSummary(
+    string FullName,
+    string Username,
+    string Email,
+    string? Phone,
+    string? StoreName,
+    string? StoreSlug,
+    DateTimeOffset CreatedAt,
+    DateTimeOffset UpdatedAt);
