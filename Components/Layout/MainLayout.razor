@@ -376,6 +376,7 @@
                 StopPendingPlanBackgroundMonitor();
             }
 
+            await InvokeAsync(StateHasChanged);
             await RefreshStoreInfoAsync();
             _ = RefreshUpdatesInBackgroundAsync();
             _ = TryDeliverPendingPlanQuietlyAsync();

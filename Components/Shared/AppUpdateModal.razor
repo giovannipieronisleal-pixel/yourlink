@@ -106,6 +106,13 @@
                 @if (release is { IsUpdateAvailable: true })
                 {
                     <button type="button"
+                            class="adm-btn adm-btn-accent aum-primary-btn"
+                            disabled="@isBusy"
+                            @onclick="ApplyCloudUpdateNowAsync">
+                        ⚡ Atualizar pela Nuvem (Sem Instalar APK)
+                    </button>
+
+                    <button type="button"
                             class="adm-btn adm-btn-success aum-primary-btn"
                             disabled="@isBusy"
                             @onclick="UpdateNowAsync">
@@ -123,9 +130,19 @@
                         }
                         else
                         {
-                            <span>🚀 Sim, Atualizar Agora</span>
+                            <span>🚀 Sim, Atualizar Agora (Instalador)</span>
                         }
                     </button>
+
+                    @if (UpdateService.AndroidSignatureConflictDetected)
+                    {
+                        <button type="button"
+                                class="adm-btn adm-btn-primary aum-primary-btn"
+                                disabled="@isBusy"
+                                @onclick="ReplaceConflictingPackageAsync">
+                            🔄 Substituir Pacote Antigo (1 Toque)
+                        </button>
+                    }
 
                     <button type="button"
                             class="adm-btn adm-btn-outline aum-secondary-btn"
@@ -176,6 +193,10 @@
     }
 
     private Task UpdateNowAsync() => UpdateService.DownloadAndInstallAsync();
+
+    private Task ApplyCloudUpdateNowAsync() => UpdateService.ApplyCloudHotUpdateAsync();
+
+    private Task ReplaceConflictingPackageAsync() => UpdateService.ReplaceConflictingAndroidPackageAsync();
 
     private Task CheckAgainAsync() => UpdateService.CheckForUpdatesAsync(manualTrigger: true);
 

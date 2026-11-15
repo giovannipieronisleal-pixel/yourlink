@@ -74,7 +74,13 @@ jobs:
               -p:AndroidSigningKeyPass="$ANDROID_KEY_PASSWORD" \
               -p:AndroidSigningStorePass="$ANDROID_KEYSTORE_PASSWORD"
           else
-            dotnet publish appmaui.blazor.csproj -f net10.0-android -c Release -p:AndroidPackageFormat=apk -m:1
+            echo "Assinando APK com keystore oficial unificada (Platforms/Android/youlink-official.keystore)..."
+            dotnet publish appmaui.blazor.csproj -f net10.0-android -c Release -p:AndroidPackageFormat=apk -m:1 \
+              -p:AndroidKeyStore=true \
+              -p:AndroidSigningKeyStore="Platforms/Android/youlink-official.keystore" \
+              -p:AndroidSigningKeyAlias="youlinkkey" \
+              -p:AndroidSigningKeyPass="youlink2026" \
+              -p:AndroidSigningStorePass="youlink2026"
           fi
 
       - name: Preparar arquivo YouLink-Android.apk

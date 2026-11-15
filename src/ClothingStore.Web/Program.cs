@@ -66,6 +66,8 @@ builder.Services.AddSingleton<IEmailService>(sp =>
     new SmtpEmailService(sp.GetRequiredService<IConfiguration>(), outboxPath));
 builder.Services.AddSingleton<IClothingStoreRepository>(sp =>
     new ClothingStoreRepository(sp.GetRequiredService<IPasswordHasher>(), sharedDbPath));
+builder.Services.AddSingleton(sp =>
+    new CloudAccountRegistryService(appDataRoot, sp.GetRequiredService<IPasswordHasher>()));
 builder.Services.AddSingleton<IMultiTenantStoreResolver>(sp =>
     new MultiTenantStoreManager(
         sp.GetRequiredService<IClothingStoreRepository>(),
@@ -903,6 +905,51 @@ app.MapPost("/api/cloud/sync-state", async (
 
 app.MapRazorComponents<App>()
     .AddInteractiveServerRenderMode();
+
+app.MapPost("/api/cloud/accounts/upsert", async (
+    HttpContext httpContext,
+    CloudAccountCredentialSyncDto dto,
+    CloudAccountRegistryService accountRegistry,
+    IClothingStoreRepository defaultRepository,
+    CancellationToken ct) =>
+{
+    var hasValidSyncKey = await IsAuthorizedSyncRequestAsync(httpContext, defaultRepository, ct);
+    var res = await accountRegistry.UpsertAccountAsync(dto, hasValidSyncKey, ct);
+    return res.Success
+        ? Results.Ok(new { success = true, message = res.Message })
+        : Results.Json(new { error = res.Message }, statusCode: res.StatusCode);
+});
+
+app.MapPost("/api/cloud/accounts/verify-login", async (
+    LoginRequest loginRequest,
+    CloudAccountRegistryService accountRegistry,
+    CancellationToken ct) =>
+{
+    var res = await accountRegistry.VerifyLoginAsync(loginRequest, ct);
+    return Results.Ok(res);
+});
+
+app.MapPost("/api/cloud/accounts/purge-all", async (
+    HttpContext httpContext,
+    CloudAccountRegistryService accountRegistry,
+    IClothingStoreRepository defaultRepository,
+    CancellationToken ct) =>
+{
+    if (!await IsAuthorizedSyncRequestAsync(httpContext, defaultRepository, ct))
+        return Results.Unauthorized();
+
+    var clearedCloudAccounts = await accountRegistry.PurgeAllAccountsAsync(ct);
+    var clearedDefaultUsers = defaultRepository is ClothingStoreRepository concrete
+        ? await concrete.PurgeAllUserAccountsAsync(alsoClearCatalog: false, ct)
+        : 0;
+
+    return Results.Ok(new
+    {
+        clearedCloudAccounts,
+        clearedDefaultUsers,
+        message = "Todas as contas de usuários na nuvem foram removidas com segurança."
+    });
+});
 
 app.Run();
 

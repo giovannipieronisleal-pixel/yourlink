@@ -561,12 +561,32 @@ public sealed class MauiAdminGateway
 
     public async Task<LoginChallengeResponse> LoginWithChallengeAsync(LoginRequest request, bool rememberMe = true)
     {
-        await SwitchWorkspaceForIdentifierAsync(request.Email);
+        var normalizedLogin = (request.Email ?? string.Empty).Trim();
+        var cleanRequest = new LoginRequest(normalizedLogin, request.Password ?? string.Empty);
+
+        await SwitchWorkspaceForIdentifierAsync(cleanRequest.Email);
 
         if (_workspaceRepository is not null && !HasCustomServerUrl)
         {
-            var localChallenge = await _authService.LoginWithChallengeAsync(request);
-            LastAccountActionWasLocalOnly = true;
+            LoginChallengeResponse localChallenge;
+            var importedFromCloud = false;
+            try
+            {
+                localChallenge = await _authService.LoginWithChallengeAsync(cleanRequest);
+            }
+            catch (DomainException)
+            {
+                importedFromCloud = await TryVerifyAndImportAccountFromCentralCloudAsync(cleanRequest);
+                if (!importedFromCloud)
+                {
+                    throw;
+                }
+
+                await SwitchWorkspaceForIdentifierAsync(cleanRequest.Email);
+                localChallenge = await _authService.LoginWithChallengeAsync(cleanRequest);
+            }
+
+            LastAccountActionWasLocalOnly = !importedFromCloud;
             if (!localChallenge.RequiresTwoFactor && localChallenge.AuthResult is not null)
             {
                 _apiClient.SetSession(localChallenge.AuthResult.AccessToken, localChallenge.AuthResult.Employee);
@@ -701,6 +721,9 @@ public sealed class MauiAdminGateway
                 response.Employee.Username);
         }
 
+        AccessToken = response.AccessToken;
+        CurrentEmployee = response.Employee;
+
         try
         {
             if (rememberMe)
@@ -724,10 +747,12 @@ public sealed class MauiAdminGateway
         {
         }
 
-        AccessToken = response.AccessToken;
-        CurrentEmployee = response.Employee;
-
         AuthStateChanged?.Invoke();
+
+        if (!HasCustomServerUrl && _workspaceRepository is not null)
+        {
+            _ = SyncAccountByUserIdToCloudAsync(response.Employee.UserId);
+        }
     }
 
     private static void ClearSavedSession()
@@ -769,24 +794,82 @@ public sealed class MauiAdminGateway
     public async Task ResetPasswordAsync(ResetPasswordRequest request)
     {
         await SwitchWorkspaceForIdentifierAsync(request.Email);
+        User? previousUser = _workspaceRepository is not null
+            ? await _workspaceRepository.GetUserByEmailAsync(request.Email)
+            : null;
+        var previousHash = previousUser?.PasswordHash;
+        var previousEmail = previousUser?.Email;
+
         await ExecuteWithFallbackAsync(
             () => _apiClient.ResetPasswordAsync(request),
             () => _authService.ResetPasswordAsync(request));
+
+        if (!HasCustomServerUrl && _workspaceRepository is not null)
+        {
+            var updatedUser = await _workspaceRepository.GetUserByEmailAsync(previousEmail ?? request.Email);
+            if (updatedUser is not null)
+            {
+                _ = SyncAccountByUserIdToCloudAsync(updatedUser.Id, previousEmail, previousHash);
+            }
+        }
     }
 
     public async Task ChangePasswordAsync(ChangePasswordRequest request)
     {
         EnsureAuthenticated();
-        await _authService.ChangePasswordAsync(CurrentEmployee!.UserId, request);
+        var userId = CurrentEmployee!.UserId;
+        var previousUser = _workspaceRepository is not null
+            ? await _workspaceRepository.GetUserByIdAsync(userId)
+            : null;
+        var previousHash = previousUser?.PasswordHash;
+        var previousEmail = previousUser?.Email;
+
+        await _authService.ChangePasswordAsync(userId, request);
+
+        if (!HasCustomServerUrl && _workspaceRepository is not null)
+        {
+            _ = SyncAccountByUserIdToCloudAsync(userId, previousEmail, previousHash);
+        }
     }
 
     public async Task<EmployeeProfileDto> UpdateUserProfileAsync(UpdateUserProfileRequest request)
     {
         EnsureAuthenticated();
-        var updated = await _authService.UpdateUserProfileAsync(CurrentEmployee!.UserId, request);
+        var userId = CurrentEmployee!.UserId;
+        var previousUser = _workspaceRepository is not null
+            ? await _workspaceRepository.GetUserByIdAsync(userId)
+            : null;
+        var previousHash = previousUser?.PasswordHash;
+        var previousEmail = previousUser?.Email ?? CurrentEmployee.Email;
+
+        var updated = await _authService.UpdateUserProfileAsync(userId, request);
+        if (_workspaceRepository is not null)
+        {
+            await _workspaceRepository.IndexAccountAsync(
+                CurrentWorkspaceId,
+                updated.Email,
+                updated.EffectiveUsername);
+        }
+
         CurrentEmployee = updated;
         _apiClient.SetSession(AccessToken ?? string.Empty, updated);
-        AuthStateChanged?.Invoke();
+
+        if (HasSavedSessionFallback())
+        {
+            await PersistSessionAsync(
+                new LoginResponse(AccessToken ?? string.Empty, DateTimeOffset.UtcNow.AddDays(30), updated),
+                rememberMe: true);
+        }
+        else
+        {
+            AuthStateChanged?.Invoke();
+        }
+
+        if (!HasCustomServerUrl && _workspaceRepository is not null)
+        {
+            _ = SyncAccountByUserIdToCloudAsync(userId, previousEmail, previousHash);
+        }
+
         return updated;
     }
 
@@ -2037,5 +2120,235 @@ public sealed class MauiAdminGateway
         EnsureAuthenticated();
         if (!IsAdmin)
             throw new DomainException("Acesso restrito ao perfil Administrador / Proprietário.");
+    }
+
+    private const string SalesLaunchResetV1040PreferenceKey = "youlink_sales_launch_reset_v1040_done";
+    private const string SalesLaunchResetV1040SentinelFileName = ".youlink_sales_reset_v1040.done";
+
+    private static bool HasSavedSessionFallback()
+    {
+        try
+        {
+            return Preferences.Default.ContainsKey(SessionStorageKey + "_fallback");
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Executa uma única vez na atualização v1.0.40 a limpeza completa dos usuários e lojas de teste
+    /// anteriores à versão de vendas, preservando todas as contas criadas a partir da v1.0.40+.
+    /// </summary>
+    public void EnsurePreSalesV1040CleanReset()
+    {
+        try
+        {
+            ExecuteOneTimeSalesLaunchResetAsync().GetAwaiter().GetResult();
+        }
+        catch
+        {
+        }
+    }
+
+    public async Task<bool> ExecuteOneTimeSalesLaunchResetAsync(CancellationToken ct = default)
+    {
+        var prefDone = false;
+        try
+        {
+            prefDone = Preferences.Default.Get(SalesLaunchResetV1040PreferenceKey, false);
+        }
+        catch
+        {
+        }
+
+        string? sentinelPath = null;
+        if (_workspaceRepository is not null)
+        {
+            sentinelPath = Path.Combine(_workspaceRepository.BaseStorageDirectory, SalesLaunchResetV1040SentinelFileName);
+            if (prefDone && File.Exists(sentinelPath))
+            {
+                return false;
+            }
+
+            if (File.Exists(sentinelPath))
+            {
+                try
+                {
+                    Preferences.Default.Set(SalesLaunchResetV1040PreferenceKey, true);
+                }
+                catch
+                {
+                }
+                return false;
+            }
+        }
+        else if (prefDone)
+        {
+            return false;
+        }
+
+        AccessToken = null;
+        CurrentEmployee = null;
+        _apiClient.ClearSession();
+        ClearSavedSession();
+
+        if (_workspaceRepository is not null)
+        {
+            await _workspaceRepository.PurgeAllUserAccountsAcrossAllWorkspacesAsync(alsoClearCatalog: true, ct);
+            _workspaceRepository.ResetToDefaultWorkspace();
+            RefreshActiveWorkspaceState(resetCloudStatus: true);
+
+            try
+            {
+                Directory.CreateDirectory(_workspaceRepository.BaseStorageDirectory);
+                await File.WriteAllTextAsync(sentinelPath!, DateTimeOffset.UtcNow.ToString("O"), ct);
+            }
+            catch
+            {
+            }
+        }
+
+        try
+        {
+            Preferences.Default.Set(SalesLaunchResetV1040PreferenceKey, true);
+        }
+        catch
+        {
+        }
+
+        AuthStateChanged?.Invoke();
+        return true;
+    }
+
+    public async Task SyncActiveAccountToCloudBestEffortAsync(
+        string? previousEmail = null,
+        string? previousPasswordHash = null,
+        CancellationToken ct = default)
+    {
+        if (HasCustomServerUrl || _workspaceRepository is null || CurrentEmployee is null)
+            return;
+
+        await SyncAccountByUserIdToCloudAsync(CurrentEmployee.UserId, previousEmail, previousPasswordHash, ct);
+    }
+
+    private async Task SyncAccountByUserIdToCloudAsync(
+        Guid userId,
+        string? previousEmail = null,
+        string? previousPasswordHash = null,
+        CancellationToken ct = default)
+    {
+        if (_workspaceRepository is null || HasCustomServerUrl)
+            return;
+
+        try
+        {
+            var user = await _workspaceRepository.GetUserByIdAsync(userId, ct);
+            if (user is null)
+                return;
+
+            var employee = await _workspaceRepository.GetEmployeeByUserIdAsync(user.Id, ct);
+            var settings = await _workspaceRepository.GetStoreSettingsAsync(ct);
+
+            var centralUrl = ResolveCentralBillingServerUrl(null, allowDefaultFallback: true);
+            if (string.IsNullOrWhiteSpace(centralUrl))
+                return;
+
+            var storeName = !string.IsNullOrWhiteSpace(settings.StoreName) &&
+                !string.Equals(settings.StoreName.Trim(), "Minha Loja", StringComparison.OrdinalIgnoreCase)
+                ? settings.StoreName.Trim()
+                : null;
+            var storeSlug = !string.IsNullOrWhiteSpace(settings.StoreSlug) &&
+                !string.Equals(settings.StoreSlug.Trim(), "minha-loja", StringComparison.OrdinalIgnoreCase)
+                ? settings.StoreSlug.Trim()
+                : null;
+
+            var dto = new CloudAccountCredentialSyncDto(
+                FullName: employee?.FullName ?? user.Username,
+                Username: user.Username,
+                Email: user.Email,
+                PasswordHash: user.PasswordHash,
+                Phone: employee?.Phone,
+                StoreName: storeName,
+                StoreSlug: storeSlug,
+                PreviousPasswordHash: previousPasswordHash,
+                PreviousEmail: previousEmail);
+
+            using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            timeoutCts.CancelAfter(TimeSpan.FromSeconds(6));
+
+            var endpoint = $"{centralUrl.TrimEnd('/')}/api/cloud/accounts/upsert";
+            using var content = System.Net.Http.Json.JsonContent.Create(dto);
+            await RemotePlatformBillingHttpClient.PostAsync(endpoint, content, timeoutCts.Token);
+        }
+        catch
+        {
+        }
+    }
+
+    private async Task<bool> TryVerifyAndImportAccountFromCentralCloudAsync(
+        LoginRequest request,
+        CancellationToken ct = default)
+    {
+        if (_workspaceRepository is null ||
+            HasCustomServerUrl ||
+            string.IsNullOrWhiteSpace(request.Email) ||
+            string.IsNullOrWhiteSpace(request.Password))
+        {
+            return false;
+        }
+
+        var centralUrl = ResolveCentralBillingServerUrl(null, allowDefaultFallback: true);
+        if (string.IsNullOrWhiteSpace(centralUrl))
+            return false;
+
+        var endpoint = $"{centralUrl.TrimEnd('/')}/api/cloud/accounts/verify-login";
+        const int maxAttempts = 2;
+
+        for (var attempt = 1; attempt <= maxAttempts; attempt++)
+        {
+            try
+            {
+                using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                timeoutCts.CancelAfter(TimeSpan.FromSeconds(12));
+
+                using var content = System.Net.Http.Json.JsonContent.Create(request);
+                using var response = await RemotePlatformBillingHttpClient.PostAsync(endpoint, content, timeoutCts.Token);
+                if (response.IsSuccessStatusCode)
+                {
+                    var raw = await response.Content.ReadAsStringAsync(timeoutCts.Token);
+                    var result = JsonSerializer.Deserialize<CloudVerifyLoginResponseDto>(
+                        raw,
+                        new JsonSerializerOptions(JsonSerializerDefaults.Web));
+
+                    if (result?.Verified == true && result.Account is not null)
+                    {
+                        return await _workspaceRepository.UpsertCloudHydratedAccountAsync(result.Account, ct);
+                    }
+
+                    return false;
+                }
+
+                if (attempt < maxAttempts &&
+                    ((int)response.StatusCode is 502 or 503 or 504 or 429))
+                {
+                    await Task.Delay(TimeSpan.FromSeconds(2), ct);
+                    continue;
+                }
+
+                return false;
+            }
+            catch (Exception) when (attempt < maxAttempts && !ct.IsCancellationRequested)
+            {
+                await Task.Delay(TimeSpan.FromSeconds(2), ct);
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        return false;
     }
 }

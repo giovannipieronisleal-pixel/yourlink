@@ -221,3 +221,20 @@ public sealed record SyncLocalAccountsResultDto(
     int ImportedCount,
     int SkippedExistingCount,
     string Message);
+
+public sealed record CloudAccountCredentialSyncDto(
+    string FullName,
+    string? Username,
+    string Email,
+    string PasswordHash,
+    string? Phone = null,
+    string? StoreName = null,
+    string? StoreSlug = null,
+    string? PreviousPasswordHash = null,
+    string? PreviousEmail = null);
+
+public sealed record CloudVerifyLoginResponseDto(
+    bool Verified,
+    bool AccountExists,
+    CloudAccountCredentialSyncDto? Account = null,
+    string? Message = null);

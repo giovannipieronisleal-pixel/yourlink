@@ -535,11 +535,150 @@ public sealed class SwitchableClothingStoreRepository : IClothingStoreRepository
     public Task<IReadOnlyList<Employee>> GetEmployeesAsync(CancellationToken ct = default) =>
         ActiveRepository.GetEmployeesAsync(ct);
 
-    public Task AddEmployeeWithUserAsync(User user, Employee employee, CancellationToken ct = default) =>
-        ActiveRepository.AddEmployeeWithUserAsync(user, employee, ct);
+    public string BaseStorageDirectory => _baseDirectory;
 
-    public Task UpdateEmployeeAsync(Employee employee, User? user = null, CancellationToken ct = default) =>
-        ActiveRepository.UpdateEmployeeAsync(employee, user, ct);
+    public async Task AddEmployeeWithUserAsync(User user, Employee employee, CancellationToken ct = default)
+    {
+        await ActiveRepository.AddEmployeeWithUserAsync(user, employee, ct);
+        await IndexAccountAsync(_activeWorkspaceId, user.Email, user.Username, ct);
+    }
+
+    public async Task UpdateEmployeeAsync(Employee employee, User? user = null, CancellationToken ct = default)
+    {
+        await ActiveRepository.UpdateEmployeeAsync(employee, user, ct);
+        if (user is not null)
+        {
+            await IndexAccountAsync(_activeWorkspaceId, user.Email, user.Username, ct);
+        }
+    }
+
+    public async Task<bool> UpsertCloudHydratedAccountAsync(
+        ClothingStore.Shared.DTOs.CloudAccountCredentialSyncDto account,
+        CancellationToken ct = default)
+    {
+        if (account is null ||
+            string.IsNullOrWhiteSpace(account.Email) ||
+            string.IsNullOrWhiteSpace(account.PasswordHash))
+        {
+            return false;
+        }
+
+        var existingWs = await SwitchToWorkspaceForAccountAsync(account.Email, ct);
+        if (string.IsNullOrWhiteSpace(existingWs) && !string.IsNullOrWhiteSpace(account.Username))
+        {
+            existingWs = await SwitchToWorkspaceForAccountAsync(account.Username, ct);
+        }
+
+        if (!string.IsNullOrWhiteSpace(existingWs))
+        {
+            var existingUser = await ActiveRepository.GetUserByEmailAsync(account.Email, ct)
+                ?? (string.IsNullOrWhiteSpace(account.Username)
+                    ? null
+                    : await ActiveRepository.GetUserByEmailAsync(account.Username, ct));
+
+            if (existingUser is not null)
+            {
+                existingUser.SetEmail(account.Email);
+                if (!string.IsNullOrWhiteSpace(account.Username))
+                {
+                    existingUser.SetUsername(account.Username);
+                }
+                existingUser.SetPasswordHash(account.PasswordHash);
+                existingUser.IsActive = true;
+
+                var existingEmployee = await ActiveRepository.GetEmployeeByUserIdAsync(existingUser.Id, ct);
+                if (existingEmployee is null)
+                {
+                    existingEmployee = new Employee(
+                        existingUser.Id,
+                        account.FullName,
+                        "Proprietário",
+                        canManageProducts: true,
+                        canManageStock: true,
+                        phone: account.Phone);
+                    await ActiveRepository.AddEmployeeWithUserAsync(existingUser, existingEmployee, ct);
+                }
+                else
+                {
+                    if (!string.IsNullOrWhiteSpace(account.FullName))
+                    {
+                        existingEmployee.FullName = account.FullName.Trim();
+                    }
+                    if (!string.IsNullOrWhiteSpace(account.Phone))
+                    {
+                        existingEmployee.Phone = account.Phone.Trim();
+                    }
+                    existingEmployee.IsActive = true;
+                    existingEmployee.CanManageProducts = true;
+                    existingEmployee.CanManageStock = true;
+                    existingEmployee.UpdatedAt = DateTimeOffset.UtcNow;
+                    await ActiveRepository.UpdateEmployeeAsync(existingEmployee, existingUser, ct);
+                }
+
+                await ApplyCloudStoreMetadataIfUnsetAsync(account, ct);
+                await IndexAccountAsync(_activeWorkspaceId, existingUser.Email, existingUser.Username, ct);
+                return true;
+            }
+        }
+
+        var handle = await ProvisionIsolatedWorkspaceForNewAccountAsync(account.Email, account.Username, ct);
+        try
+        {
+            var adminRole = await ActiveRepository.GetRoleByNameAsync(ClothingStore.Domain.Enums.RoleNames.Admin, ct)
+                ?? (await ActiveRepository.GetRolesAsync(ct)).First();
+
+            var newUser = new User(account.Email, account.PasswordHash, adminRole.Id, account.Username);
+            var newEmployee = new Employee(
+                newUser.Id,
+                string.IsNullOrWhiteSpace(account.FullName) ? newUser.Username : account.FullName,
+                "Proprietário",
+                canManageProducts: true,
+                canManageStock: true,
+                phone: account.Phone);
+
+            await ActiveRepository.AddEmployeeWithUserAsync(newUser, newEmployee, ct);
+            await ApplyCloudStoreMetadataIfUnsetAsync(account, ct);
+            await IndexAccountAsync(_activeWorkspaceId, newUser.Email, newUser.Username, ct);
+            return true;
+        }
+        catch
+        {
+            await RollbackProvisionedWorkspaceAsync(handle, account.Email, account.Username, ct);
+            throw;
+        }
+    }
+
+    private async Task ApplyCloudStoreMetadataIfUnsetAsync(
+        ClothingStore.Shared.DTOs.CloudAccountCredentialSyncDto account,
+        CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(account.StoreName) && string.IsNullOrWhiteSpace(account.StoreSlug))
+            return;
+
+        var settings = await ActiveRepository.GetStoreSettingsAsync(ct);
+        var isPlaceholderName = string.IsNullOrWhiteSpace(settings.StoreName) ||
+            string.Equals(settings.StoreName.Trim(), "Minha Loja", StringComparison.OrdinalIgnoreCase);
+
+        var nextName = isPlaceholderName && !string.IsNullOrWhiteSpace(account.StoreName)
+            ? account.StoreName.Trim()
+            : settings.StoreName;
+
+        var nextSlug = !string.IsNullOrWhiteSpace(account.StoreSlug) &&
+            (string.IsNullOrWhiteSpace(settings.StoreSlug) ||
+             string.Equals(settings.StoreSlug.Trim(), "minha-loja", StringComparison.OrdinalIgnoreCase))
+            ? account.StoreSlug.Trim()
+            : settings.StoreSlug;
+
+        if (!string.Equals(nextName, settings.StoreName, StringComparison.Ordinal) ||
+            !string.Equals(nextSlug, settings.StoreSlug, StringComparison.Ordinal))
+        {
+            settings.StoreName = nextName;
+            settings.StoreSlug = string.IsNullOrWhiteSpace(nextSlug)
+                ? ClothingStore.Shared.Helpers.WhatsAppLinkBuilder.GenerateStoreSlug(nextName)
+                : nextSlug;
+            await ActiveRepository.UpdateStoreSettingsAsync(settings, ct);
+        }
+    }
 
     public Task<IReadOnlyList<Category>> GetCategoriesAsync(bool onlyActive = false, CancellationToken ct = default) =>
         ActiveRepository.GetCategoriesAsync(onlyActive, ct);
@@ -778,4 +917,59 @@ public sealed class SwitchableClothingStoreRepository : IClothingStoreRepository
 
     public Task SavePlatformSubscriptionOrderAsync(PlatformSubscriptionOrder order, CancellationToken ct = default) =>
         ActiveRepository.SavePlatformSubscriptionOrderAsync(order, ct);
+
+    public async Task<bool> AccountExistsInAnyWorkspaceAsync(string? loginOrEmail, CancellationToken ct = default)
+    {
+        var normalized = NormalizeIdentifier(loginOrEmail);
+        if (string.IsNullOrWhiteSpace(normalized))
+            return false;
+
+        await _switchLock.WaitAsync(ct);
+        try
+        {
+            _index = LoadIndexUnsafe();
+            return await IdentifierExistsInAnyWorkspaceAsync(normalized, ct);
+        }
+        finally
+        {
+            _switchLock.Release();
+        }
+    }
+
+    public async Task<int> PurgeAllUserAccountsAcrossAllWorkspacesAsync(bool alsoClearCatalog = false, CancellationToken ct = default)
+    {
+        await _switchLock.WaitAsync(ct);
+        try
+        {
+            _index = LoadIndexUnsafe();
+            var totalRemoved = 0;
+
+            foreach (var workspaceId in EnumerateCandidateWorkspaceIds())
+            {
+                var repo = GetOrCreateRepository(workspaceId);
+                totalRemoved += await repo.PurgeAllUserAccountsAsync(alsoClearCatalog, ct);
+
+                if (!string.Equals(workspaceId, DefaultWorkspaceId, StringComparison.OrdinalIgnoreCase))
+                {
+                    _repositories.TryRemove(workspaceId, out _);
+                    TryDeleteFileQuietly(ResolveWorkspacePath(workspaceId));
+                }
+            }
+
+            var sharedWinRepo = TryGetWindowsSharedAppDataRepository();
+            if (sharedWinRepo is not null)
+            {
+                totalRemoved += await sharedWinRepo.PurgeAllUserAccountsAsync(alsoClearCatalog, ct);
+            }
+
+            _index.AccountToWorkspace.Clear();
+            SaveIndexUnsafe();
+            SetActiveWorkspaceInternal(DefaultWorkspaceId);
+            return totalRemoved;
+        }
+        finally
+        {
+            _switchLock.Release();
+        }
+    }
 }
