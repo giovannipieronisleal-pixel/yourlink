@@ -807,4 +807,136 @@ public sealed class CloudPublishOneClickTests
             Assert.IsTrue(adminLogin.Contains("Atualizar Agora", StringComparison.Ordinal));
         }
     }
+
+    [TestMethod]
+    public void AutoUpdateCleanup_ShouldPurgeOldVersions_PreserveActiveInstall_AndGenerateWindowsCleanupScript()
+    {
+        var tempRoot = Path.Combine(Path.GetTempPath(), $"youlink-cleanup-test-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempRoot);
+        try
+        {
+            var legacyFlatApk = Path.Combine(tempRoot, "YouLink-Android.apk");
+            File.WriteAllBytes(legacyFlatApk, new byte[1024]);
+
+            var dir28 = Path.Combine(tempRoot, "1.0.28");
+            Directory.CreateDirectory(Path.Combine(dir28, "staging"));
+            File.WriteAllBytes(Path.Combine(dir28, "YouLink-Setup-x64.exe"), new byte[2048]);
+            File.WriteAllBytes(Path.Combine(dir28, "staging", "app.dll"), new byte[512]);
+
+            var dir29 = Path.Combine(tempRoot, "1.0.29");
+            Directory.CreateDirectory(dir29);
+            File.WriteAllBytes(Path.Combine(dir29, "YouLink-Windows-x64.zip"), new byte[4096]);
+
+            var dir30 = Path.Combine(tempRoot, "1.0.30");
+            Directory.CreateDirectory(dir30);
+            File.WriteAllBytes(Path.Combine(dir30, "YouLink-Android.apk"), new byte[1536]);
+
+            var dir31 = Path.Combine(tempRoot, "1.0.31");
+            Directory.CreateDirectory(Path.Combine(dir31, "staging"));
+            var activeApk31 = Path.Combine(dir31, "YouLink-Android.apk");
+            var stalePart31 = Path.Combine(dir31, "YouLink-Android.apk.part");
+            File.WriteAllBytes(activeApk31, new byte[8192]);
+            File.WriteAllBytes(stalePart31, new byte[256]);
+            File.WriteAllBytes(Path.Combine(dir31, "staging", "temp.txt"), new byte[128]);
+
+            var freedActive = AppUpdateCatalog.CleanupStaleUpdateArtifacts(
+                updaterCacheRootDir: tempRoot,
+                currentVersion: "1.0.29",
+                latestKnownVersion: "1.0.31",
+                activePackagePath: activeApk31,
+                preserveActivePackage: true,
+                maxPendingPackageAge: TimeSpan.FromMinutes(15));
+
+            Assert.IsTrue(freedActive > 0);
+            Assert.IsFalse(File.Exists(legacyFlatApk), "APK solto antigo na raiz do cache deve ser apagado.");
+            Assert.IsFalse(Directory.Exists(dir28), "Pasta de versão antiga (1.0.28) deve ser removida.");
+            Assert.IsFalse(Directory.Exists(dir29), "Pasta da versão já instalada (1.0.29) deve ser removida.");
+            Assert.IsFalse(Directory.Exists(dir30), "Versão intermediária obsoleta (1.0.30) deve ser removida.");
+            Assert.IsTrue(File.Exists(activeApk31), "Pacote ativo (1.0.31) em download/instalação deve ser preservado.");
+            Assert.IsFalse(File.Exists(stalePart31), "Arquivo parcial .part deve ser limpo.");
+
+            // Quando não está em instalação ativa, remove staging da pasta pendente mas mantém APK recente (<15m)
+            var freedStaging = AppUpdateCatalog.CleanupStaleUpdateArtifacts(
+                updaterCacheRootDir: tempRoot,
+                currentVersion: "1.0.29",
+                latestKnownVersion: "1.0.31",
+                activePackagePath: activeApk31,
+                preserveActivePackage: false,
+                maxPendingPackageAge: TimeSpan.FromMinutes(15));
+
+            Assert.IsTrue(freedStaging >= 128);
+            Assert.IsFalse(Directory.Exists(Path.Combine(dir31, "staging")), "Subpasta staging pendente deve ser apagada.");
+            Assert.IsTrue(File.Exists(activeApk31), "APK recente da versão pendente deve permanecer dentro da janela de tolerância.");
+
+            // Quando o pacote pendente expira pela idade (ou o app sobe já atualizado para 1.0.31), é apagado
+            Directory.SetLastWriteTimeUtc(dir31, DateTime.UtcNow - TimeSpan.FromMinutes(30));
+            var freedExpired = AppUpdateCatalog.CleanupStaleUpdateArtifacts(
+                updaterCacheRootDir: tempRoot,
+                currentVersion: "1.0.29",
+                latestKnownVersion: "1.0.31",
+                maxPendingPackageAge: TimeSpan.FromMinutes(15));
+
+            Assert.IsTrue(freedExpired >= 8192);
+            Assert.IsFalse(Directory.Exists(dir31), "Pacote pendente expirado deve ser apagado para liberar memória.");
+
+            var dirExtra = Path.Combine(tempRoot, "1.0.32");
+            Directory.CreateDirectory(dirExtra);
+            File.WriteAllBytes(Path.Combine(dirExtra, "YouLink-Setup-x64.exe"), new byte[1024]);
+            var purgedBytes = AppUpdateCatalog.PurgeUpdaterCache(tempRoot);
+            Assert.IsTrue(purgedBytes >= 1024);
+            Assert.IsFalse(Directory.Exists(dirExtra));
+
+            var applyScript = AppUpdateCatalog.BuildWindowsApplyUpdateScript(
+                1234,
+                Path.Combine(tempRoot, "1.0.32", "staging"),
+                @"C:\Program Files\YouLink\App",
+                AppUpdateCatalog.WindowsExecutableName,
+                Path.Combine(tempRoot, "1.0.32", "update.log"),
+                updaterCacheRootDir: tempRoot);
+
+            var installerScript = AppUpdateCatalog.BuildWindowsInstallerUpdateScript(
+                1234,
+                Path.Combine(tempRoot, "1.0.32", "YouLink-Setup-x64.exe"),
+                @"C:\Program Files\YouLink\YouLink.exe",
+                Path.Combine(tempRoot, "1.0.32", "update.log"),
+                updaterCacheRootDir: tempRoot);
+
+            foreach (var script in new[] { applyScript, installerScript })
+            {
+                Assert.IsTrue(script.Contains("$updaterRootDir", StringComparison.Ordinal));
+                Assert.IsTrue(script.Contains("$updateWorkDir", StringComparison.Ordinal));
+                Assert.IsTrue(script.Contains("Remove-Item", StringComparison.Ordinal));
+                Assert.IsTrue(script.Contains("'.zip','.exe','.apk','.part','.tmp'", StringComparison.Ordinal));
+            }
+
+            var root = ResolveRepoRoot();
+            var clientUpdater = File.ReadAllText(Path.Combine(root, "Services", "AppUpdateService.cs"));
+            Assert.IsTrue(clientUpdater.Contains("CleanupStaleUpdateArtifacts(", StringComparison.Ordinal));
+            Assert.IsTrue(clientUpdater.Contains("PurgeUpdaterCache(", StringComparison.Ordinal));
+            Assert.IsTrue(clientUpdater.Contains("updaterCacheRootDir: GetUpdaterCacheRoot()", StringComparison.Ordinal));
+
+            var adminRoot = Path.Combine(root, "src", "ClothingStore.AdminApp");
+            if (Directory.Exists(adminRoot))
+            {
+                var adminUpdater = File.ReadAllText(Path.Combine(adminRoot, "Services", "AdminUpdateService.cs"));
+                var adminBuildPs1 = File.ReadAllText(Path.Combine(adminRoot, "build-admin-release.ps1"));
+                Assert.IsTrue(adminUpdater.Contains("CleanupStaleUpdateArtifacts(", StringComparison.Ordinal));
+                Assert.IsTrue(adminUpdater.Contains("PurgeUpdaterCache(", StringComparison.Ordinal));
+                Assert.IsTrue(adminUpdater.Contains("updaterCacheRootDir: GetUpdaterCacheRoot()", StringComparison.Ordinal));
+                Assert.IsTrue(adminBuildPs1.Contains("YouLinkAdminUpdates", StringComparison.Ordinal));
+                Assert.IsTrue(adminBuildPs1.Contains("*Admin*Setup*.exe", StringComparison.Ordinal));
+            }
+        }
+        finally
+        {
+            try
+            {
+                if (Directory.Exists(tempRoot))
+                    Directory.Delete(tempRoot, recursive: true);
+            }
+            catch
+            {
+            }
+        }
+    }
 }

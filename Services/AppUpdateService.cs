@@ -50,6 +50,48 @@ public sealed class AppUpdateService
     public AppUpdateService(MauiAdminGateway gateway)
     {
         _gateway = gateway;
+        CleanupStaleUpdateArtifactsSafe();
+    }
+
+    internal static string GetUpdaterCacheRoot()
+        => OperatingSystem.IsAndroid()
+            ? Path.Combine(FileSystem.CacheDirectory, "updates")
+            : Path.Combine(Path.GetTempPath(), "YouLinkUpdater");
+
+    private void CleanupStaleUpdateArtifactsSafe(string? latestKnownVersion = null)
+    {
+        try
+        {
+            AppUpdateCatalog.CleanupStaleUpdateArtifacts(
+                updaterCacheRootDir: GetUpdaterCacheRoot(),
+                currentVersion: CurrentVersion,
+                latestKnownVersion: latestKnownVersion,
+                activePackagePath: DownloadedPackagePath,
+                preserveActivePackage: IsDownloading || IsApplyingUpdate || WaitingAndroidInstallPermission,
+                maxPendingPackageAge: TimeSpan.FromMinutes(15));
+
+            if (!string.IsNullOrWhiteSpace(DownloadedPackagePath) && !File.Exists(DownloadedPackagePath))
+            {
+                DownloadedPackagePath = null;
+                WaitingAndroidInstallPermission = false;
+            }
+        }
+        catch
+        {
+        }
+    }
+
+    private void PurgeUpdaterCacheSafe()
+    {
+        try
+        {
+            AppUpdateCatalog.PurgeUpdaterCache(GetUpdaterCacheRoot());
+            DownloadedPackagePath = null;
+            WaitingAndroidInstallPermission = false;
+        }
+        catch
+        {
+        }
     }
 
     public void StartBackgroundMonitor()
@@ -231,6 +273,7 @@ public sealed class AppUpdateService
                 ErrorMessage = $"Não foi possível verificar atualizações agora ({githubError ?? "sem resposta da internet"}).";
             }
 
+            CleanupStaleUpdateArtifactsSafe(resolved?.LatestVersion);
             return AvailableRelease;
         }
         finally
@@ -273,6 +316,7 @@ public sealed class AppUpdateService
             }
         }
 
+        PurgeUpdaterCacheSafe();
         IsPopupOpen = false;
         NotifyChanged();
     }
@@ -324,15 +368,37 @@ public sealed class AppUpdateService
 
         try
         {
-            var updateDir = OperatingSystem.IsAndroid()
-                ? Path.Combine(FileSystem.CacheDirectory, "updates")
-                : Path.Combine(Path.GetTempPath(), "YouLinkUpdater", release.LatestVersion);
+            var updaterRoot = GetUpdaterCacheRoot();
+            AppUpdateCatalog.PurgeUpdaterCache(updaterRoot);
+
+            var safeVersionFolder = AppUpdateCatalog.NormalizeVersion(release.LatestVersion);
+            if (string.IsNullOrWhiteSpace(safeVersionFolder))
+                safeVersionFolder = "latest";
+
+            var updateDir = Path.Combine(updaterRoot, safeVersionFolder);
 
             Directory.CreateDirectory(updateDir);
             var targetFile = Path.Combine(updateDir, release.SelectedAssetName);
 
             await DownloadFileWithProgressAsync(release.SelectedDownloadUrl, targetFile, ct);
-            ValidateDownloadedArchive(targetFile);
+            try
+            {
+                ValidateDownloadedArchive(targetFile);
+            }
+            catch
+            {
+                try
+                {
+                    if (File.Exists(targetFile))
+                        File.Delete(targetFile);
+                }
+                catch
+                {
+                }
+
+                throw;
+            }
+
             DownloadedPackagePath = targetFile;
 
             IsDownloading = false;
@@ -393,45 +459,61 @@ public sealed class AppUpdateService
             TotalBytes = total;
 
         var tempFile = destinationPath + ".part";
-        await using (var remoteStream = await response.Content.ReadAsStreamAsync(ct))
-        await using (var fileStream = new FileStream(tempFile, FileMode.Create, FileAccess.Write, FileShare.None, 81920, useAsync: true))
+        try
         {
-            var buffer = new byte[81920];
-            long readTotal = 0;
-            var lastReportedPct = -1;
-            var lastNotifiedAt = DateTimeOffset.UtcNow;
-
-            while (true)
+            await using (var remoteStream = await response.Content.ReadAsStreamAsync(ct))
+            await using (var fileStream = new FileStream(tempFile, FileMode.Create, FileAccess.Write, FileShare.None, 81920, useAsync: true))
             {
-                var read = await remoteStream.ReadAsync(buffer, ct);
-                if (read <= 0)
-                    break;
+                var buffer = new byte[81920];
+                long readTotal = 0;
+                var lastReportedPct = -1;
+                var lastNotifiedAt = DateTimeOffset.UtcNow;
 
-                await fileStream.WriteAsync(buffer.AsMemory(0, read), ct);
-                readTotal += read;
-                DownloadedBytes = readTotal;
-
-                var pct = TotalBytes > 0
-                    ? Math.Clamp((int)Math.Round(readTotal * 100d / TotalBytes), 1, 99)
-                    : 0;
-
-                var now = DateTimeOffset.UtcNow;
-                if (pct != lastReportedPct || (now - lastNotifiedAt).TotalMilliseconds >= 250)
+                while (true)
                 {
-                    lastReportedPct = pct;
-                    lastNotifiedAt = now;
-                    DownloadProgressPercent = pct;
-                    StatusMessage = TotalBytes > 0
-                        ? $"Baixando atualização... {pct}% ({AppUpdateCatalog.FormatFileSize(readTotal)} de {AppUpdateCatalog.FormatFileSize(TotalBytes)})"
-                        : $"Baixando atualização... {AppUpdateCatalog.FormatFileSize(readTotal)}";
-                    NotifyChanged();
+                    var read = await remoteStream.ReadAsync(buffer, ct);
+                    if (read <= 0)
+                        break;
+
+                    await fileStream.WriteAsync(buffer.AsMemory(0, read), ct);
+                    readTotal += read;
+                    DownloadedBytes = readTotal;
+
+                    var pct = TotalBytes > 0
+                        ? Math.Clamp((int)Math.Round(readTotal * 100d / TotalBytes), 1, 99)
+                        : 0;
+
+                    var now = DateTimeOffset.UtcNow;
+                    if (pct != lastReportedPct || (now - lastNotifiedAt).TotalMilliseconds >= 250)
+                    {
+                        lastReportedPct = pct;
+                        lastNotifiedAt = now;
+                        DownloadProgressPercent = pct;
+                        StatusMessage = TotalBytes > 0
+                            ? $"Baixando atualização... {pct}% ({AppUpdateCatalog.FormatFileSize(readTotal)} de {AppUpdateCatalog.FormatFileSize(TotalBytes)})"
+                            : $"Baixando atualização... {AppUpdateCatalog.FormatFileSize(readTotal)}";
+                        NotifyChanged();
+                    }
                 }
             }
-        }
 
-        if (File.Exists(destinationPath))
-            File.Delete(destinationPath);
-        File.Move(tempFile, destinationPath);
+            if (File.Exists(destinationPath))
+                File.Delete(destinationPath);
+            File.Move(tempFile, destinationPath);
+        }
+        catch
+        {
+            try
+            {
+                if (File.Exists(tempFile))
+                    File.Delete(tempFile);
+            }
+            catch
+            {
+            }
+
+            throw;
+        }
     }
 
     private static void ValidateDownloadedArchive(string filePath)
@@ -497,7 +579,8 @@ public sealed class AppUpdateService
                 Environment.ProcessId,
                 packagePath,
                 launcherPath,
-                logPath);
+                logPath,
+                updaterCacheRootDir: GetUpdaterCacheRoot());
         }
         else
         {
@@ -522,7 +605,8 @@ public sealed class AppUpdateService
                 sourceAppDir,
                 currentAppDir,
                 AppUpdateCatalog.WindowsExecutableName,
-                logPath);
+                logPath,
+                updaterCacheRootDir: GetUpdaterCacheRoot());
         }
 
         await File.WriteAllTextAsync(scriptPath, script, ct);

@@ -29,7 +29,7 @@ public sealed record AppUpdateReleaseInfo(
 /// </summary>
 public static class AppUpdateCatalog
 {
-    public const string CurrentAppVersion = "1.0.28";
+    public const string CurrentAppVersion = "1.0.29";
     public const string DefaultCentralPlatformServerUrl = "https://youlink-loja.onrender.com";
     public const string GitHubOwner = "giovannipieronisleal-pixel";
     public const string GitHubRepo = "yourlink";
@@ -527,27 +527,16 @@ public static class AppUpdateCatalog
         string sourceAppDir,
         string targetAppDir,
         string executableFileName,
-        string logFilePath)
-        => BuildWindowsApplyUpdateScript(
-            targetProcessId,
-            sourceAppDir,
-            targetAppDir,
-            executableFileName,
-            logFilePath,
-            WindowsLauncherName,
-            "YouLink");
-
-    public static string BuildWindowsApplyUpdateScript(
-        int targetProcessId,
-        string sourceAppDir,
-        string targetAppDir,
-        string executableFileName,
         string logFilePath,
-        string launcherFileName,
-        string appDisplayName)
+        string? launcherFileName = null,
+        string? appDisplayName = null,
+        string? updaterCacheRootDir = null)
     {
         var effectiveDisplay = string.IsNullOrWhiteSpace(appDisplayName) ? "YouLink" : appDisplayName.Trim();
-        var effectiveLauncher = string.IsNullOrWhiteSpace(launcherFileName) ? executableFileName : launcherFileName.Trim();
+        var effectiveLauncher = string.IsNullOrWhiteSpace(launcherFileName) ? WindowsLauncherName : launcherFileName.Trim();
+        var normalizedCacheRoot = string.IsNullOrWhiteSpace(updaterCacheRootDir)
+            ? string.Empty
+            : updaterCacheRootDir.TrimEnd('\\', '/');
 
         var sb = new StringBuilder();
         sb.AppendLine("$ErrorActionPreference = 'Stop'");
@@ -557,6 +546,8 @@ public static class AppUpdateCatalog
         sb.AppendLine($"$exeName = '{EscapePowerShellSingleQuoted(executableFileName)}'");
         sb.AppendLine($"$launcherName = '{EscapePowerShellSingleQuoted(effectiveLauncher)}'");
         sb.AppendLine($"$logPath = '{EscapePowerShellSingleQuoted(logFilePath)}'");
+        sb.AppendLine($"$updaterRootDir = '{EscapePowerShellSingleQuoted(normalizedCacheRoot)}'");
+        sb.AppendLine("$updateWorkDir = Split-Path -Path $logPath -Parent");
         sb.AppendLine("function Write-Log([string]$msg) { Add-Content -Path $logPath -Value \"[$(Get-Date -Format 'HH:mm:ss')] $msg\" -Encoding UTF8 }");
         sb.AppendLine($"Write-Log 'Iniciando atualização automática do {EscapePowerShellSingleQuoted(effectiveDisplay)} Windows...'");
         sb.AppendLine("for ($i = 0; $i -lt 40; $i++) {");
@@ -601,7 +592,7 @@ public static class AppUpdateCatalog
         sb.AppendLine("    Write-Log \"Reabrindo $launchExe\"");
         sb.AppendLine("    Start-Process -FilePath $launchExe -WorkingDirectory $launchWorkDir");
         sb.AppendLine("}");
-        sb.AppendLine("try { Remove-Item -Path $sourceDir -Recurse -Force -ErrorAction SilentlyContinue } catch {}");
+        AppendWindowsPostUpdateCleanupScript(sb, "$sourceDir", isDirectoryArtifact: true);
         return sb.ToString();
     }
 
@@ -609,23 +600,15 @@ public static class AppUpdateCatalog
         int targetProcessId,
         string setupExePath,
         string targetLauncherPath,
-        string logFilePath)
-        => BuildWindowsInstallerUpdateScript(
-            targetProcessId,
-            setupExePath,
-            targetLauncherPath,
-            logFilePath,
-            "YouLink");
-
-    public static string BuildWindowsInstallerUpdateScript(
-        int targetProcessId,
-        string setupExePath,
-        string targetLauncherPath,
         string logFilePath,
-        string appDisplayName)
+        string? appDisplayName = null,
+        string? updaterCacheRootDir = null)
     {
         var effectiveDisplay = string.IsNullOrWhiteSpace(appDisplayName) ? "YouLink" : appDisplayName.Trim();
         var setupName = Path.GetFileName(setupExePath);
+        var normalizedCacheRoot = string.IsNullOrWhiteSpace(updaterCacheRootDir)
+            ? string.Empty
+            : updaterCacheRootDir.TrimEnd('\\', '/');
 
         var sb = new StringBuilder();
         sb.AppendLine("$ErrorActionPreference = 'Stop'");
@@ -633,6 +616,8 @@ public static class AppUpdateCatalog
         sb.AppendLine($"$setupExe = '{EscapePowerShellSingleQuoted(setupExePath)}'");
         sb.AppendLine($"$launchExe = '{EscapePowerShellSingleQuoted(targetLauncherPath)}'");
         sb.AppendLine($"$logPath = '{EscapePowerShellSingleQuoted(logFilePath)}'");
+        sb.AppendLine($"$updaterRootDir = '{EscapePowerShellSingleQuoted(normalizedCacheRoot)}'");
+        sb.AppendLine("$updateWorkDir = Split-Path -Path $logPath -Parent");
         sb.AppendLine("function Write-Log([string]$msg) { Add-Content -Path $logPath -Value \"[$(Get-Date -Format 'HH:mm:ss')] $msg\" -Encoding UTF8 }");
         sb.AppendLine($"Write-Log 'Iniciando atualização do {EscapePowerShellSingleQuoted(effectiveDisplay)} pelo instalador {EscapePowerShellSingleQuoted(setupName)}...'");
         sb.AppendLine("for ($i = 0; $i -lt 40; $i++) {");
@@ -672,7 +657,254 @@ public static class AppUpdateCatalog
         sb.AppendLine("if (Test-Path $launchExe) {");
         sb.AppendLine("    Start-Process -FilePath $launchExe -WorkingDirectory (Split-Path -Parent $launchExe)");
         sb.AppendLine("}");
+        AppendWindowsPostUpdateCleanupScript(sb, "$setupExe", isDirectoryArtifact: false);
         return sb.ToString();
+    }
+
+    private static void AppendWindowsPostUpdateCleanupScript(
+        StringBuilder sb,
+        string primaryArtifactVar,
+        bool isDirectoryArtifact)
+    {
+        sb.AppendLine("Start-Sleep -Milliseconds 800");
+        var recurseFlag = isDirectoryArtifact ? " -Recurse" : string.Empty;
+        sb.AppendLine($"try {{ if (Test-Path {primaryArtifactVar}) {{ Remove-Item -Path {primaryArtifactVar}{recurseFlag} -Force -ErrorAction SilentlyContinue }} }} catch {{}}");
+        sb.AppendLine("if ($updateWorkDir -and (Test-Path $updateWorkDir)) {");
+        sb.AppendLine("    $stagingDir = Join-Path $updateWorkDir 'staging'");
+        sb.AppendLine("    try { if (Test-Path $stagingDir) { Remove-Item -Path $stagingDir -Recurse -Force -ErrorAction SilentlyContinue } } catch {}");
+        sb.AppendLine("    try { Get-ChildItem -Path $updateWorkDir -File -ErrorAction SilentlyContinue | Where-Object { $_.Extension -in '.zip','.exe','.apk','.part','.tmp' } | Remove-Item -Force -ErrorAction SilentlyContinue } catch {}");
+        sb.AppendLine("}");
+        sb.AppendLine("if ($updaterRootDir -and (Test-Path $updaterRootDir)) {");
+        sb.AppendLine("    try {");
+        sb.AppendLine("        Get-ChildItem -Path $updaterRootDir -Force -ErrorAction SilentlyContinue | Where-Object { -not $updateWorkDir -or -not $_.FullName.Equals($updateWorkDir, [System.StringComparison]::OrdinalIgnoreCase) } | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue");
+        sb.AppendLine("    } catch {}");
+        sb.AppendLine("}");
+    }
+
+    /// <summary>
+    /// Remove completamente todos os pacotes/instaladores e pastas temporárias do cache de atualização
+    /// antes de um novo download ou quando uma atualização pendente é descartada.
+    /// </summary>
+    public static long PurgeUpdaterCache(string? updaterCacheRootDir)
+    {
+        if (string.IsNullOrWhiteSpace(updaterCacheRootDir) || !Directory.Exists(updaterCacheRootDir))
+            return 0;
+
+        long freedBytes = 0;
+
+        foreach (var file in SafeEnumerateFiles(updaterCacheRootDir))
+        {
+            freedBytes += TryDeleteFileWithBytes(file);
+        }
+
+        foreach (var subDir in SafeEnumerateDirectories(updaterCacheRootDir))
+        {
+            freedBytes += TryDeleteDirectoryWithBytes(subDir);
+        }
+
+        return freedBytes;
+    }
+
+    /// <summary>
+    /// Remove pacotes antigos já instalados, downloads parciais (.part/.tmp) e arquivos soltos do cache de atualização
+    /// para evitar consumo crescente de armazenamento após sucessivas atualizações.
+    /// </summary>
+    public static long CleanupStaleUpdateArtifacts(
+        string? updaterCacheRootDir,
+        string? currentVersion,
+        string? latestKnownVersion = null,
+        string? activePackagePath = null,
+        bool preserveActivePackage = false,
+        TimeSpan? maxPendingPackageAge = null)
+    {
+        if (string.IsNullOrWhiteSpace(updaterCacheRootDir) || !Directory.Exists(updaterCacheRootDir))
+            return 0;
+
+        long freedBytes = 0;
+        var normalizedCurrent = NormalizeVersion(currentVersion);
+        if (string.IsNullOrWhiteSpace(normalizedCurrent))
+            normalizedCurrent = CurrentAppVersion;
+
+        var normalizedLatest = NormalizeVersion(latestKnownVersion);
+        var fullActivePackage = TryGetFullNormalizedPath(activePackagePath);
+        var fullActiveDir = string.IsNullOrWhiteSpace(fullActivePackage)
+            ? null
+            : TryGetFullNormalizedPath(Path.GetDirectoryName(fullActivePackage));
+
+        foreach (var file in SafeEnumerateFiles(updaterCacheRootDir))
+        {
+            var fullFile = TryGetFullNormalizedPath(file);
+            if (preserveActivePackage &&
+                !string.IsNullOrWhiteSpace(fullActivePackage) &&
+                string.Equals(fullFile, fullActivePackage, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            freedBytes += TryDeleteFileWithBytes(file);
+        }
+
+        var cutoffUtc = maxPendingPackageAge.HasValue
+            ? DateTime.UtcNow - maxPendingPackageAge.Value
+            : (DateTime?)null;
+
+        foreach (var subDir in SafeEnumerateDirectories(updaterCacheRootDir))
+        {
+            var fullSubDir = TryGetFullNormalizedPath(subDir);
+            var isActiveSubDir = preserveActivePackage &&
+                !string.IsNullOrWhiteSpace(fullActiveDir) &&
+                string.Equals(fullSubDir, fullActiveDir, StringComparison.OrdinalIgnoreCase);
+
+            if (isActiveSubDir)
+            {
+                foreach (var nestedFile in SafeEnumerateFiles(subDir))
+                {
+                    var fullNested = TryGetFullNormalizedPath(nestedFile);
+                    if (!string.Equals(fullNested, fullActivePackage, StringComparison.OrdinalIgnoreCase) &&
+                        (nestedFile.EndsWith(".part", StringComparison.OrdinalIgnoreCase) ||
+                         nestedFile.EndsWith(".tmp", StringComparison.OrdinalIgnoreCase)))
+                    {
+                        freedBytes += TryDeleteFileWithBytes(nestedFile);
+                    }
+                }
+                continue;
+            }
+
+            var folderName = Path.GetFileName(subDir);
+            var dirVersion = NormalizeVersion(folderName);
+            var hasValidVersion = Version.TryParse(dirVersion, out _);
+
+            var shouldDelete = !hasValidVersion
+                || !IsVersionNewer(dirVersion, normalizedCurrent)
+                || (!string.IsNullOrWhiteSpace(normalizedLatest) &&
+                    !string.Equals(dirVersion, normalizedLatest, StringComparison.OrdinalIgnoreCase));
+
+            if (!shouldDelete && cutoffUtc.HasValue)
+            {
+                try
+                {
+                    var lastWriteUtc = Directory.GetLastWriteTimeUtc(subDir);
+                    if (lastWriteUtc <= cutoffUtc.Value)
+                        shouldDelete = true;
+                }
+                catch
+                {
+                }
+            }
+
+            if (shouldDelete)
+            {
+                freedBytes += TryDeleteDirectoryWithBytes(subDir);
+                continue;
+            }
+
+            var stagingDir = Path.Combine(subDir, "staging");
+            if (Directory.Exists(stagingDir))
+                freedBytes += TryDeleteDirectoryWithBytes(stagingDir);
+
+            foreach (var nestedFile in SafeEnumerateFiles(subDir))
+            {
+                if (nestedFile.EndsWith(".part", StringComparison.OrdinalIgnoreCase) ||
+                    nestedFile.EndsWith(".tmp", StringComparison.OrdinalIgnoreCase))
+                {
+                    freedBytes += TryDeleteFileWithBytes(nestedFile);
+                }
+            }
+        }
+
+        return freedBytes;
+    }
+
+    private static IEnumerable<string> SafeEnumerateFiles(string directoryPath)
+    {
+        try
+        {
+            return Directory.EnumerateFiles(directoryPath).ToList();
+        }
+        catch
+        {
+            return [];
+        }
+    }
+
+    private static IEnumerable<string> SafeEnumerateDirectories(string directoryPath)
+    {
+        try
+        {
+            return Directory.EnumerateDirectories(directoryPath).ToList();
+        }
+        catch
+        {
+            return [];
+        }
+    }
+
+    private static string? TryGetFullNormalizedPath(string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+            return null;
+
+        try
+        {
+            return Path.GetFullPath(path).TrimEnd('\\', '/');
+        }
+        catch
+        {
+            return path.TrimEnd('\\', '/');
+        }
+    }
+
+    private static long TryDeleteFileWithBytes(string filePath)
+    {
+        try
+        {
+            if (!File.Exists(filePath))
+                return 0;
+
+            var length = new FileInfo(filePath).Length;
+            File.SetAttributes(filePath, FileAttributes.Normal);
+            File.Delete(filePath);
+            return length;
+        }
+        catch
+        {
+            return 0;
+        }
+    }
+
+    private static long TryDeleteDirectoryWithBytes(string dirPath)
+    {
+        try
+        {
+            if (!Directory.Exists(dirPath))
+                return 0;
+
+            long total = 0;
+            try
+            {
+                foreach (var file in Directory.EnumerateFiles(dirPath, "*", SearchOption.AllDirectories))
+                {
+                    try
+                    {
+                        total += new FileInfo(file).Length;
+                        File.SetAttributes(file, FileAttributes.Normal);
+                    }
+                    catch
+                    {
+                    }
+                }
+            }
+            catch
+            {
+            }
+
+            Directory.Delete(dirPath, recursive: true);
+            return total;
+        }
+        catch
+        {
+            return 0;
+        }
     }
 
     private static (string? AssetName, string? DownloadUrl, long? SizeBytes) SelectPlatformAsset(
