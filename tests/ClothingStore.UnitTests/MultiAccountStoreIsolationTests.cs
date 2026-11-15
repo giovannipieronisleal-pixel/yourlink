@@ -356,6 +356,11 @@ public class MultiAccountStoreIsolationTests
         var stockControl = File.ReadAllText(Path.Combine(root, "Components", "Pages", "StockControl.razor"));
         Assert.IsFalse(stockControl.Contains("Funcionário Responsável", StringComparison.Ordinal));
         Assert.IsTrue(stockControl.Contains("<th>Responsável</th>", StringComparison.Ordinal));
+        Assert.IsFalse(stockControl.Contains("2. Variante (Cor / Tamanho)", StringComparison.Ordinal));
+        Assert.IsFalse(stockControl.Contains("Selecione uma variante ao lado para retirar ou ajustar.", StringComparison.Ordinal));
+        Assert.IsTrue(stockControl.Contains("stk-live-balance", StringComparison.Ordinal));
+        Assert.IsTrue(stockControl.Contains("stk-form-grid", StringComparison.Ordinal));
+        Assert.IsTrue(stockControl.Contains("FormatVariantDisplay", StringComparison.Ordinal));
 
         var portal = File.ReadAllText(Path.Combine(root, "src", "ClothingStore.Web", "Components", "Shared", "PlatformPortalView.razor"));
         Assert.IsFalse(portal.Contains("controle de equipe", StringComparison.OrdinalIgnoreCase));

@@ -536,6 +536,11 @@ else if (_categories.Count > 0)
                 _newProduct.CategoryName = null;
             }
 
+            if (string.IsNullOrWhiteSpace(_newProduct.InitialColor))
+                _newProduct.InitialColor = "Padrão";
+            if (string.IsNullOrWhiteSpace(_newProduct.InitialSize))
+                _newProduct.InitialSize = "Único";
+
             var created = await Gateway.CreateProductAsync(_newProduct);
             _showNewProductModal = false;
             _newProduct = new SaveProductRequest

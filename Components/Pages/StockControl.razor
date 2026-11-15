@@ -3,9 +3,9 @@
 
 <div style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 1rem; margin-bottom: 1.25rem;">
     <div>
-        <h1 style="font-size: 1.65rem; font-weight: 800; margin: 0;">Movimentação Rápida de Itens &amp; Estoque</h1>
+        <h1 style="font-size: 1.65rem; font-weight: 800; margin: 0;">Controle de Estoque</h1>
         <p style="color: var(--adm-muted); font-size: 0.92rem; margin: 0.25rem 0 0;">
-            Dê entrada, saída ou ajuste em <strong>1 toque</strong> por cor e tamanho sem precisar registrar venda direta ou Pix — funciona normalmente em todos os planos.
+            Adicione, retire ou ajuste o saldo de qualquer produto em <strong>1 clique</strong> ou defina uma quantidade específica abaixo.
         </p>
     </div>
 
@@ -95,14 +95,7 @@
         else if (visibleRows.Count == 0)
         {
             <div style="padding: 1.15rem; text-align: center; color: var(--adm-muted); background: var(--adm-input-bg); border-radius: 10px;">
-                @if (allRowsCount == 0)
-                {
-                    <span>Seus produtos ainda não têm variantes (Cor / Tamanho). <a href="/produtos" style="font-weight: 700;">Abra um produto para adicionar Cor e Tamanho &rarr;</a></span>
-                }
-                else
-                {
-                    <span>Nenhum item encontrado para esse filtro.</span>
-                }
+                <span>Nenhum item encontrado para esse filtro.</span>
             </div>
         }
         else
@@ -119,7 +112,7 @@
                         <div class="stk-card-head">
                             <button type="button"
                                     class="stk-thumb-wrap"
-                                    title="Selecionar este item para retirada ou ajuste detalhado"
+                                    title="Selecionar este item para ajuste detalhado"
                                     @onclick="() => SelectVariantForDetailedForm(item.Product, item.Variant)">
                                 @if (!string.IsNullOrWhiteSpace(coverUrl))
                                 {
@@ -144,7 +137,7 @@
                                     {
                                         <span class="stk-color-dot" style="background: @item.Variant.ColorHex;"></span>
                                     }
-                                    <strong>@item.Variant.Color</strong> &bull; Tam <strong>@item.Variant.Size</strong>
+                                    <strong>@FormatVariantDisplay(item.Variant.Color, item.Variant.Size)</strong>
                                     <span class="stk-sku">(@item.Variant.Sku)</span>
                                 </div>
                             </div>
@@ -197,139 +190,175 @@
         }
     </section>
 
-    <!-- 2. FORMULÁRIO DETALHADO (PARA OUTRAS QUANTIDADES OU AJUSTE DE SALDO) -->
-    <section class="adm-card" style="border-left: 4px solid var(--adm-primary); margin-bottom: 1.25rem;">
-        <h2 style="font-size: 1.08rem; font-weight: 700; margin-top: 0; margin-bottom: 0.9rem;">
-            🎛️ Movimentação Personalizada (Outra Quantidade / Novo Saldo)
-        </h2>
+    <!-- 2. PAINEL DIRETO PARA OUTRA QUANTIDADE OU SALDO EXATO -->
+    @if (_products.Count > 0)
+    {
+        var selectedProduct = GetSelectedProduct();
+        var productVariants = GetVariantsOfSelectedProduct().ToList();
+        var selectedVariant = GetSelectedVariant(selectedProduct) ?? productVariants.FirstOrDefault();
+        var selectedCoverUrl = ResolveProductCoverUrl(selectedProduct);
+        var currentQty = selectedVariant?.StockQuantity ?? 0;
+        var projectedQty = GetProjectedStock(currentQty);
 
-        @{
-            var selectedProduct = GetSelectedProduct();
-            var selectedVariant = GetSelectedVariant(selectedProduct);
-            var selectedCoverUrl = ResolveProductCoverUrl(selectedProduct);
-        }
-        @if (selectedProduct is not null)
-        {
-            <div class="stk-selected-preview">
-                <div class="stk-thumb-wrap">
-                    @if (!string.IsNullOrWhiteSpace(selectedCoverUrl))
-                    {
-                        <img src="@selectedCoverUrl" alt="@selectedProduct.Name" class="stk-thumb" />
-                    }
-                    else
-                    {
-                        <div class="stk-thumb-placeholder">Sem foto</div>
-                    }
+        <section class="adm-card" style="border-left: 4px solid var(--adm-primary); margin-bottom: 1.25rem;">
+            <div style="display: flex; justify-content: space-between; align-items: center; gap: 0.75rem; flex-wrap: wrap; margin-bottom: 0.85rem;">
+                <div>
+                    <h2 style="font-size: 1.08rem; font-weight: 800; margin: 0;">
+                        📦 Entrada, Saída ou Ajuste de Estoque
+                    </h2>
+                    <p style="font-size: 0.82rem; color: var(--adm-muted); margin: 0.2rem 0 0;">
+                        Escolha o produto, a operação e a quantidade. O novo saldo é calculado na hora.
+                    </p>
                 </div>
-                <div class="stk-selected-preview-meta">
-                    <div class="stk-selected-preview-title">@selectedProduct.Name</div>
-                    <div class="stk-selected-preview-sub">
-                        @if (selectedVariant is not null)
+            </div>
+
+            <div class="stk-selected-preview">
+                <div class="stk-selected-preview-left">
+                    <div class="stk-thumb-wrap">
+                        @if (!string.IsNullOrWhiteSpace(selectedCoverUrl))
                         {
-                            <span>@selectedVariant.Color &bull; Tam @selectedVariant.Size &bull; Saldo atual: <strong>@selectedVariant.StockQuantity un.</strong></span>
+                            <img src="@selectedCoverUrl" alt="@(selectedProduct?.Name ?? "Produto")" class="stk-thumb" />
                         }
                         else
                         {
-                            <span>Selecione uma variante ao lado para retirar ou ajustar.</span>
+                            <div class="stk-thumb-placeholder">Sem foto</div>
+                        }
+                    </div>
+
+                    <div class="stk-selected-preview-selects">
+                        <div class="stk-selected-preview-field">
+                            <label class="adm-label">Produto</label>
+                            <select class="adm-select" @bind="_selectedProductIdString" @bind:after="OnProductSelectionChanged">
+                                @foreach (var prod in _products)
+                                {
+                                    <option value="@prod.Id.ToString()">@prod.Name (@prod.TotalStockQuantity un.)</option>
+                                }
+                            </select>
+                        </div>
+
+                        @if (productVariants.Count > 1)
+                        {
+                            <div class="stk-selected-preview-field">
+                                <label class="adm-label">Variação / Opção</label>
+                                <select class="adm-select" @bind="_selectedVariantIdString" @bind:after="OnVariantSelectionChanged">
+                                    @foreach (var v in productVariants)
+                                    {
+                                        <option value="@v.Id.ToString()">@FormatVariantDisplay(v.Color, v.Size) — @v.StockQuantity un.</option>
+                                    }
+                                </select>
+                            </div>
+                        }
+                    </div>
+                </div>
+
+                <div class="stk-live-balance">
+                    <div>
+                        <span style="color: var(--adm-muted);">Saldo atual:</span>
+                        <strong>@currentQty un.</strong>
+                    </div>
+                    <span style="color: var(--adm-muted); font-weight: 800;">&rarr;</span>
+                    <div>
+                        <span style="color: var(--adm-muted);">Após confirmar:</span>
+                        <span class="pill-badge @(projectedQty <= 0 ? "pill-red" : "pill-green")" style="margin-left: 0.25rem;">
+                            @projectedQty un.
+                        </span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="stk-form-grid">
+                <div>
+                    <label class="adm-label">1. O que deseja fazer?</label>
+                    <div class="stk-mode-grid">
+                        <button type="button"
+                                class="adm-btn stk-mode-btn @(_movementRequest.MovementType == "IN" ? "adm-btn-success" : "adm-btn-outline")"
+                                @onclick='() => SetMovementType("IN")'>
+                            ➕ Entrada
+                        </button>
+                        <button type="button"
+                                class="adm-btn stk-mode-btn @(_movementRequest.MovementType == "OUT" ? "adm-btn-danger" : "adm-btn-outline")"
+                                @onclick='() => SetMovementType("OUT")'>
+                            ➖ Saída
+                        </button>
+                        <button type="button"
+                                class="adm-btn stk-mode-btn @(_movementRequest.MovementType == "ADJUSTMENT" ? "adm-btn-primary" : "adm-btn-outline")"
+                                @onclick='() => SetMovementType("ADJUSTMENT")'>
+                            ⚖️ Saldo Exato
+                        </button>
+                    </div>
+                    <div style="font-size: 0.76rem; color: var(--adm-muted); margin-top: 0.4rem;">
+                        @if (_movementRequest.MovementType == "IN")
+                        {
+                            <span>Soma unidades ao saldo atual do produto.</span>
+                        }
+                        else if (_movementRequest.MovementType == "OUT")
+                        {
+                            <span>Retira unidades do saldo atual (venda ou baixa).</span>
+                        }
+                        else
+                        {
+                            <span>Substitui o saldo atual pelo número digitado ao lado.</span>
+                        }
+                    </div>
+                </div>
+
+                <div>
+                    <label class="adm-label">
+                        @(_movementRequest.MovementType == "ADJUSTMENT" ? "2. Novo Saldo Total (un.)" : "2. Quantidade (un.)")
+                    </label>
+                    <input type="number"
+                           min="0"
+                           class="adm-input"
+                           @bind="_movementRequest.Quantity"
+                           @bind:event="oninput" />
+                    <div class="stk-chip-row">
+                        @foreach (var q in new[] { 1, 2, 5, 10, 20, 50 })
+                        {
+                            <button type="button"
+                                    class="pill-badge @(_movementRequest.Quantity == q ? "pill-gold" : "pill-slate")"
+                                    style="border: none; cursor: pointer;"
+                                    @onclick="() => _movementRequest.Quantity = q">
+                                @q
+                            </button>
+                        }
+                    </div>
+                </div>
+
+                <div>
+                    <label class="adm-label">3. Motivo / Observação (Opcional)</label>
+                    <input type="text"
+                           class="adm-input"
+                           @bind="_movementRequest.Reason"
+                           placeholder="Ex.: Reposição de estoque, Venda no balcão..." />
+                    <div class="stk-chip-row">
+                        @foreach (var reasonOption in QuickReasonOptions)
+                        {
+                            <button type="button"
+                                    class="pill-badge @(_movementRequest.Reason == reasonOption ? "pill-blue" : "pill-slate")"
+                                    style="border: none; cursor: pointer; font-size: 0.72rem;"
+                                    @onclick="() => _movementRequest.Reason = reasonOption">
+                                @reasonOption
+                            </button>
                         }
                     </div>
                 </div>
             </div>
-        }
 
-        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 210px), 1fr)); gap: 0.9rem; align-items: end;">
-            <div>
-                <label class="adm-label">1. Produto</label>
-                <select class="adm-select" @bind="_selectedProductIdString" @bind:after="OnProductSelectionChanged">
-                    @foreach (var prod in _products)
-                    {
-                        <option value="@prod.Id.ToString()">@prod.Name</option>
-                    }
-                </select>
-            </div>
-
-            <div>
-                <label class="adm-label">2. Variante (Cor / Tamanho)</label>
-                <select class="adm-select" @bind="_selectedVariantIdString" @bind:after="OnVariantSelectionChanged">
-                    @foreach (var v in GetVariantsOfSelectedProduct())
-                    {
-                        <option value="@v.Id.ToString()">@v.Color - Tam @v.Size (Saldo: @v.StockQuantity un.)</option>
-                    }
-                </select>
-            </div>
-
-            <div style="grid-column: 1 / -1;">
-                <label class="adm-label">3. O que você deseja fazer?</label>
-                <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
-                    <button type="button"
-                            class="adm-btn @(_movementRequest.MovementType == "IN" ? "adm-btn-success" : "adm-btn-outline")"
-                            @onclick='() => _movementRequest.MovementType = "IN"'>
-                        ➕ Entrada (Somar ao estoque)
-                    </button>
-                    <button type="button"
-                            class="adm-btn @(_movementRequest.MovementType == "OUT" ? "adm-btn-danger" : "adm-btn-outline")"
-                            @onclick='() => _movementRequest.MovementType = "OUT"'>
-                        ➖ Saída (Dar baixa / Venda)
-                    </button>
-                    <button type="button"
-                            class="adm-btn @(_movementRequest.MovementType == "ADJUSTMENT" ? "adm-btn-primary" : "adm-btn-outline")"
-                            @onclick='() => _movementRequest.MovementType = "ADJUSTMENT"'>
-                        ⚖️ Definir Saldo Exato
-                    </button>
-                </div>
-            </div>
-
-            <div>
-                <label class="adm-label">
-                    @(_movementRequest.MovementType == "ADJUSTMENT" ? "4. Novo Saldo Total (un.)" : "4. Quantidade (un.)")
-                </label>
-                <input type="number" min="0" class="adm-input" @bind="_movementRequest.Quantity" />
-                <div style="display: flex; gap: 0.35rem; flex-wrap: wrap; margin-top: 0.4rem;">
-                    @foreach (var q in new[] { 1, 2, 5, 10, 20, 50 })
-                    {
-                        <button type="button"
-                                class="pill-badge @(_movementRequest.Quantity == q ? "pill-gold" : "pill-slate")"
-                                style="border: none; cursor: pointer;"
-                                @onclick="() => _movementRequest.Quantity = q">
-                            @q
-                        </button>
-                    }
-                </div>
-            </div>
-
-            <div>
-                <label class="adm-label">5. Motivo (toque para preencher ou digite)</label>
-                <input type="text"
-                       class="adm-input"
-                       @bind="_movementRequest.Reason"
-                       placeholder="Ex.: Reposição fornecedor, Venda WhatsApp..." />
-                <div style="display: flex; gap: 0.35rem; flex-wrap: wrap; margin-top: 0.4rem;">
-                    @foreach (var reasonOption in QuickReasonOptions)
-                    {
-                        <button type="button"
-                                class="pill-badge @(_movementRequest.Reason == reasonOption ? "pill-blue" : "pill-slate")"
-                                style="border: none; cursor: pointer; font-size: 0.72rem;"
-                                @onclick="() => _movementRequest.Reason = reasonOption">
-                            @reasonOption
-                        </button>
-                    }
-                </div>
-            </div>
-
-            <div style="grid-column: 1 / -1; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;">
-                <span style="font-size: 0.84rem; color: var(--adm-muted);">
-                    Responsável registrado automaticamente: <strong>@Gateway.CurrentEmployee?.FullName</strong>
+            <div class="stk-form-footer">
+                <span style="font-size: 0.82rem; color: var(--adm-muted);">
+                    Responsável: <strong>@(Gateway.CurrentEmployee?.FullName ?? "Lojista")</strong>
                 </span>
 
                 <button type="button"
-                        class="adm-btn adm-btn-success"
-                        disabled="@(_isSubmitting || _movementRequest.ProductVariantId == Guid.Empty)"
+                        class="adm-btn @GetSubmitButtonClass()"
+                        style="min-width: 220px; font-weight: 800;"
+                        disabled="@(_isSubmitting || selectedProduct is null)"
                         @onclick="SubmitMovementAsync">
-                    @(_isSubmitting ? "Registrando..." : "✓ Confirmar Movimentação")
+                    @GetSubmitButtonLabel()
                 </button>
             </div>
-        </div>
-    </section>
+        </section>
+    }
 }
 
 <!-- 3. HISTÓRICO AUDITÁVEL DE MOVIMENTAÇÕES -->
@@ -478,6 +507,24 @@
         try
         {
             _products = await Gateway.GetProductsAsync();
+            if (Gateway.CanManageProducts && _products.Any(p => p.Variants.Count == 0))
+            {
+                foreach (var prodWithoutVariant in _products.Where(p => p.Variants.Count == 0).ToList())
+                {
+                    await Gateway.AddVariantAsync(prodWithoutVariant.Id, new SaveProductVariantRequest
+                    {
+                        Color = "Padrão",
+                        Size = "Único",
+                        ColorHex = "#18181B",
+                        InitialStockQuantity = 0,
+                        LowStockThreshold = 3,
+                        IsActive = true
+                    });
+                }
+
+                _products = await Gateway.GetProductsAsync();
+            }
+
             if (_selectedProductId == Guid.Empty && _products.Count > 0)
             {
                 _selectedProductId = _products[0].Id;
@@ -543,7 +590,75 @@
         _selectedProductIdString = prod.Id.ToString();
         _movementRequest.ProductVariantId = variant.Id;
         _selectedVariantIdString = variant.Id.ToString();
-        _success = $"Item '{prod.Name} ({variant.Color}/{variant.Size})' selecionado no formulário abaixo.";
+        _success = $"Item '{prod.Name}' selecionado no painel abaixo.";
+    }
+
+    private void SetMovementType(string movementType)
+    {
+        _movementRequest.MovementType = movementType;
+        if (string.IsNullOrWhiteSpace(_movementRequest.Reason) || QuickReasonOptions.Contains(_movementRequest.Reason))
+        {
+            _movementRequest.Reason = movementType switch
+            {
+                "OUT" => "Venda WhatsApp / Balcão",
+                "ADJUSTMENT" => "Conferência de inventário",
+                _ => "Reposição de estoque"
+            };
+        }
+    }
+
+    private int GetProjectedStock(int currentQty)
+    {
+        var qty = Math.Max(0, _movementRequest.Quantity);
+        return _movementRequest.MovementType switch
+        {
+            "OUT" => Math.Max(0, currentQty - qty),
+            "ADJUSTMENT" => qty,
+            _ => currentQty + qty
+        };
+    }
+
+    private string GetSubmitButtonClass() => _movementRequest.MovementType switch
+    {
+        "OUT" => "adm-btn-danger",
+        "ADJUSTMENT" => "adm-btn-primary",
+        _ => "adm-btn-success"
+    };
+
+    private string GetSubmitButtonLabel()
+    {
+        if (_isSubmitting)
+            return "Registrando...";
+
+        var qty = Math.Max(0, _movementRequest.Quantity);
+        return _movementRequest.MovementType switch
+        {
+            "OUT" => $"➖ Confirmar Saída (-{qty} un.)",
+            "ADJUSTMENT" => $"⚖️ Salvar Saldo Exato ({qty} un.)",
+            _ => $"➕ Confirmar Entrada (+{qty} un.)"
+        };
+    }
+
+    private static string FormatVariantDisplay(string? color, string? size)
+    {
+        var c = (color ?? string.Empty).Trim();
+        var s = (size ?? string.Empty).Trim();
+        var isDefaultColor = string.IsNullOrWhiteSpace(c) ||
+                             string.Equals(c, "Padrão", StringComparison.OrdinalIgnoreCase) ||
+                             string.Equals(c, "Único", StringComparison.OrdinalIgnoreCase) ||
+                             string.Equals(c, "Única", StringComparison.OrdinalIgnoreCase);
+        var isDefaultSize = string.IsNullOrWhiteSpace(s) ||
+                            string.Equals(s, "Único", StringComparison.OrdinalIgnoreCase) ||
+                            string.Equals(s, "Única", StringComparison.OrdinalIgnoreCase) ||
+                            string.Equals(s, "Padrão", StringComparison.OrdinalIgnoreCase);
+
+        if (isDefaultColor && isDefaultSize)
+            return "Padrão (Item único)";
+        if (isDefaultSize)
+            return c;
+        if (isDefaultColor)
+            return s;
+        return $"{c} • {s}";
     }
 
     private async Task QuickMoveAsync(
@@ -572,7 +687,7 @@
             _products = await Gateway.GetProductsAsync();
             await LoadMovementsAsync();
             var opLabel = movementType == "OUT" ? $"-{quantity}" : $"+{quantity}";
-            _success = $"✓ {product.Name} ({mov.Color}/{mov.Size}) atualizado ({opLabel}): {mov.PreviousQuantity} → {mov.NewQuantity} un.";
+            _success = $"✓ {product.Name} atualizado ({opLabel}): {mov.PreviousQuantity} → {mov.NewQuantity} un.";
         }
         catch (Exception ex)
         {
@@ -657,10 +772,48 @@
         _success = null;
         try
         {
+            if (_movementRequest.ProductVariantId == Guid.Empty)
+            {
+                var selectedProd = GetSelectedProduct();
+                if (selectedProd is not null)
+                {
+                    var existingVar = selectedProd.Variants.FirstOrDefault();
+                    if (existingVar is not null)
+                    {
+                        _movementRequest.ProductVariantId = existingVar.Id;
+                    }
+                    else if (Gateway.CanManageProducts)
+                    {
+                        var createdVar = await Gateway.AddVariantAsync(selectedProd.Id, new SaveProductVariantRequest
+                        {
+                            Color = "Padrão",
+                            Size = "Único",
+                            ColorHex = "#18181B",
+                            InitialStockQuantity = 0,
+                            LowStockThreshold = 3,
+                            IsActive = true
+                        });
+                        _movementRequest.ProductVariantId = createdVar.Id;
+                        _selectedVariantIdString = createdVar.Id.ToString();
+                    }
+                }
+            }
+
+            if (string.IsNullOrWhiteSpace(_movementRequest.Reason))
+            {
+                _movementRequest.Reason = _movementRequest.MovementType switch
+                {
+                    "OUT" => "Venda WhatsApp / Balcão",
+                    "ADJUSTMENT" => "Conferência de inventário",
+                    _ => "Reposição de estoque"
+                };
+            }
+
             var mov = await Gateway.RegisterStockMovementAsync(_movementRequest);
             _products = await Gateway.GetProductsAsync();
+            OnProductSelectionChanged();
             await LoadMovementsAsync();
-            _success = $"✓ Movimentação registrada! Variante {mov.Color}/{mov.Size} atualizada de {mov.PreviousQuantity} para {mov.NewQuantity} unidades.";
+            _success = $"✓ Estoque atualizado de {mov.PreviousQuantity} para {mov.NewQuantity} un.!";
         }
         catch (Exception ex)
         {

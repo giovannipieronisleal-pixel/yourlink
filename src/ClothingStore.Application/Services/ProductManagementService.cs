@@ -161,12 +161,20 @@ public sealed class ProductManagementService
 
         await _repository.AddProductAsync(product, ct);
 
-        if (!string.IsNullOrWhiteSpace(request.InitialColor) && !string.IsNullOrWhiteSpace(request.InitialSize))
+        var hasInitialVariantInput =
+            !string.IsNullOrWhiteSpace(request.InitialColor) ||
+            !string.IsNullOrWhiteSpace(request.InitialSize) ||
+            request.InitialStockQuantity > 0;
+
+        if (hasInitialVariantInput)
         {
+            var resolvedColor = string.IsNullOrWhiteSpace(request.InitialColor) ? "Padrão" : request.InitialColor.Trim();
+            var resolvedSize = string.IsNullOrWhiteSpace(request.InitialSize) ? "Único" : request.InitialSize.Trim();
+
             var variant = product.AddVariant(
-                request.InitialColor,
-                request.InitialSize,
-                ProductVariant.ResolveDefaultColorHex(request.InitialColor),
+                resolvedColor,
+                resolvedSize,
+                ProductVariant.ResolveDefaultColorHex(resolvedColor),
                 customSku: null,
                 lowStockThreshold: 3);
 
