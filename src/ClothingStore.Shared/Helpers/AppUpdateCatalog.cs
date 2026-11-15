@@ -356,6 +356,25 @@ public static class AppUpdateCatalog
         }
     }
 
+    public static string? ResolveManifestAssetUrl(string? manifestUrl, string? candidateUrl)
+    {
+        if (string.IsNullOrWhiteSpace(candidateUrl))
+            return null;
+
+        var trimmed = candidateUrl.Trim();
+        if (Uri.TryCreate(trimmed, UriKind.Absolute, out var abs))
+            return abs.ToString();
+
+        if (!string.IsNullOrWhiteSpace(manifestUrl) &&
+            Uri.TryCreate(manifestUrl.Trim(), UriKind.Absolute, out var baseUri) &&
+            Uri.TryCreate(baseUri, trimmed, out var combined))
+        {
+            return combined.ToString();
+        }
+
+        return trimmed;
+    }
+
     public static AppUpdateReleaseInfo? ParseGitHubRedirectLocation(
         string? redirectLocationOrUrl,
         string currentVersion,

@@ -898,4 +898,116 @@ public class PlanCheckoutAutoDeliveryAndFlexibleSalesTests
         Assert.IsTrue(settingsMarkup.Contains("Nenhum plano contratado", StringComparison.Ordinal));
         Assert.IsTrue(layoutMarkup.Contains("Sem Plano Ativo", StringComparison.Ordinal));
     }
+
+    [TestMethod]
+    public async Task GiftCardValidationApi_SyncMetadataMerge_And_401SyncError_ShouldWorkCleanly()
+    {
+        var env = CreateEnv();
+        try
+        {
+            var service = new EmployeeAndSettingsService(env.Repo, env.Hasher, env.Storage);
+
+            var validCard = PlanActivationCode.Create(
+                StoreSettings.PlanTierPremium,
+                365,
+                customCode: "LUXO-PREM-365D-TESTE001",
+                isGiftedUnpaid: true,
+                suggestedDomainName: "minhaloja.duckdns.org");
+            await env.Repo.SavePlanActivationCodeAsync(validCard);
+
+            var pausedCard = PlanActivationCode.Create(StoreSettings.PlanTierIntermediate, 30, "LUXO-INTR-30D-PAUSED01");
+            pausedCard.Revoke();
+            await env.Repo.SavePlanActivationCodeAsync(pausedCard);
+
+            var expiredCard = PlanActivationCode.Create(
+                StoreSettings.PlanTierBasic,
+                30,
+                customCode: "LUXO-BASC-30D-EXPIR01",
+                codeExpiresAt: DateTimeOffset.UtcNow.AddDays(-1));
+            await env.Repo.SavePlanActivationCodeAsync(expiredCard);
+
+            var restrictedCard = PlanActivationCode.Create(
+                StoreSettings.PlanTierPremium,
+                90,
+                customCode: "LUXO-PREM-90D-EXCLUS",
+                targetStoreName: "Loja Exclusiva");
+            await env.Repo.SavePlanActivationCodeAsync(restrictedCard);
+
+            var missing = await service.ValidateGiftCardForRemoteStoreAsync(new PlatformGiftCardRedeemRequest("INEXISTENTE", "Outra Loja"));
+            Assert.IsFalse(missing.IsValid);
+            Assert.AreEqual(GiftCardErrorClassifier.StatusNotFound, missing.Status);
+
+            var paused = await service.ValidateGiftCardForRemoteStoreAsync(new PlatformGiftCardRedeemRequest(pausedCard.Code, "Outra Loja"));
+            Assert.IsFalse(paused.IsValid);
+            Assert.AreEqual(GiftCardErrorClassifier.StatusRevoked, paused.Status);
+
+            var expired = await service.ValidateGiftCardForRemoteStoreAsync(new PlatformGiftCardRedeemRequest(expiredCard.Code, "Outra Loja"));
+            Assert.IsFalse(expired.IsValid);
+            Assert.AreEqual(GiftCardErrorClassifier.StatusExpired, expired.Status);
+
+            var wrongStore = await service.ValidateGiftCardForRemoteStoreAsync(new PlatformGiftCardRedeemRequest(restrictedCard.Code, "Outra Loja"));
+            Assert.IsFalse(wrongStore.IsValid);
+            Assert.AreEqual(GiftCardErrorClassifier.StatusStoreMismatch, wrongStore.Status);
+
+            // Validate nunca consome o Gift Card antes do resgate real
+            var okPreview = await service.ValidateGiftCardForRemoteStoreAsync(new PlatformGiftCardRedeemRequest(validCard.Code, "Boutique Nova"));
+            Assert.IsTrue(okPreview.IsValid);
+            Assert.AreEqual(GiftCardErrorClassifier.StatusAvailable, okPreview.Status);
+            Assert.AreEqual(StoreSettings.PlanTierPremium, okPreview.TargetPlanTier);
+            Assert.AreEqual(365, okPreview.DurationDays);
+            Assert.IsTrue(okPreview.IsGiftedUnpaid);
+            Assert.AreEqual("minhaloja.duckdns.org", okPreview.SuggestedDomainName);
+
+            var stillUnredeemed = await env.Repo.GetPlanActivationCodeByCodeAsync(validCard.Code);
+            Assert.IsFalse(stillUnredeemed!.IsRedeemed);
+
+            // Sincronização deve atualizar metadados mais recentes sem perder estado
+            var updatedDto = new PlatformGiftCardSyncDto(
+                validCard.Id,
+                validCard.Code,
+                StoreSettings.PlanTierPremium,
+                365,
+                null,
+                "Notas atualizadas",
+                PlanActivationCode.BillingKindGiftedUnpaid,
+                "novodominio.duckdns.org",
+                validCard.CreatedAt,
+                null,
+                IsRevoked: false,
+                RedeemedAt: null,
+                RedeemedByStoreName: null,
+                RedeemedByEmployeeId: null,
+                AppliedPlanExpiresAt: null,
+                StatusUpdatedAt: DateTimeOffset.UtcNow.AddMinutes(5));
+            await service.SyncPlatformGiftCardsAsync([updatedDto]);
+
+            var reloaded = await env.Repo.GetPlanActivationCodeByCodeAsync(validCard.Code);
+            Assert.AreEqual("Notas atualizadas", reloaded!.Notes);
+            Assert.AreEqual("novodominio.duckdns.org", reloaded.SuggestedDomainName);
+
+            var status = await service.GetGiftCardSyncStatusAsync("https://youlink-loja.onrender.com");
+            Assert.IsTrue(status.SyncAuthorized);
+            Assert.AreEqual(4, status.TotalCards);
+            Assert.AreEqual(2, status.AvailableCards);
+            Assert.AreEqual(1, status.RevokedCards);
+
+            // Ao resgatar e validar novamente, deve indicar AlreadyRedeemed
+            await service.RedeemGiftCardForRemoteStoreAsync(new PlatformGiftCardRedeemRequest(validCard.Code, "Boutique Nova"));
+            var afterRedeem = await service.ValidateGiftCardForRemoteStoreAsync(new PlatformGiftCardRedeemRequest(validCard.Code, "Outra Loja"));
+            Assert.IsFalse(afterRedeem.IsValid);
+            Assert.AreEqual(GiftCardErrorClassifier.StatusAlreadyRedeemed, afterRedeem.Status);
+
+            // AdminApiClient: 401 no endpoint de sync deve orientar sobre X-YouLink-Sync-Key
+            var unauthorizedHandler = new CapturingHttpHandler(_ => new HttpResponseMessage(HttpStatusCode.Unauthorized));
+            using var http401 = new HttpClient(unauthorizedHandler) { BaseAddress = new Uri("https://example.invalid") };
+            var client401 = new AdminApiClient(http401);
+            var ex401 = await Assert.ThrowsExceptionAsync<InvalidOperationException>(
+                () => client401.GetPlatformGiftCardSyncStatusAsync("chave-errada"));
+            Assert.IsTrue(ex401.Message.Contains("X-YouLink-Sync-Key", StringComparison.Ordinal));
+        }
+        finally
+        {
+            CleanupDir(env.TempDir);
+        }
+    }
 }

@@ -1516,21 +1516,57 @@ app.MapPost("/api/platform-sync/owner-pricing", async (
     return Results.Ok(await settingsService.SyncOwnerPricingAsync(request, ct));
 }).AllowAnonymous();
 
+app.MapPost("/api/platform-sync/gift-cards/validate", async (
+    PlatformGiftCardRedeemRequest request,
+    EmployeeAndSettingsService settingsService,
+    CancellationToken ct) =>
+{
+    var validation = await settingsService.ValidateGiftCardForRemoteStoreAsync(request, ct);
+    return Results.Ok(validation);
+}).AllowAnonymous().RequireRateLimiting("auth-strict");
+
 app.MapPost("/api/platform-sync/gift-cards/redeem", async (
     PlatformGiftCardRedeemRequest request,
+    HttpContext httpContext,
     EmployeeAndSettingsService settingsService,
     CancellationToken ct) =>
 {
     try
     {
         var result = await settingsService.RedeemGiftCardForRemoteStoreAsync(request, ct);
+        var mirror = httpContext.RequestServices.GetService<CloudAppDataMirror>();
+        if (mirror is not null)
+        {
+            try { await mirror.FlushAsync(TimeSpan.FromSeconds(3), ct); } catch { }
+        }
         return Results.Ok(result);
     }
     catch (DomainException ex)
     {
-        return Results.BadRequest(new { error = ex.Message });
+        return Results.BadRequest(new
+        {
+            error = ex.Message,
+            codeStatus = GiftCardErrorClassifier.ClassifyMessage(ex.Message)
+        });
     }
 }).AllowAnonymous().RequireRateLimiting("auth-strict");
+
+app.MapGet("/api/platform-sync/gift-cards/status", async (
+    HttpContext httpContext,
+    IClothingStoreRepository repository,
+    EmployeeAndSettingsService settingsService,
+    CancellationToken ct) =>
+{
+    var settings = await repository.GetStoreSettingsAsync(ct);
+    if (!IsAuthorizedPlatformSyncRequest(httpContext, settings))
+    {
+        return Results.Json(
+            new { error = "Chave de sincronização (X-YouLink-Sync-Key) inválida ou ausente." },
+            statusCode: StatusCodes.Status401Unauthorized);
+    }
+
+    return Results.Ok(await settingsService.GetGiftCardSyncStatusAsync(null, ct));
+}).AllowAnonymous();
 
 app.MapGet("/api/platform-sync/gift-cards", async (
     HttpContext httpContext,
@@ -1540,7 +1576,11 @@ app.MapGet("/api/platform-sync/gift-cards", async (
 {
     var settings = await repository.GetStoreSettingsAsync(ct);
     if (!IsAuthorizedPlatformSyncRequest(httpContext, settings))
-        return Results.Unauthorized();
+    {
+        return Results.Json(
+            new { error = "Chave de sincronização (X-YouLink-Sync-Key) inválida ou ausente." },
+            statusCode: StatusCodes.Status401Unauthorized);
+    }
 
     return Results.Ok(await settingsService.GetActivationCodesForSyncAsync(ct));
 }).AllowAnonymous();
@@ -1574,9 +1614,19 @@ app.MapPost("/api/platform-sync/gift-cards/sync", async (
 {
     var settings = await repository.GetStoreSettingsAsync(ct);
     if (!IsAuthorizedPlatformSyncRequest(httpContext, settings))
-        return Results.Unauthorized();
+    {
+        return Results.Json(
+            new { error = "Chave de sincronização (X-YouLink-Sync-Key) inválida ou ausente." },
+            statusCode: StatusCodes.Status401Unauthorized);
+    }
 
-    return Results.Ok(await settingsService.SyncPlatformGiftCardsAsync(request.GiftCards, ct));
+    var merged = await settingsService.SyncPlatformGiftCardsAsync(request.GiftCards, ct);
+    var mirror = httpContext.RequestServices.GetService<CloudAppDataMirror>();
+    if (mirror is not null)
+    {
+        try { await mirror.FlushAsync(TimeSpan.FromSeconds(3), ct); } catch { }
+    }
+    return Results.Ok(merged);
 }).AllowAnonymous();
 
 app.Run();

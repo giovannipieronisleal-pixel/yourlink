@@ -10,6 +10,7 @@ using ClothingStore.Domain.Entities;
 using ClothingStore.Infrastructure.Persistence;
 using ClothingStore.Infrastructure.Security;
 using ClothingStore.Infrastructure.Storage;
+using ClothingStore.Shared.Clients;
 using ClothingStore.Shared.DTOs;
 using ClothingStore.Shared.Helpers;
 using Microsoft.Extensions.Configuration;
@@ -731,6 +732,54 @@ public sealed class PlatformPortalAndCloudPersistenceTests
                 Assert.IsTrue(storeHtml.Contains("Vestido Seda Azul", StringComparison.Ordinal));
                 Assert.IsFalse(storeHtml.Contains("Baixar YouLink Grátis", StringComparison.Ordinal),
                     "/loja/{slug} não deve renderizar o portal central de downloads.");
+
+                // API completa de Gift Cards em ClothingStore.Web (sincronização, status, validação e resgate único)
+                var syncClient = new AdminApiClient(http);
+                await Assert.ThrowsExceptionAsync<InvalidOperationException>(
+                    () => syncClient.GetPlatformGiftCardSyncStatusAsync("chave-incorreta"));
+
+                var giftCardDto = new PlatformGiftCardSyncDto(
+                    Guid.NewGuid(),
+                    "LUXO-PREM-365D-LOOPBACK",
+                    StoreSettings.PlanTierPremium,
+                    365,
+                    null,
+                    "Teste loopback Web",
+                    PlanActivationCode.BillingKindGiftedUnpaid,
+                    "boutique-luz.duckdns.org",
+                    DateTimeOffset.UtcNow,
+                    null,
+                    IsRevoked: false,
+                    RedeemedAt: null,
+                    RedeemedByStoreName: null,
+                    RedeemedByEmployeeId: null,
+                    AppliedPlanExpiresAt: null,
+                    StatusUpdatedAt: DateTimeOffset.UtcNow);
+
+                var synced = await syncClient.SyncPlatformGiftCardsAsync([giftCardDto], "portal-loopback-sync-secret");
+                Assert.AreEqual(1, synced.Count);
+
+                var status = await syncClient.GetPlatformGiftCardSyncStatusAsync("portal-loopback-sync-secret");
+                Assert.IsTrue(status.SyncAuthorized);
+                Assert.AreEqual(1, status.AvailableCards);
+
+                var preCheck = await syncClient.ValidatePlatformGiftCardAsync(
+                    new PlatformGiftCardRedeemRequest("LUXO-PREM-365D-LOOPBACK", "Boutique Luz Real"));
+                Assert.IsTrue(preCheck.IsValid);
+                Assert.AreEqual(GiftCardErrorClassifier.StatusAvailable, preCheck.Status);
+
+                var redeemed = await syncClient.RedeemPlatformGiftCardAsync(
+                    new PlatformGiftCardRedeemRequest("LUXO-PREM-365D-LOOPBACK", "Boutique Luz Real"));
+                Assert.AreEqual(StoreSettings.PlanTierPremium, redeemed.TargetPlanTier);
+
+                var secondRedeemEx = await Assert.ThrowsExceptionAsync<InvalidOperationException>(
+                    () => syncClient.RedeemPlatformGiftCardAsync(
+                        new PlatformGiftCardRedeemRequest("LUXO-PREM-365D-LOOPBACK", "Outra Loja")));
+                Assert.IsTrue(secondRedeemEx.Message.Contains("já foi resgatado", StringComparison.OrdinalIgnoreCase));
+
+                var listedAfterRedeem = await syncClient.GetPlatformGiftCardsSyncAsync("portal-loopback-sync-secret");
+                Assert.AreEqual(1, listedAfterRedeem.Count);
+                Assert.IsNotNull(listedAfterRedeem[0].RedeemedAt);
             }
             finally
             {

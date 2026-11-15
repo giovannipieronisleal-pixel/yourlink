@@ -1333,6 +1333,50 @@ public sealed class MauiAdminGateway
             () => _employeeAndSettingsService.RemoveStoreLogoAsync(CurrentEmployee!.EmployeeId));
     }
 
+    public async Task<PlatformGiftCardValidationResponse> ValidateActivationCodeAsync(string code)
+    {
+        EnsureAdminPermission();
+
+        if (string.IsNullOrWhiteSpace(code))
+            throw new DomainException("Digite o código do Gift Card para validar.");
+
+        var localSettings = await _employeeAndSettingsService.GetAdminStoreSettingsAsync();
+        var storeName = string.IsNullOrWhiteSpace(localSettings.StoreName)
+            ? CurrentEmployee?.FullName ?? "Loja Cliente"
+            : localSettings.StoreName.Trim();
+        var req = new PlatformGiftCardRedeemRequest(
+            Code: code.Trim().ToUpperInvariant().Replace(" ", "-"),
+            StoreName: storeName,
+            EmployeeId: CurrentEmployee?.EmployeeId);
+
+        if (HasCustomServerUrl || ShouldTryRemoteApi)
+        {
+            try
+            {
+                return await _apiClient.ValidatePlatformGiftCardAsync(req);
+            }
+            catch
+            {
+            }
+        }
+
+        var centralUrl = ResolveCentralBillingServerUrl(localSettings);
+        if (!string.IsNullOrWhiteSpace(centralUrl) &&
+            !string.Equals(centralUrl.TrimEnd('/'), (_apiClient.CurrentBaseAddress ?? string.Empty).TrimEnd('/'), StringComparison.OrdinalIgnoreCase))
+        {
+            try
+            {
+                var centralClient = CreateCentralBillingClient(centralUrl);
+                return await centralClient.ValidatePlatformGiftCardAsync(req);
+            }
+            catch
+            {
+            }
+        }
+
+        return await _employeeAndSettingsService.ValidateGiftCardForRemoteStoreAsync(req);
+    }
+
     public async Task<RedeemActivationCodeResponse> RedeemActivationCodeAsync(RedeemActivationCodeRequest request)
     {
         EnsureAdminPermission();
@@ -1349,11 +1393,21 @@ public sealed class MauiAdminGateway
 
         RedeemActivationCodeResponse? response = null;
         var triedConfiguredApiClient = false;
+        var anyRemoteEndpointConfirmedNotFound = false;
+        var remoteUnavailableReasons = new List<string>();
 
         if (HasCustomServerUrl || ShouldTryRemoteApi)
         {
             triedConfiguredApiClient = true;
-            response = await TryRedeemGiftCardViaClientAsync(_apiClient, remoteRedeemRequest, updateSkipTimerOnTimeout: true);
+            var outcome = await TryRedeemGiftCardDetailedAsync(
+                _apiClient,
+                remoteRedeemRequest,
+                updateSkipTimerOnTimeout: true);
+            response = outcome.Response;
+            if (outcome.ConfirmedNotFound)
+                anyRemoteEndpointConfirmedNotFound = true;
+            else if (response is null && !string.IsNullOrWhiteSpace(outcome.UnavailableReason))
+                remoteUnavailableReasons.Add(outcome.UnavailableReason);
         }
 
         if (response is null)
@@ -1367,7 +1421,15 @@ public sealed class MauiAdminGateway
             {
                 if (!triedConfiguredApiClient && !string.IsNullOrWhiteSpace(_apiClient.CurrentBaseAddress))
                 {
-                    response = await TryRedeemGiftCardViaClientAsync(_apiClient, remoteRedeemRequest, updateSkipTimerOnTimeout: false);
+                    var outcome = await TryRedeemGiftCardDetailedAsync(
+                        _apiClient,
+                        remoteRedeemRequest,
+                        updateSkipTimerOnTimeout: false);
+                    response = outcome.Response;
+                    if (outcome.ConfirmedNotFound)
+                        anyRemoteEndpointConfirmedNotFound = true;
+                    else if (response is null && !string.IsNullOrWhiteSpace(outcome.UnavailableReason))
+                        remoteUnavailableReasons.Add(outcome.UnavailableReason);
                 }
 
                 if (response is null)
@@ -1377,12 +1439,26 @@ public sealed class MauiAdminGateway
                         !string.Equals(centralUrl.TrimEnd('/'), (_apiClient.CurrentBaseAddress ?? string.Empty).TrimEnd('/'), StringComparison.OrdinalIgnoreCase))
                     {
                         var centralClient = CreateCentralBillingClient(centralUrl);
-                        response = await TryRedeemGiftCardViaClientAsync(centralClient, remoteRedeemRequest, updateSkipTimerOnTimeout: false);
+                        var outcome = await TryRedeemGiftCardDetailedAsync(
+                            centralClient,
+                            remoteRedeemRequest,
+                            updateSkipTimerOnTimeout: false);
+                        response = outcome.Response;
+                        if (outcome.ConfirmedNotFound)
+                            anyRemoteEndpointConfirmedNotFound = true;
+                        else if (response is null && !string.IsNullOrWhiteSpace(outcome.UnavailableReason))
+                            remoteUnavailableReasons.Add(outcome.UnavailableReason);
                     }
                 }
 
                 if (response is null)
                 {
+                    if (!anyRemoteEndpointConfirmedNotFound && remoteUnavailableReasons.Count > 0)
+                    {
+                        throw new DomainException(
+                            $"Não foi possível validar o Gift Card '{remoteRedeemRequest.Code.Trim().ToUpperInvariant()}' no servidor central ({string.Join("; ", remoteUnavailableReasons)}). Verifique sua conexão ou se o Gift Card já foi sincronizado no Painel Admin.");
+                    }
+
                     throw;
                 }
             }
@@ -1394,17 +1470,33 @@ public sealed class MauiAdminGateway
         return response;
     }
 
-    private async Task<RedeemActivationCodeResponse?> TryRedeemGiftCardViaClientAsync(
+    private sealed record RemoteGiftCardRedeemOutcome(
+        RedeemActivationCodeResponse? Response,
+        bool ConfirmedNotFound,
+        string? UnavailableReason);
+
+    private Task<RedeemActivationCodeResponse?> TryRedeemGiftCardViaClientAsync(
+        AdminApiClient client,
+        PlatformGiftCardRedeemRequest remoteRedeemRequest,
+        bool updateSkipTimerOnTimeout) =>
+        TryRedeemGiftCardDetailedAsync(client, remoteRedeemRequest, updateSkipTimerOnTimeout)
+            .ContinueWith(t => t.Result.Response, TaskContinuationOptions.OnlyOnRanToCompletion);
+
+    private async Task<RemoteGiftCardRedeemOutcome> TryRedeemGiftCardDetailedAsync(
         AdminApiClient client,
         PlatformGiftCardRedeemRequest remoteRedeemRequest,
         bool updateSkipTimerOnTimeout)
     {
+        var serverLabel = string.IsNullOrWhiteSpace(client.CurrentBaseAddress)
+            ? "servidor"
+            : client.CurrentBaseAddress.TrimEnd('/');
         try
         {
             var remoteGrant = await client.RedeemPlatformGiftCardAsync(remoteRedeemRequest);
-            return await _employeeAndSettingsService.ApplyRedeemedRemoteGiftCardAsync(
+            var applied = await _employeeAndSettingsService.ApplyRedeemedRemoteGiftCardAsync(
                 remoteGrant,
                 CurrentEmployee?.EmployeeId);
+            return new RemoteGiftCardRedeemOutcome(applied, ConfirmedNotFound: false, UnavailableReason: null);
         }
         catch (Exception ex) when (IsConnectionOrTimeoutError(ex))
         {
@@ -1412,15 +1504,19 @@ public sealed class MauiAdminGateway
             {
                 _skipRemoteApiUntil = DateTimeOffset.UtcNow.AddSeconds(60);
             }
-            return null;
+            return new RemoteGiftCardRedeemOutcome(null, ConfirmedNotFound: false, UnavailableReason: $"{serverLabel}: sem conexão ou tempo esgotado");
         }
-        catch (InvalidOperationException ex) when (IsEndpointUnavailableOnHubError(ex) || IsGiftCardNotFoundError(ex))
+        catch (InvalidOperationException ex) when (IsEndpointUnavailableOnHubError(ex))
         {
-            return null;
+            return new RemoteGiftCardRedeemOutcome(null, ConfirmedNotFound: false, UnavailableReason: $"{serverLabel}: endpoint de Gift Card indisponível");
+        }
+        catch (InvalidOperationException ex) when (IsGiftCardNotFoundError(ex))
+        {
+            return new RemoteGiftCardRedeemOutcome(null, ConfirmedNotFound: true, UnavailableReason: null);
         }
         catch (DomainException ex) when (IsGiftCardNotFoundError(ex))
         {
-            return null;
+            return new RemoteGiftCardRedeemOutcome(null, ConfirmedNotFound: true, UnavailableReason: null);
         }
         catch (InvalidOperationException ex)
         {
