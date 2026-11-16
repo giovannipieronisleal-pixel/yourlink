@@ -72,6 +72,17 @@ public sealed class CloudSyncStateService
 
         // Mantém fallback seguro caso algum payload mínimo omita WhatsApp/Descrição.
         var currentSettings = await _repository.GetStoreSettingsAsync(ct);
+        var currentEffectiveTier = currentSettings.GetEffectivePlanTier();
+        var incomingTier = settingsRequest.PlanTier is not null
+            ? StoreSettings.NormalizePlanTier(settingsRequest.PlanTier)
+            : null;
+        if (!string.Equals(currentEffectiveTier, StoreSettings.PlanTierBasic, StringComparison.OrdinalIgnoreCase) &&
+            (incomingTier is null || string.Equals(incomingTier, StoreSettings.PlanTierBasic, StringComparison.OrdinalIgnoreCase)))
+        {
+            // Preserva VIP ativo já concedido pelo Admin ou pago na nuvem quando o app cliente ainda sincroniza como Básico.
+            settingsRequest.PlanTier = currentSettings.PlanTier;
+        }
+
         if (string.IsNullOrWhiteSpace(settingsRequest.WhatsappNumber))
         {
             settingsRequest.WhatsappNumber = currentSettings.WhatsappNumber;

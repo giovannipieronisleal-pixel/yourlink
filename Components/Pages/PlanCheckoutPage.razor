@@ -765,7 +765,7 @@ else
                 : "Padrão";
 
             var pixLine = _activePlanOrder is not null
-                ? $"\nPedido: {_activePlanOrder.OrderNumber} (Pix: {_activePlanOrder.PixKeyUsed})"
+                ? $"\nPedido: {_activePlanOrder.OrderNumber} ({_activePlanOrder.PixKeyUsed})"
                 : string.Empty;
 
             var msg =
@@ -1025,7 +1025,10 @@ else
         {
             var store = string.IsNullOrWhiteSpace(_customerStoreName) ? _settings.StoreName : _customerStoreName.Trim();
             var slug = ClothingStore.Domain.Entities.Category.GenerateSlug(store);
-            var domainText = string.IsNullOrWhiteSpace(_desiredDomain) ? $"https://lojas.{slug}.com" : _desiredDomain.Trim();
+            var portalBase = Gateway.GetPublicPortalBaseUrl().TrimEnd('/');
+            var domainText = string.IsNullOrWhiteSpace(_desiredDomain) || ClothingStore.Domain.Entities.StoreSettings.IsPlaceholderStoreUrl(_desiredDomain)
+                ? $"{portalBase}/loja/{slug}"
+                : _desiredDomain.Trim();
             var resolvedEmail = !string.IsNullOrWhiteSpace(_customerContact) && _customerContact.Contains('@', StringComparison.Ordinal)
                 ? _customerContact.Trim()
                 : Gateway.CurrentEmployee?.Email;

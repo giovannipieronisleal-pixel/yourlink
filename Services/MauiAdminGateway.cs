@@ -54,6 +54,7 @@ public sealed class MauiAdminGateway
     private DateTimeOffset _skipRemoteApiUntil = DateTimeOffset.MinValue;
     private DateTimeOffset _lastCentralCatalogCheckAt = DateTimeOffset.MinValue;
     private DateTimeOffset _lastOrdersCloudPullAt = DateTimeOffset.MinValue;
+    private DateTimeOffset _lastCloudPlanSyncAt = DateTimeOffset.MinValue;
 
     public EmployeeProfileDto? CurrentEmployee { get; private set; }
     public string? AccessToken { get; private set; }
@@ -591,6 +592,7 @@ public sealed class MauiAdminGateway
             {
                 _apiClient.SetSession(localChallenge.AuthResult.AccessToken, localChallenge.AuthResult.Employee);
                 await PersistSessionAsync(localChallenge.AuthResult, rememberMe);
+                await RefreshPlanFromCentralCloudBestEffortAsync(forceRefresh: true);
             }
             return localChallenge;
         }
@@ -1298,9 +1300,10 @@ public sealed class MauiAdminGateway
     public async Task<AdminStoreSettingsDto> GetPlanCatalogSettingsAsync()
     {
         EnsureAuthenticated();
-        var settings = IsAdmin
+        var syncedSettings = await RefreshPlanFromCentralCloudBestEffortAsync();
+        var settings = syncedSettings ?? (IsAdmin
             ? await GetStoreSettingsAsync()
-            : await _employeeAndSettingsService.GetAdminStoreSettingsAsync();
+            : await _employeeAndSettingsService.GetAdminStoreSettingsAsync());
 
         if (ShouldTryRemoteApi)
         {
@@ -2518,5 +2521,79 @@ public sealed class MauiAdminGateway
         }
 
         return false;
+    }
+
+    public async Task<AdminStoreSettingsDto?> RefreshPlanFromCentralCloudBestEffortAsync(
+        bool forceRefresh = false,
+        CancellationToken ct = default)
+    {
+        try
+        {
+            if (!IsAuthenticated)
+                return null;
+
+            var now = DateTimeOffset.UtcNow;
+            if (!forceRefresh && (now - _lastCloudPlanSyncAt) < TimeSpan.FromSeconds(15))
+                return null;
+
+            _lastCloudPlanSyncAt = now;
+
+            var currentSettings = await _employeeAndSettingsService.GetAdminStoreSettingsAsync(ct);
+            var centralUrl = ResolveCentralBillingServerUrl(currentSettings, allowDefaultFallback: true);
+            if (string.IsNullOrWhiteSpace(centralUrl))
+                return null;
+
+            var queryParts = new List<string>(4);
+            if (!string.IsNullOrWhiteSpace(CurrentEmployee?.Email) && CurrentEmployee.Email.Contains('@'))
+                queryParts.Add($"email={Uri.EscapeDataString(CurrentEmployee.Email.Trim())}");
+            if (!string.IsNullOrWhiteSpace(CurrentEmployee?.Username))
+                queryParts.Add($"username={Uri.EscapeDataString(CurrentEmployee.Username.Trim())}");
+            if (!string.IsNullOrWhiteSpace(currentSettings.StoreSlug) &&
+                !string.Equals(currentSettings.StoreSlug.Trim(), "minha-loja", StringComparison.OrdinalIgnoreCase))
+            {
+                queryParts.Add($"storeSlug={Uri.EscapeDataString(currentSettings.StoreSlug.Trim())}");
+            }
+            if (!string.IsNullOrWhiteSpace(currentSettings.StoreName) &&
+                !string.Equals(currentSettings.StoreName.Trim(), "Minha Loja", StringComparison.OrdinalIgnoreCase))
+            {
+                queryParts.Add($"storeName={Uri.EscapeDataString(currentSettings.StoreName.Trim())}");
+            }
+
+            if (queryParts.Count == 0)
+                return null;
+
+            var endpoint = $"{centralUrl.TrimEnd('/')}/api/cloud/plan-status?{string.Join("&", queryParts)}";
+            using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            timeoutCts.CancelAfter(TimeSpan.FromSeconds(5));
+
+            using var response = await RemotePlatformBillingHttpClient.GetAsync(endpoint, timeoutCts.Token);
+            if (!response.IsSuccessStatusCode)
+                return null;
+
+            var raw = await response.Content.ReadAsStringAsync(timeoutCts.Token);
+            var remotePlan = JsonSerializer.Deserialize<CloudPlanStatusDto>(
+                raw,
+                new JsonSerializerOptions(JsonSerializerDefaults.Web));
+            if (remotePlan is null)
+                return null;
+
+            var (updated, updatedSettings) = await _employeeAndSettingsService.ApplyCloudPlanSyncAsync(
+                remotePlan,
+                CurrentEmployee?.EmployeeId,
+                ct);
+
+            if (updated)
+            {
+                _cloudSyncService?.TriggerAutoSyncIfEnabled();
+                PlanEntitlementActivated?.Invoke(updatedSettings);
+                AuthStateChanged?.Invoke();
+                return updatedSettings;
+            }
+        }
+        catch
+        {
+        }
+
+        return null;
     }
 }
