@@ -652,30 +652,58 @@ public sealed class SwitchableClothingStoreRepository : IClothingStoreRepository
         ClothingStore.Shared.DTOs.CloudAccountCredentialSyncDto account,
         CancellationToken ct)
     {
-        if (string.IsNullOrWhiteSpace(account.StoreName) && string.IsNullOrWhiteSpace(account.StoreSlug))
+        var hasMetadata = !string.IsNullOrWhiteSpace(account.StoreName) || !string.IsNullOrWhiteSpace(account.StoreSlug);
+        var remoteTier = StoreSettings.NormalizePlanTier(account.PlanTier);
+        var remotePlanExpired = account.PlanExpiresAt.HasValue && DateTimeOffset.UtcNow >= account.PlanExpiresAt.Value;
+        var hasActiveRemoteVip = !remotePlanExpired &&
+            !string.Equals(remoteTier, StoreSettings.PlanTierBasic, StringComparison.OrdinalIgnoreCase);
+
+        if (!hasMetadata && !hasActiveRemoteVip)
             return;
 
         var settings = await ActiveRepository.GetStoreSettingsAsync(ct);
-        var isPlaceholderName = string.IsNullOrWhiteSpace(settings.StoreName) ||
-            string.Equals(settings.StoreName.Trim(), "Minha Loja", StringComparison.OrdinalIgnoreCase);
+        var changed = false;
 
-        var nextName = isPlaceholderName && !string.IsNullOrWhiteSpace(account.StoreName)
-            ? account.StoreName.Trim()
-            : settings.StoreName;
-
-        var nextSlug = !string.IsNullOrWhiteSpace(account.StoreSlug) &&
-            (string.IsNullOrWhiteSpace(settings.StoreSlug) ||
-             string.Equals(settings.StoreSlug.Trim(), "minha-loja", StringComparison.OrdinalIgnoreCase))
-            ? account.StoreSlug.Trim()
-            : settings.StoreSlug;
-
-        if (!string.Equals(nextName, settings.StoreName, StringComparison.Ordinal) ||
-            !string.Equals(nextSlug, settings.StoreSlug, StringComparison.Ordinal))
+        if (hasMetadata)
         {
-            settings.StoreName = nextName;
-            settings.StoreSlug = string.IsNullOrWhiteSpace(nextSlug)
-                ? ClothingStore.Shared.Helpers.WhatsAppLinkBuilder.GenerateStoreSlug(nextName)
-                : nextSlug;
+            var isPlaceholderName = string.IsNullOrWhiteSpace(settings.StoreName) ||
+                string.Equals(settings.StoreName.Trim(), "Minha Loja", StringComparison.OrdinalIgnoreCase);
+
+            var nextName = isPlaceholderName && !string.IsNullOrWhiteSpace(account.StoreName)
+                ? account.StoreName.Trim()
+                : settings.StoreName;
+
+            var nextSlug = !string.IsNullOrWhiteSpace(account.StoreSlug) &&
+                (string.IsNullOrWhiteSpace(settings.StoreSlug) ||
+                 string.Equals(settings.StoreSlug.Trim(), "minha-loja", StringComparison.OrdinalIgnoreCase))
+                ? account.StoreSlug.Trim()
+                : settings.StoreSlug;
+
+            if (!string.Equals(nextName, settings.StoreName, StringComparison.Ordinal) ||
+                !string.Equals(nextSlug, settings.StoreSlug, StringComparison.Ordinal))
+            {
+                settings.StoreName = nextName;
+                settings.StoreSlug = string.IsNullOrWhiteSpace(nextSlug)
+                    ? ClothingStore.Shared.Helpers.WhatsAppLinkBuilder.GenerateStoreSlug(nextName)
+                    : nextSlug;
+                changed = true;
+            }
+        }
+
+        if (hasActiveRemoteVip &&
+            (!string.Equals(settings.GetEffectivePlanTier(), remoteTier, StringComparison.OrdinalIgnoreCase) ||
+             settings.PlanExpiresAt != account.PlanExpiresAt))
+        {
+            settings.UpdatePlanAndDesign(remoteTier, designConfig: settings.DesignConfig);
+            settings.PlanActivatedAt ??= DateTimeOffset.UtcNow;
+            settings.PlanExpiresAt = account.PlanExpiresAt;
+            if (account.IsSiteActive == true)
+                settings.ActivateSite();
+            changed = true;
+        }
+
+        if (changed)
+        {
             await ActiveRepository.UpdateStoreSettingsAsync(settings, ct);
         }
     }

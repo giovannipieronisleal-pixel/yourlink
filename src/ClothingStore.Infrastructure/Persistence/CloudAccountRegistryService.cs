@@ -113,6 +113,14 @@ public sealed class CloudAccountRegistryService
                 existing.Phone = TrimOrNull(dto.Phone) ?? existing.Phone;
                 existing.StoreName = TrimOrNull(dto.StoreName) ?? existing.StoreName;
                 existing.StoreSlug = TrimOrNull(dto.StoreSlug) ?? existing.StoreSlug;
+                if (hasValidSyncKey && !string.IsNullOrWhiteSpace(dto.PlanTier))
+                {
+                    existing.PlanTier = StoreSettings.NormalizePlanTier(dto.PlanTier);
+                    existing.PlanExpiresAt = dto.PlanExpiresAt;
+                    if (dto.IsSiteActive.HasValue)
+                        existing.IsSiteActive = dto.IsSiteActive.Value;
+                    existing.PlanUpdatedAt = DateTimeOffset.UtcNow;
+                }
                 existing.UpdatedAt = DateTimeOffset.UtcNow;
             }
             else
@@ -126,6 +134,12 @@ public sealed class CloudAccountRegistryService
                     Phone = TrimOrNull(dto.Phone),
                     StoreName = TrimOrNull(dto.StoreName),
                     StoreSlug = TrimOrNull(dto.StoreSlug),
+                    PlanTier = hasValidSyncKey && !string.IsNullOrWhiteSpace(dto.PlanTier)
+                        ? StoreSettings.NormalizePlanTier(dto.PlanTier)
+                        : null,
+                    PlanExpiresAt = hasValidSyncKey ? dto.PlanExpiresAt : null,
+                    IsSiteActive = hasValidSyncKey ? dto.IsSiteActive : null,
+                    PlanUpdatedAt = hasValidSyncKey && !string.IsNullOrWhiteSpace(dto.PlanTier) ? DateTimeOffset.UtcNow : null,
                     CreatedAt = DateTimeOffset.UtcNow,
                     UpdatedAt = DateTimeOffset.UtcNow
                 });
@@ -188,6 +202,7 @@ public sealed class CloudAccountRegistryService
                     Message: "Credenciais inválidas. Verifique seu e-mail e senha.");
             }
 
+            var effectiveTier = ResolveEffectivePlan(match.PlanTier, match.PlanExpiresAt, DateTimeOffset.UtcNow);
             return new CloudVerifyLoginResponseDto(
                 Verified: true,
                 AccountExists: true,
@@ -198,7 +213,10 @@ public sealed class CloudAccountRegistryService
                     match.PasswordHash,
                     match.Phone,
                     match.StoreName,
-                    match.StoreSlug),
+                    match.StoreSlug,
+                    PlanTier: effectiveTier,
+                    PlanExpiresAt: effectiveTier == StoreSettings.PlanTierBasic ? null : match.PlanExpiresAt,
+                    IsSiteActive: match.IsSiteActive ?? true),
                 Message: "Conta verificada com sucesso.");
         }
         finally
@@ -245,21 +263,172 @@ public sealed class CloudAccountRegistryService
         {
             RefreshFromDiskIfModifiedUnsafe();
             return _state.Accounts
-                .Select(a => new CloudAccountSummary(
-                    a.FullName,
-                    a.Username,
-                    a.Email,
-                    a.Phone,
-                    a.StoreName,
-                    a.StoreSlug,
-                    a.CreatedAt,
-                    a.UpdatedAt))
+                .Select(MapToSummary)
                 .ToList();
         }
         finally
         {
             _lock.Release();
         }
+    }
+
+    public async Task<CloudAccountSummary?> ApplyPlanAsync(
+        string? targetEmail,
+        string? targetUsername,
+        string? storeName,
+        string planTier,
+        int? durationDays,
+        bool extendExistingDuration,
+        bool activateSite,
+        CancellationToken ct = default)
+    {
+        var normalizedTier = StoreSettings.NormalizePlanTier(planTier);
+
+        await _lock.WaitAsync(ct);
+        try
+        {
+            RefreshFromDiskIfModifiedUnsafe();
+            var match = FindMatchingEntryUnsafe(targetEmail, targetUsername, storeName, storeSlug: null);
+            if (match is null)
+                return null;
+
+            var now = DateTimeOffset.UtcNow;
+            DateTimeOffset? nextExpiry = null;
+
+            if (!string.Equals(normalizedTier, StoreSettings.PlanTierBasic, StringComparison.OrdinalIgnoreCase) &&
+                durationDays.HasValue && durationDays.Value > 0)
+            {
+                var baseStart = extendExistingDuration &&
+                                string.Equals(match.PlanTier, normalizedTier, StringComparison.OrdinalIgnoreCase) &&
+                                match.PlanExpiresAt.HasValue &&
+                                match.PlanExpiresAt.Value > now
+                    ? match.PlanExpiresAt.Value
+                    : now;
+                nextExpiry = baseStart.AddDays(durationDays.Value);
+            }
+
+            match.PlanTier = normalizedTier;
+            match.PlanExpiresAt = nextExpiry;
+            if (activateSite)
+                match.IsSiteActive = true;
+            if (!string.IsNullOrWhiteSpace(storeName) && string.IsNullOrWhiteSpace(match.StoreName))
+                match.StoreName = storeName.Trim();
+            match.PlanUpdatedAt = now;
+            match.UpdatedAt = now;
+
+            SaveToDiskUnsafe();
+            return MapToSummary(match);
+        }
+        finally
+        {
+            _lock.Release();
+        }
+    }
+
+    public async Task<CloudPlanStatusDto?> GetPlanStatusAsync(
+        string? email,
+        string? username,
+        string? storeSlug,
+        string? storeName = null,
+        CancellationToken ct = default)
+    {
+        await _lock.WaitAsync(ct);
+        try
+        {
+            RefreshFromDiskIfModifiedUnsafe();
+            var match = FindMatchingEntryUnsafe(email, username, storeName, storeSlug);
+            if (match is null)
+                return null;
+
+            var effectiveTier = ResolveEffectivePlan(match.PlanTier, match.PlanExpiresAt, DateTimeOffset.UtcNow);
+            return new CloudPlanStatusDto(
+                PlanTier: effectiveTier,
+                PlanExpiresAt: effectiveTier == StoreSettings.PlanTierBasic ? null : match.PlanExpiresAt,
+                IsSiteActive: match.IsSiteActive ?? true,
+                StoreName: match.StoreName,
+                StoreSlug: match.StoreSlug);
+        }
+        finally
+        {
+            _lock.Release();
+        }
+    }
+
+    private CloudAccountEntry? FindMatchingEntryUnsafe(
+        string? email,
+        string? username,
+        string? storeName,
+        string? storeSlug)
+    {
+        var normEmail = NormalizeIdentifier(email);
+        if (!string.IsNullOrWhiteSpace(normEmail))
+        {
+            var byEmail = _state.Accounts.FirstOrDefault(a =>
+                string.Equals(NormalizeIdentifier(a.Email), normEmail, StringComparison.OrdinalIgnoreCase));
+            if (byEmail is not null)
+                return byEmail;
+        }
+
+        var normUsername = NormalizeIdentifier(username);
+        if (!string.IsNullOrWhiteSpace(normUsername) && normUsername != "-")
+        {
+            var byUser = _state.Accounts.FirstOrDefault(a =>
+                !string.IsNullOrWhiteSpace(a.Username) &&
+                string.Equals(NormalizeIdentifier(a.Username), normUsername, StringComparison.OrdinalIgnoreCase));
+            if (byUser is not null)
+                return byUser;
+        }
+
+        var trimmedSlug = TrimOrNull(storeSlug);
+        if (!string.IsNullOrWhiteSpace(trimmedSlug))
+        {
+            var generatedSlug = Category.GenerateSlug(trimmedSlug);
+            var bySlug = _state.Accounts.FirstOrDefault(a =>
+                !string.IsNullOrWhiteSpace(a.StoreSlug) &&
+                (string.Equals(a.StoreSlug.Trim(), trimmedSlug, StringComparison.OrdinalIgnoreCase) ||
+                 string.Equals(Category.GenerateSlug(a.StoreSlug), generatedSlug, StringComparison.OrdinalIgnoreCase)));
+            if (bySlug is not null)
+                return bySlug;
+        }
+
+        var trimmedStore = TrimOrNull(storeName);
+        if (!string.IsNullOrWhiteSpace(trimmedStore))
+        {
+            var generatedStoreSlug = Category.GenerateSlug(trimmedStore);
+            var byStore = _state.Accounts.FirstOrDefault(a =>
+                (!string.IsNullOrWhiteSpace(a.StoreName) &&
+                 string.Equals(a.StoreName.Trim(), trimmedStore, StringComparison.OrdinalIgnoreCase)) ||
+                (!string.IsNullOrWhiteSpace(a.StoreSlug) &&
+                 string.Equals(Category.GenerateSlug(a.StoreSlug), generatedStoreSlug, StringComparison.OrdinalIgnoreCase)));
+            if (byStore is not null)
+                return byStore;
+        }
+
+        return null;
+    }
+
+    private static CloudAccountSummary MapToSummary(CloudAccountEntry a) =>
+        new(
+            a.FullName,
+            a.Username,
+            a.Email,
+            a.Phone,
+            a.StoreName,
+            a.StoreSlug,
+            a.CreatedAt,
+            a.UpdatedAt,
+            a.PlanTier,
+            a.PlanExpiresAt,
+            a.IsSiteActive ?? true,
+            a.PlanUpdatedAt);
+
+    public static string ResolveEffectivePlan(string? rawTier, DateTimeOffset? expiresAt, DateTimeOffset now)
+    {
+        var normalized = StoreSettings.NormalizePlanTier(rawTier);
+        if (expiresAt.HasValue && now >= expiresAt.Value)
+            return StoreSettings.PlanTierBasic;
+
+        return normalized;
     }
 
     private void RefreshFromDiskIfModifiedUnsafe()
@@ -342,6 +511,10 @@ public sealed class CloudAccountRegistryService
         public string? Phone { get; set; }
         public string? StoreName { get; set; }
         public string? StoreSlug { get; set; }
+        public string? PlanTier { get; set; }
+        public DateTimeOffset? PlanExpiresAt { get; set; }
+        public bool? IsSiteActive { get; set; }
+        public DateTimeOffset? PlanUpdatedAt { get; set; }
         public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
         public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.UtcNow;
     }
@@ -357,4 +530,8 @@ public sealed record CloudAccountSummary(
     string? StoreName,
     string? StoreSlug,
     DateTimeOffset CreatedAt,
-    DateTimeOffset UpdatedAt);
+    DateTimeOffset UpdatedAt,
+    string? PlanTier = null,
+    DateTimeOffset? PlanExpiresAt = null,
+    bool IsSiteActive = true,
+    DateTimeOffset? PlanUpdatedAt = null);

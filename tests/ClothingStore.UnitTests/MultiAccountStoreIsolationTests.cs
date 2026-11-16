@@ -739,6 +739,103 @@ public class MultiAccountStoreIsolationTests
         Assert.IsTrue(updateModal.Contains("Substituir Pacote Antigo", StringComparison.Ordinal));
     }
 
+    [TestMethod]
+    public async Task CloudAccountRegistryService_ApplyVipPlan_SyncsAcrossLoginPlanStatusAndTenantPublish_WithoutRootFallback()
+    {
+        var (repo, _, _, settings, _, _, hasher, _, tempDir, _) = CreateStack();
+        try
+        {
+            var registryDir = Path.Combine(tempDir, "cloud_vip_sync_root");
+            Directory.CreateDirectory(registryDir);
+            var registry = new CloudAccountRegistryService(registryDir, hasher);
+
+            var passwordHash = hasher.HashPassword("SenhaForte@123");
+            var upsert = await registry.UpsertAccountAsync(new CloudAccountCredentialSyncDto(
+                FullName: "Flavia",
+                Username: "flavia",
+                Email: "flavinhaasilva15@gmail.com",
+                PasswordHash: passwordHash,
+                Phone: "41999991111",
+                StoreName: "Loja flavia",
+                StoreSlug: "loja-flavia",
+                PlanTier: StoreSettings.PlanTierPremium));
+            Assert.IsTrue(upsert.Success);
+
+            // Cliente sem SyncKey NÃO pode auto-promover para Premium durante upsert
+            var initialStatus = await registry.GetPlanStatusAsync("flavinhaasilva15@gmail.com", "flavia", "loja-flavia", "Loja flavia");
+            Assert.IsNotNull(initialStatus);
+            Assert.AreEqual(StoreSettings.PlanTierBasic, initialStatus!.PlanTier);
+
+            // Admin aplica VIP Premium Vitalício pelo servidor central
+            var applied = await registry.ApplyPlanAsync(
+                targetEmail: "flavinhaasilva15@gmail.com",
+                targetUsername: "flavia",
+                storeName: "Loja flavia",
+                planTier: StoreSettings.PlanTierPremium,
+                durationDays: null,
+                extendExistingDuration: true,
+                activateSite: true);
+            Assert.IsNotNull(applied);
+            Assert.AreEqual(StoreSettings.PlanTierPremium, applied!.PlanTier);
+            Assert.IsNull(applied.PlanExpiresAt);
+
+            var syncedStatus = await registry.GetPlanStatusAsync("flavinhaasilva15@gmail.com", "flavia", "loja-flavia", "Loja flavia");
+            Assert.IsNotNull(syncedStatus);
+            Assert.AreEqual(StoreSettings.PlanTierPremium, syncedStatus!.PlanTier);
+            Assert.IsNull(syncedStatus.PlanExpiresAt);
+
+            // Login em outro aparelho traz o plano Premium automaticamente na hidratação
+            var verified = await registry.VerifyLoginAsync(new LoginRequest("flavia", "SenhaForte@123"));
+            Assert.IsTrue(verified.Verified);
+            Assert.AreEqual(StoreSettings.PlanTierPremium, verified.Account?.PlanTier);
+
+            Assert.IsTrue(await repo.UpsertCloudHydratedAccountAsync(verified.Account!));
+            Assert.AreEqual(StoreSettings.PlanTierPremium, (await repo.GetStoreSettingsAsync()).GetEffectivePlanTier());
+
+            // Workspace local já existente em Básico é atualizado idempotentemente por ApplyCloudPlanSyncAsync
+            await repo.ProvisionIsolatedWorkspaceForNewAccountAsync("outraloja@gmail.com", "outraloja");
+            var (updated, updatedSettings) = await settings.ApplyCloudPlanSyncAsync(syncedStatus);
+            Assert.IsTrue(updated);
+            Assert.AreEqual(StoreSettings.PlanTierPremium, updatedSettings.PlanTier);
+            var (updatedAgain, _) = await settings.ApplyCloudPlanSyncAsync(syncedStatus);
+            Assert.IsFalse(updatedAgain);
+
+            // CloudSyncStateService preserva VIP ativo do servidor mesmo se payload antigo ainda mandar Básico
+            var syncService = new CloudSyncStateService(repo, settings);
+            var syncResult = await syncService.ApplySyncPayloadAsync(new CloudCatalogSyncPayload
+            {
+                Settings = new UpdateStoreSettingsRequest
+                {
+                    StoreName = "Loja flavia",
+                    StoreSlug = "loja-flavia",
+                    WhatsappNumber = "41999991111",
+                    StoreDescription = "Catalogo da Flavia",
+                    PlanTier = StoreSettings.PlanTierBasic,
+                    IsSiteActive = true
+                }
+            });
+            Assert.AreEqual(StoreSettings.PlanTierPremium, syncResult.AppliedSettings.PlanTier);
+
+            var root = ResolveRepoRoot();
+            var webProgram = File.ReadAllText(Path.Combine(root, "src", "ClothingStore.Web", "Program.cs"));
+            Assert.IsTrue(webProgram.Contains("/api/cloud/plan-status", StringComparison.Ordinal));
+            Assert.IsTrue(webProgram.Contains("ApplyGrantedCloudAccountVipToPublishedTenantAsync", StringComparison.Ordinal));
+            Assert.IsTrue(webProgram.Contains("hasExplicitNonRootTarget", StringComparison.Ordinal));
+
+            var adminGatewayPath = Path.Combine(root, "src", "ClothingStore.AdminApp", "Services", "PlatformAdminGateway.cs");
+            if (File.Exists(adminGatewayPath))
+            {
+                var adminGateway = File.ReadAllText(adminGatewayPath);
+                Assert.IsTrue(adminGateway.Contains("keepLocalVip", StringComparison.Ordinal));
+                Assert.IsTrue(adminGateway.Contains("SyncMissingLocalVipsToCloudBestEffortAsync", StringComparison.Ordinal));
+            }
+        }
+        finally
+        {
+            CleanupDir(tempDir);
+        }
+    }
+
     private sealed class InMemoryCloudStateBackend : ICloudStateBackend
     {
         public Dictionary<string, string> Snapshots { get; } = new(StringComparer.OrdinalIgnoreCase);

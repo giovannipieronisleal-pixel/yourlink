@@ -1102,5 +1102,39 @@ public sealed class EmployeeAndSettingsService
         await _repository.UpdateStoreSettingsAsync(settings, ct);
         return MapToAdminSettingsDto(settings);
     }
+
+    public async Task<(bool Updated, AdminStoreSettingsDto Settings)> ApplyCloudPlanSyncAsync(
+        CloudPlanStatusDto remotePlan,
+        Guid? employeeId = null,
+        CancellationToken ct = default)
+    {
+        var settings = await _repository.GetStoreSettingsAsync(ct);
+        if (remotePlan is null)
+            return (false, MapToAdminSettingsDto(settings));
+
+        var remoteTier = StoreSettings.NormalizePlanTier(remotePlan.PlanTier);
+        var now = DateTimeOffset.UtcNow;
+        var remoteExpired = remotePlan.PlanExpiresAt.HasValue && now >= remotePlan.PlanExpiresAt.Value;
+
+        if (remoteExpired || string.Equals(remoteTier, StoreSettings.PlanTierBasic, StringComparison.OrdinalIgnoreCase))
+            return (false, MapToAdminSettingsDto(settings));
+
+        var currentEffective = settings.GetEffectivePlanTier(now);
+        var alreadySynced = string.Equals(currentEffective, remoteTier, StringComparison.OrdinalIgnoreCase) &&
+                            settings.PlanExpiresAt == remotePlan.PlanExpiresAt &&
+                            (!remotePlan.IsSiteActive || settings.IsSiteActive);
+
+        if (alreadySynced)
+            return (false, MapToAdminSettingsDto(settings));
+
+        settings.UpdatePlanAndDesign(remoteTier, designConfig: settings.DesignConfig, employeeId: employeeId);
+        settings.PlanActivatedAt ??= now;
+        settings.PlanExpiresAt = remotePlan.PlanExpiresAt;
+        if (remotePlan.IsSiteActive)
+            settings.ActivateSite(employeeId);
+
+        await _repository.UpdateStoreSettingsAsync(settings, ct);
+        return (true, MapToAdminSettingsDto(settings));
+    }
 }
 

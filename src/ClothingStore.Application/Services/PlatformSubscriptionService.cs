@@ -180,9 +180,7 @@ public sealed class PlatformSubscriptionService
         {
             PlatformSubscriptionOrder.StatusPaid => $"Pagamento confirmado! Plano {order.PlanTier} liberado automaticamente.",
             PlatformSubscriptionOrder.StatusCancelled => "Este pedido foi cancelado pelo administrador.",
-            _ when !string.Equals(order.PaymentMethod, PlatformSubscriptionOrder.MethodDirectPix, StringComparison.OrdinalIgnoreCase) =>
-                "Aguardando confirmação automática do Mercado Pago para liberar seu plano.",
-            _ => "Aguardando confirmação do Pix pelo administrador para liberar automaticamente."
+            _ => "Aguardando confirmação automática do Mercado Pago para liberar seu plano."
         };
 
         return new PlatformPlanOrderStatusDto(
@@ -232,7 +230,7 @@ public sealed class PlatformSubscriptionService
             DateTimeOffset.UtcNow,
             ct);
 
-        return MapToDto(order, $"Pix confirmado! Plano {order.PlanTier} liberado automaticamente para '{order.StoreName}'.");
+        return MapToDto(order, $"Pagamento confirmado! Plano {order.PlanTier} liberado automaticamente para '{order.StoreName}'.");
     }
 
     public async Task<(bool Handled, bool OrderApproved, string Message)> HandleMercadoPagoWebhookAsync(
@@ -657,7 +655,9 @@ public sealed class PlatformSubscriptionService
         {
             PlatformSubscriptionOrder.StatusPaid => $"Pago — liberado em {order.ApprovedAt?.ToLocalTime():dd/MM HH:mm}.",
             PlatformSubscriptionOrder.StatusCancelled => "Pedido cancelado.",
-            _ => "Aguardando confirmação do Pix."
+            _ => string.Equals(order.PaymentMethod, PlatformSubscriptionOrder.MethodDirectPix, StringComparison.OrdinalIgnoreCase)
+                ? "Aguardando pagamento."
+                : "Aguardando pagamento no Mercado Pago."
         };
 
     private static PlatformSubscriptionOrderDto MapToDto(PlatformSubscriptionOrder order, string message) =>

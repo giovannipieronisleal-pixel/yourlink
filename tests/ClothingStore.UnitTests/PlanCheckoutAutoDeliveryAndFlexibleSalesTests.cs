@@ -302,8 +302,10 @@ public class PlanCheckoutAutoDeliveryAndFlexibleSalesTests
         if (File.Exists(dashboardPath))
         {
             var dashboard = File.ReadAllText(dashboardPath, Encoding.UTF8);
-            Assert.IsTrue(dashboard.Contains("ApprovePlanOrderAsync", StringComparison.Ordinal),
-                "YouLink Admin Dashboard deve permitir confirmar Pix e liberar plano automático em 1 clique.");
+            Assert.IsFalse(dashboard.Contains("Confirmar Pix", StringComparison.OrdinalIgnoreCase),
+                "YouLink Admin Dashboard não deve exibir aprovação manual de Pix quando trabalha somente com Mercado Pago automático.");
+            Assert.IsTrue(dashboard.Contains("Mercado Pago", StringComparison.Ordinal),
+                "YouLink Admin Dashboard deve refletir vendas automáticas via Mercado Pago.");
         }
 
         var salesRegistryPath = Path.Combine(root, "src", "ClothingStore.AdminApp", "Components", "Pages", "SalesRegistryPage.razor");
@@ -312,6 +314,8 @@ public class PlanCheckoutAutoDeliveryAndFlexibleSalesTests
             var salesRegistry = File.ReadAllText(salesRegistryPath, Encoding.UTF8);
             Assert.IsTrue(salesRegistry.Contains("Gateway.DataUpdated", StringComparison.Ordinal),
                 "SalesRegistryPage precisa atualizar ao vivo quando pedidos de planos chegarem.");
+            Assert.IsFalse(salesRegistry.Contains("Confirmar Pix", StringComparison.OrdinalIgnoreCase),
+                "SalesRegistryPage não deve exibir botão manual de confirmação de Pix.");
         }
     }
 

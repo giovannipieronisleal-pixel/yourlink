@@ -231,10 +231,20 @@ public sealed record CloudAccountCredentialSyncDto(
     string? StoreName = null,
     string? StoreSlug = null,
     string? PreviousPasswordHash = null,
-    string? PreviousEmail = null);
+    string? PreviousEmail = null,
+    string? PlanTier = null,
+    DateTimeOffset? PlanExpiresAt = null,
+    bool? IsSiteActive = null);
 
 public sealed record CloudVerifyLoginResponseDto(
     bool Verified,
     bool AccountExists,
     CloudAccountCredentialSyncDto? Account = null,
     string? Message = null);
+
+public sealed record CloudPlanStatusDto(
+    string PlanTier,
+    DateTimeOffset? PlanExpiresAt,
+    bool IsSiteActive,
+    string? StoreName = null,
+    string? StoreSlug = null);
