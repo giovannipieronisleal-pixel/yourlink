@@ -326,6 +326,14 @@ public sealed class EmployeeAndSettingsService
                 employeeId: employeeId);
         }
 
+        if (request.PlatformSupportWhatsapp is not null)
+        {
+            settings.PlatformSupportWhatsapp = ClothingStore.Shared.Helpers.WhatsAppLinkBuilder.SanitizeSupportPhone(request.PlatformSupportWhatsapp)
+                ?? string.Empty;
+            settings.UpdatedByEmployeeId = employeeId;
+            settings.UpdatedAt = DateTimeOffset.UtcNow;
+        }
+
         if (request.ServerHostingMode is not null ||
             request.OwnServerProvider is not null ||
             request.OwnServerSyncSecret is not null ||
@@ -1004,7 +1012,8 @@ public sealed class EmployeeAndSettingsService
             s.HasMercadoPagoConnected,
             s.MercadoPagoAccountLabel,
             s.MercadoPagoUserId,
-            s.MercadoPagoConnectedAt);
+            s.MercadoPagoConnectedAt,
+            ClothingStore.Shared.Helpers.WhatsAppLinkBuilder.SanitizeSupportPhone(s.PlatformSupportWhatsapp));
 
     public async Task<AdminStoreSettingsDto> SyncOwnerPricingAsync(
         UpdateOwnerPricingSyncRequest request,
@@ -1033,6 +1042,11 @@ public sealed class EmployeeAndSettingsService
             settings.CentralCatalogBaseUrl = string.IsNullOrWhiteSpace(request.CentralCatalogServerUrl)
                 ? null
                 : request.CentralCatalogServerUrl.Trim().TrimEnd('/');
+        }
+        if (request.SupportWhatsappNumber is not null)
+        {
+            settings.PlatformSupportWhatsapp = ClothingStore.Shared.Helpers.WhatsAppLinkBuilder.SanitizeSupportPhone(request.SupportWhatsappNumber)
+                ?? string.Empty;
         }
         settings.UpdatedAt = DateTimeOffset.UtcNow;
 

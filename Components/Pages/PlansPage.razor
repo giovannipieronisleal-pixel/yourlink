@@ -498,6 +498,37 @@ else
             </div>
         }
     </section>
+
+    <section class="adm-card" style="margin-top: 1.25rem;">
+        <div style="display: flex; justify-content: space-between; align-items: center; gap: 1rem; flex-wrap: wrap;">
+            <div>
+                <h2 style="margin: 0; font-size: 1.05rem;">🛡️ Suporte &amp; Transparência</h2>
+                <p style="margin: 0.25rem 0 0; font-size: 0.85rem; color: var(--adm-muted);">
+                    Dúvidas sobre ativação de planos, domínio ou LGPD? Consulte os documentos oficiais ou fale com o suporte quando disponível.
+                </p>
+            </div>
+            <div style="display: flex; gap: 0.55rem; flex-wrap: wrap;">
+                <button type="button"
+                        class="adm-btn adm-btn-outline"
+                        @onclick='() => Gateway.OpenExternalUrlSafeAsync($"{Gateway.GetPublicPortalBaseUrl()}/privacidade")'>
+                    🔒 Privacidade (LGPD)
+                </button>
+                <button type="button"
+                        class="adm-btn adm-btn-outline"
+                        @onclick='() => Gateway.OpenExternalUrlSafeAsync($"{Gateway.GetPublicPortalBaseUrl()}/termos")'>
+                    📜 Termos de Uso
+                </button>
+                @if (!string.IsNullOrWhiteSpace(SupportWhatsappUrl))
+                {
+                    <button type="button"
+                            class="adm-btn adm-btn-success"
+                            @onclick="() => Gateway.OpenExternalUrlSafeAsync(SupportWhatsappUrl)">
+                        💬 Falar com Suporte no WhatsApp
+                    </button>
+                }
+            </div>
+        </div>
+    </section>
 }
 
 @code {
@@ -516,6 +547,9 @@ else
     private FreeDomainSearchResponse? _freeDomainSearch;
     private string? _error;
     private string? _successMessage;
+
+    private string? SupportWhatsappUrl =>
+        Gateway.GetSupportWhatsappUrl("Olá! Tenho uma dúvida sobre os planos do YouLink.");
 
     private string? ActivePlanTier => _settings is not null
         ? PlanCheckoutGuardHelper.ResolveActivePlanTier(_settings)
@@ -575,6 +609,7 @@ else
         try
         {
             _settings = await Gateway.GetPlanCatalogSettingsAsync();
+            await Gateway.TryLoadPublicPlatformCatalogAsync();
             BrandState.ApplyFromAdminSettings(_settings);
 
             var currentPreset = _settings.Design?.PresetKey;

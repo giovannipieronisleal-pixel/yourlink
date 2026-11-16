@@ -98,8 +98,18 @@ public sealed class PlatformSubscriptionService
         var storeSlug = string.IsNullOrWhiteSpace(request.StoreSlug)
             ? Category.GenerateSlug(storeName)
             : request.StoreSlug.Trim();
+        var candidateCentral = !string.IsNullOrWhiteSpace(settings.CentralCatalogBaseUrl) &&
+                               !StoreSettings.IsPlaceholderStoreUrl(settings.CentralCatalogBaseUrl)
+            ? WhatsAppLinkBuilder.NormalizePublicServerUrl(settings.CentralCatalogBaseUrl)
+            : null;
+        var centralBase = !string.IsNullOrWhiteSpace(candidateCentral)
+            ? candidateCentral
+            : AppUpdateCatalog.DefaultCentralPlatformServerUrl;
+        var safeOnlineUrl = !string.IsNullOrWhiteSpace(settings.OnlineBaseUrl) && !StoreSettings.IsPlaceholderStoreUrl(settings.OnlineBaseUrl)
+            ? settings.OnlineBaseUrl
+            : $"{centralBase.TrimEnd('/')}/loja/{storeSlug}";
         var desiredDomain = string.IsNullOrWhiteSpace(request.DesiredDomain)
-            ? (settings.OnlineBaseUrl ?? $"https://lojas.{storeSlug}.com")
+            ? safeOnlineUrl
             : request.DesiredDomain.Trim();
 
         var orderNumber = $"YLK-{DateTimeOffset.UtcNow:yyyyMMdd}-{RandomNumberGenerator.GetInt32(1000, 9999)}";

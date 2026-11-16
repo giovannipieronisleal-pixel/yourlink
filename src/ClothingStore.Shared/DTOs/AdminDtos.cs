@@ -234,6 +234,7 @@ public sealed class UpdateStoreSettingsRequest
     public bool ClearOwnServerSyncSecret { get; set; } = false;
     public string? GoogleOAuthClientId { get; set; }
     public string? DomainAcquisitionMode { get; set; }
+    public string? PlatformSupportWhatsapp { get; set; }
 }
 
 public sealed record AdminStoreSettingsDto(
@@ -291,7 +292,8 @@ public sealed record AdminStoreSettingsDto(
     bool HasMercadoPagoConnected = false,
     string? MercadoPagoAccountLabel = null,
     string? MercadoPagoUserId = null,
-    DateTimeOffset? MercadoPagoConnectedAt = null);
+    DateTimeOffset? MercadoPagoConnectedAt = null,
+    string? PlatformSupportWhatsapp = null);
 
 public sealed class CloudCatalogSyncPayload
 {
@@ -475,7 +477,8 @@ public sealed record UpdateOwnerPricingSyncRequest(
     decimal BasicPlanMonthlyPrice,
     decimal IntermediaryPlanMonthlyPrice,
     decimal PremiumPlanMonthlyPrice,
-    string? CentralCatalogServerUrl = null);
+    string? CentralCatalogServerUrl = null,
+    string? SupportWhatsappNumber = null);
 
 public sealed record PlatformGiftCardRedeemRequest(
     string Code,
@@ -543,7 +546,8 @@ public sealed record PlatformPlanCatalogDto(
     string? CentralCatalogServerUrl = null,
     bool HasMercadoPagoAppConfigured = false,
     bool HasPlatformMercadoPagoConnected = false,
-    string? PlatformMercadoPagoAccountLabel = null);
+    string? PlatformMercadoPagoAccountLabel = null,
+    string? SupportWhatsappNumber = null);
 
 public sealed record CloudStorePublishResponse(
     bool Success,

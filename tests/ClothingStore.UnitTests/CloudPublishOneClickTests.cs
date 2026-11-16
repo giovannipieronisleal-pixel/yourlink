@@ -468,10 +468,18 @@ public sealed class CloudPublishOneClickTests
         Assert.IsTrue(File.Exists(Path.Combine(root, "installer", "build-windows-package.ps1")));
         Assert.IsTrue(File.Exists(Path.Combine(root, "installer", "launcher", "YouLinkLauncher.cpp")));
         Assert.IsTrue(File.Exists(Path.Combine(root, "installer", "launcher", "YouLinkLauncher.rc")));
-        Assert.IsTrue(File.Exists(Path.Combine(root, "Platforms", "Android", "youlink-official.keystore")),
-            "O repositório deve manter a keystore oficial unificada (youlink-official.keystore) para evitar conflito de assinatura no Android.");
-        Assert.IsTrue(workflow.Contains("Platforms/Android/youlink-official.keystore", StringComparison.Ordinal),
-            "Workflow precisa assinar o APK Android com a keystore oficial unificada.");
+        var gitignore = File.ReadAllText(Path.Combine(root, ".gitignore"));
+        var csproj = File.ReadAllText(Path.Combine(root, "appmaui.blazor.csproj"));
+        Assert.IsFalse(File.Exists(Path.Combine(root, "Platforms", "Android", "youlink-official.keystore")),
+            "Keystore pública comprometida (youlink-official.keystore) não deve permanecer no repositório.");
+        Assert.IsFalse(csproj.Contains("youlink2026", StringComparison.OrdinalIgnoreCase),
+            "appmaui.blazor.csproj não pode conter senha de keystore hardcoded.");
+        Assert.IsFalse(workflow.Contains("youlink2026", StringComparison.OrdinalIgnoreCase),
+            "Workflow não pode conter fallback com senha de keystore hardcoded.");
+        Assert.IsTrue(workflow.Contains("secrets.ANDROID_KEYSTORE_BASE64", StringComparison.Ordinal),
+            "Workflow deve exigir assinatura Android por Secrets do GitHub Actions.");
+        Assert.IsTrue(gitignore.Contains("*.keystore", StringComparison.Ordinal),
+            ".gitignore deve ignorar arquivos *.keystore.");
     }
 
     [TestMethod]

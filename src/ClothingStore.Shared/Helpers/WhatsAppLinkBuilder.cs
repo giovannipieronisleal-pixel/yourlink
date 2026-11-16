@@ -19,6 +19,36 @@ public static class WhatsAppLinkBuilder
         return Regex.Replace(rawPhone, @"\D", "");
     }
 
+    public static string? SanitizeSupportPhone(string? rawPhone)
+    {
+        var digits = SanitizePhoneNumber(rawPhone);
+        if (digits.Length < 10)
+            return null;
+
+        if (digits is "5511900000000" or "11900000000" or "00000000000")
+            return null;
+
+        if ((digits.Length == 10 || digits.Length == 11) && !digits.StartsWith("55", StringComparison.Ordinal))
+            digits = $"55{digits}";
+
+        if (digits.Length > 15 || digits == "5511900000000")
+            return null;
+
+        return digits;
+    }
+
+    public static string? BuildSupportWhatsappUrl(string? supportPhone, string? message = null)
+    {
+        var digits = SanitizeSupportPhone(supportPhone);
+        if (string.IsNullOrWhiteSpace(digits))
+            return null;
+
+        var defaultMessage = string.IsNullOrWhiteSpace(message)
+            ? "Olá! Preciso de ajuda com o YouLink."
+            : message.Trim();
+        return $"https://wa.me/{digits}?text={Uri.EscapeDataString(defaultMessage)}";
+    }
+
     public static string GenerateStoreSlug(string? storeName)
     {
         if (string.IsNullOrWhiteSpace(storeName))
@@ -406,65 +436,70 @@ public static class WhatsAppLinkBuilder
         return $"https://wa.me/{phone}?text={Uri.EscapeDataString(message)}";
     }
 
-    /// <summary>
-    /// Gera um SVG determinístico representando o QR Code do link fixo da loja para exibição offline e impressão.
-    /// </summary>
-    public static string GenerateQrCodeSvgDataUri(string storeUrl)
+    public sealed record CartWhatsAppItem(
+        string ProductName,
+        string? Color,
+        string? Size,
+        int Quantity,
+        decimal UnitPrice);
+
+    public static string BuildCartOrderMessage(
+        string storeName,
+        IReadOnlyList<CartWhatsAppItem> items,
+        string? customerNotes = null)
     {
-        const int gridSize = 21;
-        var hash = SHA256.HashData(Encoding.UTF8.GetBytes(storeUrl ?? "loja"));
+        var ptBr = CultureInfo.GetCultureInfo("pt-BR");
+        var cleanStore = string.IsNullOrWhiteSpace(storeName) ? "Loja" : storeName.Trim();
+        if (items is null || items.Count == 0)
+            return $"Olá! Vim pelo catálogo online da {cleanStore} e gostaria de fazer um pedido.";
+
         var sb = new StringBuilder();
-        sb.Append("<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 250 250' width='180' height='180'>");
-        sb.Append("<rect width='250' height='250' rx='12' fill='#FFFFFF' stroke='#E4E4E7' stroke-width='2'/>");
+        sb.AppendLine($"Olá, *{cleanStore}*! Gostaria de pedir os seguintes itens da sacola:");
+        sb.AppendLine();
 
-        int cellSize = 9;
-        int offset = 30;
-
-        static bool IsFinderPattern(int r, int c)
+        decimal total = 0m;
+        for (var i = 0; i < items.Count; i++)
         {
-            bool topLeft = r < 7 && c < 7;
-            bool topRight = r < 7 && c >= 14;
-            bool bottomLeft = r >= 14 && c < 7;
-            return topLeft || topRight || bottomLeft;
+            var item = items[i];
+            var qty = Math.Max(1, item.Quantity);
+            var lineTotal = item.UnitPrice * qty;
+            total += lineTotal;
+
+            var variantParts = new List<string>(2);
+            if (!IsPlaceholderColor(item.Color))
+                variantParts.Add(item.Color!.Trim());
+            if (!IsPlaceholderSize(item.Size))
+                variantParts.Add(item.Size!.Trim());
+
+            var variantSuffix = variantParts.Count > 0 ? $" ({string.Join(" / ", variantParts)})" : string.Empty;
+            sb.AppendLine($"{i + 1}. {qty}x {item.ProductName.Trim()}{variantSuffix} — {lineTotal.ToString("C", ptBr)}");
         }
 
-        static bool IsFinderDark(int r, int c)
+        sb.AppendLine();
+        sb.Append($"*Total estimado:* {total.ToString("C", ptBr)}");
+        if (!string.IsNullOrWhiteSpace(customerNotes))
         {
-            int lr = r >= 14 ? r - 14 : r;
-            int lc = c >= 14 ? c - 14 : c;
-            if (lr == 0 || lr == 6 || lc == 0 || lc == 6) return true;
-            if (lr >= 2 && lr <= 4 && lc >= 2 && lc <= 4) return true;
-            return false;
+            sb.AppendLine();
+            sb.Append($"Observação: {customerNotes.Trim()}");
         }
 
-        for (int r = 0; r < gridSize; r++)
-        {
-            for (int c = 0; c < gridSize; c++)
-            {
-                bool dark;
-                if (IsFinderPattern(r, c))
-                {
-                    dark = IsFinderDark(r, c);
-                }
-                else
-                {
-                    int bitIndex = (r * gridSize + c) % (hash.Length * 8);
-                    int byteIdx = bitIndex / 8;
-                    int bitOffset = bitIndex % 8;
-                    dark = ((hash[byteIdx] >> bitOffset) & 1) == 1;
-                }
-
-                if (dark)
-                {
-                    int x = offset + c * cellSize;
-                    int y = offset + r * cellSize;
-                    sb.Append($"<rect x='{x}' y='{y}' width='{cellSize}' height='{cellSize}' fill='#18181B'/>");
-                }
-            }
-        }
-
-        sb.Append("</svg>");
-        var base64 = Convert.ToBase64String(Encoding.UTF8.GetBytes(sb.ToString()));
-        return $"data:image/svg+xml;base64,{base64}";
+        return sb.ToString();
     }
+
+    public static string BuildCartOrderLink(
+        string whatsappNumber,
+        string storeName,
+        IReadOnlyList<CartWhatsAppItem> items,
+        string? customerNotes = null)
+    {
+        var phone = SanitizePhoneNumber(whatsappNumber);
+        var message = BuildCartOrderMessage(storeName, items, customerNotes);
+        return $"https://wa.me/{phone}?text={Uri.EscapeDataString(message)}";
+    }
+
+    /// <summary>
+    /// Gera um SVG real (ISO/IEC 18004) representando o QR Code do link da loja/produto para leitura por câmera.
+    /// </summary>
+    public static string GenerateQrCodeSvgDataUri(string storeUrl) =>
+        QrCodeGenerator.GenerateSvgDataUri(storeUrl);
 }

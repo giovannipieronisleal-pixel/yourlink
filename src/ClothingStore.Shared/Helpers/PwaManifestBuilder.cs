@@ -13,7 +13,7 @@ public static class PwaManifestBuilder
         WriteIndented = true
     };
 
-    public static string BuildJson(PublicStoreSettingsDto? settings)
+    public static string BuildJson(PublicStoreSettingsDto? settings, string? storeSlug = null)
     {
         var storeName = string.IsNullOrWhiteSpace(settings?.StoreName)
             ? "YouLink Loja"
@@ -25,14 +25,20 @@ public static class PwaManifestBuilder
             ? "Catálogo online de produtos com pedido rápido pelo WhatsApp."
             : settings.StoreDescription.Trim();
 
+        var hasScopedStore = !string.IsNullOrWhiteSpace(storeSlug);
+        var cleanSlug = hasScopedStore ? WhatsAppLinkBuilder.GenerateStoreSlug(storeSlug) : null;
+        var storeStartUrl = hasScopedStore
+            ? $"/loja/{Uri.EscapeDataString(cleanSlug!)}"
+            : "/";
+
         var payload = new
         {
             name = storeName,
             short_name = shortName,
             description,
-            id = "/",
-            start_url = "/",
-            scope = "/",
+            id = storeStartUrl,
+            start_url = storeStartUrl,
+            scope = storeStartUrl,
             display = "standalone",
             orientation = "portrait-primary",
             lang = "pt-BR",

@@ -29,7 +29,8 @@ public sealed record PlatformPortalSnapshot(
     decimal PremiumPlanMonthlyPrice,
     string PersistenceMode,
     bool HasPermanentCloudPersistence,
-    bool LoadedLiveReleaseMetadata);
+    bool LoadedLiveReleaseMetadata,
+    string? SupportWhatsappNumber = null);
 
 public sealed record PlatformReleaseDownloads(
     string Version,
@@ -114,6 +115,11 @@ public sealed class PlatformPortalService
         var zipFallback = $"{baseDirect}/{AppUpdateCatalog.WindowsAssetName}";
         var apkFallback = $"{baseDirect}/{AppUpdateCatalog.AndroidAssetName}";
 
+        var supportWhatsapp = WhatsAppLinkBuilder.SanitizeSupportPhone(
+            _configuration["YOULINK_SUPPORT_WHATSAPP"]
+            ?? Environment.GetEnvironmentVariable("YOULINK_SUPPORT_WHATSAPP")
+            ?? settings.PlatformSupportWhatsapp);
+
         return new PlatformPortalSnapshot(
             AppVersion: liveDownloads?.Version ?? AppUpdateCatalog.CurrentAppVersion,
             ReleaseTitle: liveDownloads?.ReleaseTitle ?? $"YouLink v{AppUpdateCatalog.CurrentAppVersion}",
@@ -134,7 +140,8 @@ public sealed class PlatformPortalService
             PremiumPlanMonthlyPrice: settings.PremiumPlanMonthlyPrice,
             PersistenceMode: _cloudMirror?.ProviderName ?? "LocalDisk",
             HasPermanentCloudPersistence: _cloudMirror is not null,
-            LoadedLiveReleaseMetadata: liveDownloads is not null);
+            LoadedLiveReleaseMetadata: liveDownloads is not null,
+            SupportWhatsappNumber: supportWhatsapp);
     }
 
     public static PlatformReleaseDownloads? ParseGitHubReleaseDownloads(string? json)

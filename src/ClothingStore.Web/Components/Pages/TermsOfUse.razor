@@ -1,0 +1,141 @@
+@page "/termos"
+@page "/loja/{StoreSlug}/termos"
+@inject CatalogDataGateway CatalogDataGateway
+@inject PlatformPortalService PortalService
+@inject NavigationManager Navigation
+
+<PageTitle>@PageTitleText</PageTitle>
+
+<HeadContent>
+    <meta name="description" content="@MetaDescriptionText" />
+    <meta name="robots" content="index,follow" />
+    <link rel="canonical" href="@CanonicalUrl" />
+</HeadContent>
+
+<section class="ylk-legal-shell">
+    <div class="ylk-legal-card">
+        <div class="ylk-legal-header">
+            <span class="lux-hero-eyebrow">@(_store is null ? "YouLink • Condições Gerais" : $"{_store.StoreName} • Termos")</span>
+            <h1 class="ylk-legal-title">Termos de Uso</h1>
+            <p class="ylk-legal-updated">
+                Regras transparentes de uso do aplicativo YouLink e das vitrines digitais publicadas. Última atualização: Novembro de 2026.
+            </p>
+        </div>
+
+        <div class="ylk-legal-body">
+            <h2>1. Objeto e funcionamento do YouLink</h2>
+            <p>
+                O <strong>YouLink</strong> oferece uma plataforma de software composta por aplicativo desktop/móvel (Windows e Android) e vitrine web para que empreendedores organizem catálogos de produtos, estoque, vendas e pedidos via WhatsApp e Pix.
+            </p>
+
+            <h2>2. Responsabilidade pelas ofertas e entregas</h2>
+            <p>
+                Cada loja publicada em <code>/loja/nome-da-loja</code> ou domínio próprio é operada de forma independente pelo respectivo lojista, que é o único responsável por:
+            </p>
+            <ul>
+                <li>Veracidade das descrições, fotos, estoque disponível e preços exibidos na vitrine;</li>
+                <li>Cumprimento dos prazos de separação, postagem, entrega, trocas e devoluções previstos no Código de Defesa do Consumidor;</li>
+                <li>Emissão de documentos fiscais e regularidade comercial de suas vendas.</li>
+            </ul>
+
+            <h2>3. Conta, planos e ativações</h2>
+            <ul>
+                <li>O aplicativo YouLink pode ser baixado gratuitamente. Recursos extras de catálogo e checkout seguem os planos vigentes exibidos dentro do próprio aplicativo e no portal oficial.</li>
+                <li>Planos promocionais, códigos Gift Card e assinaturas não possuem multas de fidelidade e podem deixar de ser renovados pelo lojista a qualquer momento.</li>
+                <li>Vitrines sem movimentação ou atividade prolongada podem entrar automaticamente em modo pausado até o lojista reativá-las no aplicativo.</li>
+            </ul>
+
+            <h2>4. Uso aceitável</h2>
+            <p>
+                É proibido utilizar o YouLink ou a infraestrutura compartilhada para comercializar produtos ilegais, aplicar golpes, violar direitos autorais de terceiros ou enviar tráfego automatizado abusivo. Contas ou vitrines em violação poderão ser suspensas sem aviso prévio.
+            </p>
+
+            <h2>5. Propriedade intelectual e dos seus dados</h2>
+            <p>
+                Todo o acervo de produtos, descrições e fotos enviados pelo lojista continua pertencendo integralmente ao próprio lojista. O código, marca e interface do YouLink permanecem protegidos pelas leis de propriedade intelectual aplicáveis.
+            </p>
+        </div>
+
+        <div class="ylk-legal-actions">
+            <a href="@HomeBackHref" class="lux-btn lux-btn-primary">← Voltar</a>
+            <a href="@PrivacyHref" class="lux-btn lux-btn-outline">🔒 Ver Política de Privacidade</a>
+            @if (_isPortalMode)
+            {
+                <a href="/como-instalar" class="lux-btn lux-btn-outline">📲 Guia de Instalação</a>
+            }
+            @if (!string.IsNullOrWhiteSpace(_supportWhatsappUrl))
+            {
+                <a href="@_supportWhatsappUrl" target="_blank" rel="noopener noreferrer" class="lux-btn lux-btn-whatsapp">
+                    💬 Suporte Oficial YouLink
+                </a>
+            }
+        </div>
+    </div>
+</section>
+
+@code {
+    [Parameter] public string? StoreSlug { get; set; }
+
+    private PublicStoreSettingsDto? _store;
+    private bool _isPortalMode = true;
+    private string? _supportWhatsappUrl;
+
+    private string PageTitleText => _store is not null
+        ? $"Termos de Uso — {_store.StoreName}"
+        : "Termos de Uso — YouLink";
+
+    private string MetaDescriptionText => _store is not null
+        ? $"Termos e condições gerais da vitrine {_store.StoreName}."
+        : "Termos de Uso oficiais da plataforma e aplicativo YouLink.";
+
+    private string CanonicalUrl
+    {
+        get
+        {
+            var baseUri = Navigation.BaseUri.TrimEnd('/');
+            return string.IsNullOrWhiteSpace(StoreSlug)
+                ? $"{baseUri}/termos"
+                : $"{baseUri}/loja/{Uri.EscapeDataString(StoreSlug)}/termos";
+        }
+    }
+
+    private string HomeBackHref =>
+        string.IsNullOrWhiteSpace(StoreSlug) ? "/" : $"/loja/{Uri.EscapeDataString(StoreSlug)}";
+
+    private string PrivacyHref =>
+        string.IsNullOrWhiteSpace(StoreSlug) ? "/privacidade" : $"/loja/{Uri.EscapeDataString(StoreSlug)}/privacidade";
+
+    protected override async Task OnParametersSetAsync()
+    {
+        var snapshot = await PortalService.GetPortalSnapshotAsync(fetchLiveRelease: false);
+        _supportWhatsappUrl = WhatsAppLinkBuilder.BuildSupportWhatsappUrl(
+            snapshot.SupportWhatsappNumber,
+            "Olá! Tenho uma dúvida sobre os Termos de Uso do YouLink.");
+
+        try
+        {
+            _isPortalMode = string.IsNullOrWhiteSpace(StoreSlug) &&
+                            await PortalService.IsPortalHomeAsync(null);
+        }
+        catch
+        {
+            _isPortalMode = string.IsNullOrWhiteSpace(StoreSlug);
+        }
+
+        if (!_isPortalMode || !string.IsNullOrWhiteSpace(StoreSlug))
+        {
+            try
+            {
+                _store = await CatalogDataGateway.GetStoreInfoOrNullAsync(StoreSlug);
+            }
+            catch
+            {
+                _store = null;
+            }
+        }
+        else
+        {
+            _store = null;
+        }
+    }
+}

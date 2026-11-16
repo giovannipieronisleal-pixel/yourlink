@@ -24,7 +24,8 @@ public static class PlatformOwnerSettingsStore
         decimal IntermediaryPlanMonthlyPrice,
         decimal PremiumPlanMonthlyPrice,
         DateTimeOffset UpdatedAt,
-        string? CentralCatalogServerUrl = null);
+        string? CentralCatalogServerUrl = null,
+        string? SupportWhatsappNumber = null);
 
     public static string GetCompanionPath(string storageFilePath)
     {
@@ -82,9 +83,10 @@ public static class PlatformOwnerSettingsStore
             settings.IntermediaryPlanMonthlyPrice != 89.90m ||
             settings.PremiumPlanMonthlyPrice != 129.90m;
         var hasCentralUrl = !StoreSettings.IsPlaceholderStoreUrl(settings.CentralCatalogBaseUrl);
+        var hasSupportWhatsapp = !string.IsNullOrWhiteSpace(settings.PlatformSupportWhatsapp);
 
         // Nunca sobrescrever uma chave Pix real já salva com o placeholder padrão ao recriar uma loja.
-        if (!hasCustomPix && !hasCustomPrices && !hasCentralUrl && existing is null)
+        if (!hasCustomPix && !hasCustomPrices && !hasCentralUrl && !hasSupportWhatsapp && existing is null)
             return;
 
         var effectivePix = hasCustomPix
@@ -99,6 +101,9 @@ public static class PlatformOwnerSettingsStore
         var effectiveCentralUrl = hasCentralUrl
             ? settings.CentralCatalogBaseUrl!.Trim().TrimEnd('/')
             : existingCentralUrl;
+        var effectiveSupportWhatsapp = settings.PlatformSupportWhatsapp is not null
+            ? (string.IsNullOrWhiteSpace(settings.PlatformSupportWhatsapp) ? null : settings.PlatformSupportWhatsapp.Trim())
+            : existing?.SupportWhatsappNumber;
 
         var snapshot = new Snapshot(
             PicpayPixKey: effectivePix,
@@ -106,7 +111,8 @@ public static class PlatformOwnerSettingsStore
             IntermediaryPlanMonthlyPrice: settings.IntermediaryPlanMonthlyPrice,
             PremiumPlanMonthlyPrice: settings.PremiumPlanMonthlyPrice,
             UpdatedAt: DateTimeOffset.UtcNow,
-            CentralCatalogServerUrl: effectiveCentralUrl);
+            CentralCatalogServerUrl: effectiveCentralUrl,
+            SupportWhatsappNumber: effectiveSupportWhatsapp);
 
         try
         {
@@ -174,6 +180,13 @@ public static class PlatformOwnerSettingsStore
             !StoreSettings.IsPlaceholderStoreUrl(snapshot.CentralCatalogServerUrl))
         {
             settings.CentralCatalogBaseUrl = snapshot.CentralCatalogServerUrl!.Trim().TrimEnd('/');
+            changed = true;
+        }
+
+        if (string.IsNullOrWhiteSpace(settings.PlatformSupportWhatsapp) &&
+            !string.IsNullOrWhiteSpace(snapshot.SupportWhatsappNumber))
+        {
+            settings.PlatformSupportWhatsapp = snapshot.SupportWhatsappNumber.Trim();
             changed = true;
         }
 

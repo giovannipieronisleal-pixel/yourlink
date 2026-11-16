@@ -1377,8 +1377,15 @@
             if (file is null)
                 return;
 
-            await using var stream = await file.OpenReadAsync();
-            var updated = await Gateway.UploadStoreLogoAsync(file.FileName, stream, file.ContentType ?? "image/png");
+            await using var rawStream = await file.OpenReadAsync();
+            await using var optimized = await appmaui.blazor.Services.DeviceImageCompressor.OptimizeForUploadAsync(
+                rawStream,
+                file.FileName,
+                file.ContentType ?? "image/png",
+                maxDimension: 512,
+                preservePngFormat: true);
+
+            var updated = await Gateway.UploadStoreLogoAsync(optimized.FileName, optimized.Stream, optimized.ContentType);
             _form.LogoPublicUrl = updated.LogoPublicUrl;
             _success = "Logotipo da loja enviado e atualizado com sucesso!";
         }

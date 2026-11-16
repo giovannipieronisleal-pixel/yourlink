@@ -1,0 +1,174 @@
+@page "/privacidade"
+@page "/loja/{StoreSlug}/privacidade"
+@inject CatalogDataGateway CatalogDataGateway
+@inject PlatformPortalService PortalService
+@inject NavigationManager Navigation
+
+<PageTitle>@PageTitleText</PageTitle>
+
+<HeadContent>
+    <meta name="description" content="@MetaDescriptionText" />
+    <meta name="robots" content="index,follow" />
+    <link rel="canonical" href="@CanonicalUrl" />
+</HeadContent>
+
+<section class="ylk-legal-shell">
+    <div class="ylk-legal-card">
+        <div class="ylk-legal-header">
+            <span class="lux-hero-eyebrow">@(_store is null ? "YouLink • Transparência & LGPD" : $"{_store.StoreName} • Privacidade")</span>
+            <h1 class="ylk-legal-title">Política de Privacidade (LGPD)</h1>
+            <p class="ylk-legal-updated">
+                Em conformidade com a Lei Geral de Proteção de Dados Pessoais (Lei nº 13.709/2018). Última atualização: Novembro de 2026.
+            </p>
+        </div>
+
+        <div class="ylk-legal-body">
+            @if (_store is not null)
+            {
+                <div class="ylk-legal-callout">
+                    <strong>Vitrine visitada:</strong> @_store.StoreName
+                    @if (!string.IsNullOrWhiteSpace(_store.StoreDescription))
+                    {
+                        <span> — @_store.StoreDescription</span>
+                    }
+                </div>
+            }
+
+            <h2>1. Quais dados coletamos e por qual finalidade</h2>
+            <p>
+                O <strong>YouLink</strong> coleta estritamente os dados necessários para o funcionamento seguro da conta do lojista, exibição do catálogo digital e atendimento dos pedidos realizados pelos clientes:
+            </p>
+            <ul>
+                <li><strong>Dados de conta do lojista no aplicativo:</strong> nome completo, nome de usuário, e-mail para recuperação de acesso e autenticação em duas etapas (2FA), além de configurações comerciais escolhidas pelo próprio lojista.</li>
+                <li><strong>Dados informados por compradores no catálogo online:</strong> nome, WhatsApp de contato, CEP e endereço de entrega informados voluntariamente apenas quando o cliente finaliza um pedido via Pix ou WhatsApp.</li>
+                <li><strong>Dados operacionais técnicos mínimos:</strong> registros temporários de requisições e proteção contra abuso (rate limiting) para manter o servidor online estável.</li>
+            </ul>
+
+            <h2>2. Uso de armazenamento local (localStorage e cookies essenciais)</h2>
+            <p>
+                A vitrine web utiliza apenas armazenamento local essencial para guardar os itens adicionados à sua sacola de compras enquanto você navega entre produtos. Não utilizamos cookies de rastreamento publicitário de terceiros nem vendemos listas de contatos.
+            </p>
+
+            <h2>3. Compartilhamento de dados e integrações</h2>
+            <ul>
+                <li><strong>Pedidos pelo WhatsApp:</strong> a mensagem gerada pelo cliente é aberta diretamente no aplicativo de mensagens escolhido pelo próprio usuário com o número informado pelo lojista.</li>
+                <li><strong>Pagamentos via Pix:</strong> quando a loja utiliza checkout Pix integrado ao Mercado Pago ou Pix direto, os dados do pedido servem exclusivamente para gerar a cobrança e confirmar o recebimento com o vendedor.</li>
+                <li><strong>Sincronização na nuvem:</strong> catálogos publicados e backups autorizados ficam armazenados na infraestrutura configurada para garantir que a vitrine permaneça acessível.</li>
+            </ul>
+
+            <h2>4. Direitos do titular dos dados (Art. 18 da LGPD)</h2>
+            <p>
+                Você pode solicitar a confirmação, correção, portabilidade ou exclusão de seus dados pessoais cadastrados a qualquer momento:
+            </p>
+            <ul>
+                @if (_store is not null && !string.IsNullOrWhiteSpace(_store.WhatsappNumber))
+                {
+                    <li>
+                        Para pedidos feitos em <strong>@_store.StoreName</strong>, fale diretamente pelo
+                        <a href="@WhatsAppLinkBuilder.BuildGeneralStoreLink(_store.WhatsappNumber, _store.StoreName)" target="_blank" rel="noopener noreferrer">WhatsApp oficial da loja</a>.
+                    </li>
+                }
+                @if (!string.IsNullOrWhiteSpace(_supportWhatsappUrl))
+                {
+                    <li>
+                        Para suporte sobre sua conta de lojista ou dados da plataforma YouLink, utilize o
+                        <a href="@_supportWhatsappUrl" target="_blank" rel="noopener noreferrer">WhatsApp de Suporte YouLink</a>.
+                    </li>
+                }
+                else
+                {
+                    <li>
+                        Para contas do aplicativo YouLink, o lojista pode excluir ou editar seus dados diretamente nas configurações do aplicativo ou entrar em contato pelos canais oficiais divulgados no portal.
+                    </li>
+                }
+            </ul>
+
+            <h2>5. Segurança e retenção</h2>
+            <p>
+                Senhas de contas são armazenadas somente com hash criptográfico irreversível, nunca em texto puro. Mantemos os dados apenas enquanto a conta ou vitrine estiver ativa ou pelo prazo legal exigido para comprovação fiscal e comercial do próprio vendedor.
+            </p>
+        </div>
+
+        <div class="ylk-legal-actions">
+            <a href="@HomeBackHref" class="lux-btn lux-btn-primary">← Voltar</a>
+            <a href="@TermsHref" class="lux-btn lux-btn-outline">📜 Ver Termos de Uso</a>
+            @if (_isPortalMode)
+            {
+                <a href="/como-instalar" class="lux-btn lux-btn-outline">📲 Guia de Instalação</a>
+            }
+            @if (!string.IsNullOrWhiteSpace(_supportWhatsappUrl))
+            {
+                <a href="@_supportWhatsappUrl" target="_blank" rel="noopener noreferrer" class="lux-btn lux-btn-whatsapp">
+                    💬 Falar com Suporte
+                </a>
+            }
+        </div>
+    </div>
+</section>
+
+@code {
+    [Parameter] public string? StoreSlug { get; set; }
+
+    private PublicStoreSettingsDto? _store;
+    private bool _isPortalMode = true;
+    private string? _supportWhatsappUrl;
+
+    private string PageTitleText => _store is not null
+        ? $"Política de Privacidade — {_store.StoreName}"
+        : "Política de Privacidade (LGPD) — YouLink";
+
+    private string MetaDescriptionText => _store is not null
+        ? $"Política de Privacidade e tratamento de dados conforme a LGPD para a loja {_store.StoreName}."
+        : "Política de Privacidade e conformidade com a LGPD da plataforma e aplicativo YouLink.";
+
+    private string CanonicalUrl
+    {
+        get
+        {
+            var baseUri = Navigation.BaseUri.TrimEnd('/');
+            return string.IsNullOrWhiteSpace(StoreSlug)
+                ? $"{baseUri}/privacidade"
+                : $"{baseUri}/loja/{Uri.EscapeDataString(StoreSlug)}/privacidade";
+        }
+    }
+
+    private string HomeBackHref =>
+        string.IsNullOrWhiteSpace(StoreSlug) ? "/" : $"/loja/{Uri.EscapeDataString(StoreSlug)}";
+
+    private string TermsHref =>
+        string.IsNullOrWhiteSpace(StoreSlug) ? "/termos" : $"/loja/{Uri.EscapeDataString(StoreSlug)}/termos";
+
+    protected override async Task OnParametersSetAsync()
+    {
+        var snapshot = await PortalService.GetPortalSnapshotAsync(fetchLiveRelease: false);
+        _supportWhatsappUrl = WhatsAppLinkBuilder.BuildSupportWhatsappUrl(
+            snapshot.SupportWhatsappNumber,
+            "Olá! Tenho uma dúvida sobre privacidade e dados no YouLink.");
+
+        try
+        {
+            _isPortalMode = string.IsNullOrWhiteSpace(StoreSlug) &&
+                            await PortalService.IsPortalHomeAsync(null);
+        }
+        catch
+        {
+            _isPortalMode = string.IsNullOrWhiteSpace(StoreSlug);
+        }
+
+        if (!_isPortalMode || !string.IsNullOrWhiteSpace(StoreSlug))
+        {
+            try
+            {
+                _store = await CatalogDataGateway.GetStoreInfoOrNullAsync(StoreSlug);
+            }
+            catch
+            {
+                _store = null;
+            }
+        }
+        else
+        {
+            _store = null;
+        }
+    }
+}

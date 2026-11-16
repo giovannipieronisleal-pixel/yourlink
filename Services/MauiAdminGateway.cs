@@ -1219,6 +1219,78 @@ public sealed class MauiAdminGateway
             () => _employeeAndSettingsService.GetAdminStoreSettingsAsync());
     }
 
+    public string GetPublicPortalBaseUrl()
+    {
+        var candidate = WhatsAppLinkBuilder.NormalizePublicServerUrl(LatestPlatformCatalog?.CentralCatalogServerUrl);
+        if (!string.IsNullOrWhiteSpace(candidate))
+            return candidate;
+
+        candidate = WhatsAppLinkBuilder.NormalizePublicServerUrl(LatestAdminCentralServerUrl);
+        if (!string.IsNullOrWhiteSpace(candidate))
+            return candidate;
+
+        candidate = WhatsAppLinkBuilder.NormalizePublicServerUrl(CurrentServerUrl);
+        if (!string.IsNullOrWhiteSpace(candidate) &&
+            !candidate.Contains("localhost", StringComparison.OrdinalIgnoreCase) &&
+            !candidate.Contains("127.0.0.1", StringComparison.OrdinalIgnoreCase))
+        {
+            return candidate;
+        }
+
+        return AppUpdateCatalog.DefaultCentralPlatformServerUrl.TrimEnd('/');
+    }
+
+    public string? GetSupportWhatsappUrl(string? message = null) =>
+        WhatsAppLinkBuilder.BuildSupportWhatsappUrl(LatestPlatformCatalog?.SupportWhatsappNumber, message);
+
+    public async Task OpenExternalUrlSafeAsync(string? url)
+    {
+        if (string.IsNullOrWhiteSpace(url))
+            return;
+
+        try
+        {
+            await Launcher.Default.OpenAsync(new Uri(url));
+        }
+        catch
+        {
+        }
+    }
+
+    public async Task<PlatformPlanCatalogDto?> TryLoadPublicPlatformCatalogAsync(CancellationToken ct = default)
+    {
+        if (LatestPlatformCatalog is not null)
+            return LatestPlatformCatalog;
+
+        if (ShouldTryRemoteApi && !string.IsNullOrWhiteSpace(CurrentServerUrl))
+        {
+            try
+            {
+                var catalog = await _apiClient.GetPlatformPlanCatalogAsync(ct);
+                LatestPlatformCatalog = catalog;
+                return catalog;
+            }
+            catch
+            {
+            }
+        }
+
+        var centralUrl = WhatsAppLinkBuilder.NormalizePublicServerUrl(LatestAdminCentralServerUrl);
+        if (string.IsNullOrWhiteSpace(centralUrl))
+            centralUrl = AppUpdateCatalog.DefaultCentralPlatformServerUrl;
+
+        try
+        {
+            var centralCatalog = await CreateCentralBillingClient(centralUrl).GetPlatformPlanCatalogAsync(ct);
+            LatestPlatformCatalog = centralCatalog;
+            return centralCatalog;
+        }
+        catch
+        {
+            return LatestPlatformCatalog;
+        }
+    }
+
     /// <summary>
     /// Retorna configurações da loja incluindo a chave Pix/preços dos planos para qualquer usuário autenticado,
     /// sem sobrescrever com placeholder quando não for administrador.

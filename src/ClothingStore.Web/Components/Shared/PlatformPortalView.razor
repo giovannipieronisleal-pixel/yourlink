@@ -26,8 +26,17 @@ else
 
             <div class="ylk-portal-cta-row">
                 <a href="#downloads" class="lux-btn lux-btn-primary">⬇️ Baixar YouLink Grátis</a>
-                <a href="#como-usar" class="lux-btn lux-btn-outline">📖 Ver Como Usar</a>
+                <a href="/como-instalar" class="lux-btn lux-btn-outline">📲 Como Instalar</a>
                 <a href="#planos" class="lux-btn lux-btn-outline">💎 Ver Planos</a>
+                @if (!string.IsNullOrWhiteSpace(SupportWhatsappUrl))
+                {
+                    <a href="@SupportWhatsappUrl"
+                       target="_blank"
+                       rel="noopener noreferrer"
+                       class="lux-btn lux-btn-whatsapp">
+                        💬 Falar com Suporte
+                    </a>
+                }
             </div>
 
             <div class="ylk-portal-highlights">
@@ -207,7 +216,10 @@ else
             <div>
                 <strong>Dica rápida no Android:</strong> Após baixar o arquivo <code>.apk</code>, toque nele e habilite a permissão "Instalar apps desconhecidos" para o seu navegador caso solicitado.
             </div>
-            <div class="ylk-portal-releases-link-row">
+            <div class="ylk-portal-releases-link-row" style="display: flex; flex-wrap: wrap; gap: 1rem; align-items: center;">
+                <a href="/como-instalar" style="font-weight: 700;">
+                    📖 Abrir guia visual passo a passo: Como instalar no Windows e Android →
+                </a>
                 <a href="@_snapshot.ReleasesAllUrl" target="_blank" rel="noopener noreferrer">
                     ↗ Ver notas da versão e histórico completo de lançamentos no GitHub
                 </a>
@@ -300,7 +312,24 @@ else
 
         <p class="ylk-portal-plans-footnote">
             Valores atualizados diretamente da plataforma oficial. A ativação por Pix avulso, assinatura recorrente ou código promocional acontece dentro do próprio aplicativo YouLink.
+            Consulte também nossa <a href="/privacidade">Política de Privacidade (LGPD)</a> e os <a href="/termos">Termos de Uso</a>.
         </p>
+
+        @if (!string.IsNullOrWhiteSpace(SupportWhatsappUrl))
+        {
+            <div class="ylk-portal-support-banner">
+                <div>
+                    <strong>Ficou com dúvida antes de escolher um plano?</strong>
+                    <span>Atendimento direto com a equipe YouLink pelo WhatsApp para ajudar na instalação ou contratação.</span>
+                </div>
+                <a href="@SupportWhatsappUrl"
+                   target="_blank"
+                   rel="noopener noreferrer"
+                   class="lux-btn lux-btn-whatsapp">
+                    💬 Falar com Suporte no WhatsApp
+                </a>
+            </div>
+        }
     </section>
 }
 
@@ -310,6 +339,11 @@ else
     private PlatformPortalSnapshot? _snapshot;
     private string? _storeSlugInput;
     private string? _lookupHint;
+
+    private string? SupportWhatsappUrl =>
+        WhatsAppLinkBuilder.BuildSupportWhatsappUrl(
+            _snapshot?.SupportWhatsappNumber,
+            "Olá! Vim pelo portal YouLink e gostaria de tirar uma dúvida.");
 
     protected override async Task OnInitializedAsync()
     {

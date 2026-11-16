@@ -6,6 +6,35 @@
 
 <PageTitle>@(_isPortalHome ? "YouLink — Crie sua Loja Online, Baixe o App e Venda pelo WhatsApp e Pix" : $"{(_store?.StoreName ?? "Loja Online")} — Catálogo de Produtos")</PageTitle>
 
+@if (!_loading && _isPortalHome)
+{
+    <HeadContent>
+        <meta name="description" content="Crie sua loja online em minutos, controle estoque e receba pedidos pelo WhatsApp e Pix com o aplicativo gratuito YouLink para Windows e Android." />
+        <meta property="og:type" content="website" />
+        <meta property="og:site_name" content="YouLink" />
+        <meta property="og:title" content="YouLink — Crie sua Loja Online e Venda pelo WhatsApp e Pix" />
+        <meta property="og:description" content="Baixe grátis no Windows ou Android, cadastre produtos com fotos e variações e publique sua vitrine 24h em 1 clique." />
+        <meta property="og:url" content="@CanonicalPageUrl" />
+        <meta property="og:image" content="@($"{PublicBaseUrl}/icons/icon-512.png")" />
+        <meta name="twitter:card" content="summary_large_image" />
+        <link rel="canonical" href="@CanonicalPageUrl" />
+    </HeadContent>
+}
+else if (!_loading && !_storeNotFound && _store is { IsSiteActive: true })
+{
+    <HeadContent>
+        <meta name="description" content="@StoreMetaDescription" />
+        <meta property="og:type" content="website" />
+        <meta property="og:site_name" content="@_store.StoreName" />
+        <meta property="og:title" content="@($"{_store.StoreName} — Catálogo Online")" />
+        <meta property="og:description" content="@StoreMetaDescription" />
+        <meta property="og:url" content="@CanonicalPageUrl" />
+        <meta property="og:image" content="@StoreOgImageUrl" />
+        <meta name="twitter:card" content="summary_large_image" />
+        <link rel="canonical" href="@CanonicalPageUrl" />
+    </HeadContent>
+}
+
 @if (_loading)
 {
     <div class="lux-empty-card">
@@ -282,5 +311,61 @@ else
         return string.IsNullOrWhiteSpace(categorySlug)
             ? basePath
             : $"{basePath}?categoria={Uri.EscapeDataString(categorySlug)}";
+    }
+
+    private string PublicBaseUrl => Navigation.BaseUri.TrimEnd('/');
+
+    private string CanonicalPageUrl =>
+        Navigation.Uri.Split(['?', '#'], 2)[0];
+
+    private string StoreMetaDescription
+    {
+        get
+        {
+            var raw = !string.IsNullOrWhiteSpace(_store?.StoreDescription)
+                ? _store!.StoreDescription
+                : $"Confira os produtos da {_store?.StoreName ?? "Loja Online"} e peça direto pelo WhatsApp ou Pix.";
+            var clean = string.Join(' ', raw.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+            return clean.Length > 155 ? clean[..152].TrimEnd() + "..." : clean;
+        }
+    }
+
+    private string StoreOgImageUrl
+    {
+        get
+        {
+            var logo = WhatsAppLinkBuilder.SanitizeMediaUrl(_store?.LogoPublicUrl);
+            if (logo.StartsWith("https://", StringComparison.OrdinalIgnoreCase) ||
+                logo.StartsWith("http://", StringComparison.OrdinalIgnoreCase))
+            {
+                return logo;
+            }
+            if (logo.StartsWith("/uploads/", StringComparison.OrdinalIgnoreCase))
+            {
+                return $"{PublicBaseUrl}{logo}";
+            }
+
+            var firstWithImg = _featuredProducts.FirstOrDefault(p => WhatsAppLinkBuilder.IsSafeMediaUrl(p.PrimaryImageUrl));
+            if (firstWithImg is not null)
+            {
+                var prodImg = WhatsAppLinkBuilder.SanitizeMediaUrl(firstWithImg.PrimaryImageUrl);
+                if (prodImg.StartsWith("https://", StringComparison.OrdinalIgnoreCase) ||
+                    prodImg.StartsWith("http://", StringComparison.OrdinalIgnoreCase))
+                {
+                    return prodImg;
+                }
+                if (prodImg.StartsWith("/uploads/", StringComparison.OrdinalIgnoreCase))
+                {
+                    return $"{PublicBaseUrl}{prodImg}";
+                }
+
+                var prefix = string.IsNullOrWhiteSpace(EffectiveStoreSlug)
+                    ? string.Empty
+                    : $"/loja/{Uri.EscapeDataString(EffectiveStoreSlug)}";
+                return $"{PublicBaseUrl}{prefix}/media/product/{firstWithImg.Id:D}";
+            }
+
+            return $"{PublicBaseUrl}/icons/icon-512.png";
+        }
     }
 }

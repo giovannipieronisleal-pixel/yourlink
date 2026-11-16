@@ -1,12 +1,21 @@
 @inherits LayoutComponentBase
 @implements IDisposable
+@using System.Globalization
 @inject CatalogDataGateway CatalogDataGateway
 @inject PlatformPortalService PortalService
+@inject StoreCartService CartService
 @inject NavigationManager Navigation
+@inject IJSRuntime JS
 
 @if (!_isPortalMode)
 {
     <StoreDesignStyleInjector Design="@_store?.Design" />
+    @if (_store is not null && !string.IsNullOrWhiteSpace(_storeFontsHref) && _storeFontsHref != StoreDesignCssHelper.DefaultPortalGoogleFontsUrl)
+    {
+        <HeadContent>
+            <link rel="stylesheet" href="@_storeFontsHref" />
+        </HeadContent>
+    }
 }
 
 <div class="lux-shell">
@@ -25,8 +34,17 @@
                 <nav class="lux-nav" aria-label="Navegação do portal YouLink">
                     <a href="/#o-que-e" class="lux-nav-link">O que é</a>
                     <a href="/#downloads" class="lux-nav-link">Baixar App</a>
-                    <a href="/#como-usar" class="lux-nav-link">Como Usar</a>
+                    <a href="/como-instalar" class="lux-nav-link">Como Instalar</a>
                     <a href="/#planos" class="lux-nav-link">Planos</a>
+                    @if (!string.IsNullOrWhiteSpace(PortalSupportWhatsappUrl))
+                    {
+                        <a href="@PortalSupportWhatsappUrl"
+                           target="_blank"
+                           rel="noopener noreferrer"
+                           class="lux-btn lux-btn-whatsapp lux-btn-sm">
+                            💬 Suporte
+                        </a>
+                    }
                     <a href="/#downloads" class="lux-btn lux-btn-primary lux-btn-sm">
                         ⬇️ Baixar Grátis
                     </a>
@@ -57,6 +75,20 @@
                         📲 Instalar App
                     </button>
 
+                    @if (_store is { IsSiteActive: true })
+                    {
+                        <button type="button"
+                                class="lux-btn lux-btn-outline lux-btn-sm lux-cart-nav-btn"
+                                @onclick="CartService.OpenDrawer"
+                                aria-label="Abrir sacola de produtos">
+                            🛍️ Sacola
+                            @if (CartService.TotalQuantity > 0)
+                            {
+                                <span class="lux-cart-badge">@CartService.TotalQuantity</span>
+                            }
+                        </button>
+                    }
+
                     @if (_store is { IsSiteActive: true } && !string.IsNullOrWhiteSpace(_store.WhatsappNumber))
                     {
                         <a href="@WhatsAppLinkBuilder.BuildGeneralStoreLink(_store.WhatsappNumber, _store.StoreName)"
@@ -84,11 +116,23 @@
                 <div>
                     <strong>YouLink</strong> — Plataforma gratuita para criar, gerenciar e publicar sua loja online.
                 </div>
-                <div>
+                <div class="ylk-footer-links">
+                    <a href="/como-instalar">Como Instalar</a>
+                    <a href="/privacidade">Privacidade (LGPD)</a>
+                    <a href="/termos">Termos de Uso</a>
+                    @if (!string.IsNullOrWhiteSpace(PortalSupportWhatsappUrl))
+                    {
+                        <a href="@PortalSupportWhatsappUrl"
+                           target="_blank"
+                           rel="noopener noreferrer"
+                           style="color: var(--brand-accent);">
+                            💬 Suporte WhatsApp
+                        </a>
+                    }
                     <a href="@AppUpdateCatalog.ReleasesPageUrl"
                        target="_blank"
                        rel="noopener noreferrer"
-                       style="font-weight: 600; color: var(--brand-accent);">
+                       style="color: var(--brand-accent);">
                         ⬇️ Versões Oficiais (Windows &amp; Android)
                     </a>
                 </div>
@@ -98,7 +142,7 @@
                 <div>
                     <strong>@(_store?.StoreName ?? "Loja Online")</strong> — @(_store?.StoreDescription ?? "Produtos selecionados com atendimento direto.")
                 </div>
-                <div>
+                <div class="ylk-footer-links">
                     @if (_store is not null && !string.IsNullOrWhiteSpace(_store.WhatsappNumber))
                     {
                         <a href="@WhatsAppLinkBuilder.BuildGeneralStoreLink(_store.WhatsappNumber, _store.StoreName)"
@@ -108,6 +152,8 @@
                             💬 Atendimento rápido pelo WhatsApp
                         </a>
                     }
+                    <a href="@StorePrivacyHref">Privacidade (LGPD)</a>
+                    <a href="@StoreTermsHref">Termos de Uso</a>
                 </div>
             }
         </div>
@@ -119,28 +165,157 @@
             <a href="@CatalogHref" class="lux-btn lux-btn-outline lux-btn-sm" style="flex: 1;">
                 Ver Produtos
             </a>
-            <a href="@WhatsAppLinkBuilder.BuildGeneralStoreLink(_store.WhatsappNumber, _store.StoreName)"
-               target="_blank"
-               rel="noopener noreferrer"
-               class="lux-btn lux-btn-whatsapp lux-btn-sm"
-               style="flex: 1.4;">
-                💬 Pedir no WhatsApp
-            </a>
+            @if (CartService.TotalQuantity > 0)
+            {
+                <button type="button"
+                        class="lux-btn lux-btn-primary lux-btn-sm"
+                        style="flex: 1.4;"
+                        @onclick="CartService.OpenDrawer">
+                    🛍️ Sacola (@CartService.TotalQuantity)
+                </button>
+            }
+            else
+            {
+                <a href="@WhatsAppLinkBuilder.BuildGeneralStoreLink(_store.WhatsappNumber, _store.StoreName)"
+                   target="_blank"
+                   rel="noopener noreferrer"
+                   class="lux-btn lux-btn-whatsapp lux-btn-sm"
+                   style="flex: 1.4;">
+                    💬 Pedir no WhatsApp
+                </a>
+            }
+        </div>
+    }
+
+    @if (CartService.IsDrawerOpen && !_isPortalMode && _store is { IsSiteActive: true })
+    {
+        <div class="lux-cart-backdrop" @onclick="CartService.CloseDrawer">
+            <aside class="lux-cart-drawer" aria-label="Sacola de produtos" @onclick:stopPropagation="true">
+                <div class="lux-cart-drawer-head">
+                    <div>
+                        <span class="lux-hero-eyebrow" style="margin-bottom: 0.15rem;">Pedido Rápido</span>
+                        <h2 style="margin: 0; font-size: 1.25rem; font-family: var(--brand-font-display);">
+                            🛍️ Sua Sacola (@CartService.TotalQuantity)
+                        </h2>
+                    </div>
+                    <button type="button" class="lux-btn lux-btn-outline lux-btn-sm" @onclick="CartService.CloseDrawer" aria-label="Fechar sacola">
+                        ✕ Fechar
+                    </button>
+                </div>
+
+                @if (CartService.Items.Count == 0)
+                {
+                    <div class="lux-cart-empty">
+                        <p>Sua sacola está vazia no momento.</p>
+                        <a href="@CatalogHref" class="lux-btn lux-btn-primary" @onclick="CartService.CloseDrawer">
+                            Explorar Produtos
+                        </a>
+                    </div>
+                }
+                else
+                {
+                    <div class="lux-cart-items">
+                        @for (var idx = 0; idx < CartService.Items.Count; idx++)
+                        {
+                            var itemIdx = idx;
+                            var item = CartService.Items[idx];
+                            <div class="lux-cart-item">
+                                @if (WhatsAppLinkBuilder.IsSafeMediaUrl(item.ImageUrl))
+                                {
+                                    <img src="@WhatsAppLinkBuilder.SanitizeMediaUrl(item.ImageUrl)" alt="@item.ProductName" class="lux-cart-item-thumb" />
+                                }
+                                else
+                                {
+                                    <div class="lux-cart-item-thumb lux-cart-item-placeholder">🛍️</div>
+                                }
+                                <div class="lux-cart-item-body">
+                                    <a href="@BuildCartProductHref(item.ProductSlug)" class="lux-cart-item-title" @onclick="CartService.CloseDrawer">
+                                        @item.ProductName
+                                    </a>
+                                    <div class="lux-cart-item-meta">
+                                        @FormatCartVariant(item)
+                                    </div>
+                                    <div class="lux-cart-item-price">
+                                        @((item.UnitPrice * item.Quantity).ToString("C", PtBr))
+                                    </div>
+                                    <div class="lux-cart-item-actions">
+                                        <button type="button" class="lux-qty-btn" @onclick="() => UpdateCartItemQtyAsync(itemIdx, -1)">−</button>
+                                        <span class="lux-qty-val">@item.Quantity</span>
+                                        <button type="button" class="lux-qty-btn" @onclick="() => UpdateCartItemQtyAsync(itemIdx, 1)">+</button>
+                                        <button type="button" class="lux-cart-remove" @onclick="() => RemoveCartItemAsync(itemIdx)">Remover</button>
+                                    </div>
+                                </div>
+                            </div>
+                        }
+                    </div>
+
+                    <div class="lux-cart-footer">
+                        <label class="lux-filter-label" for="lux-cart-notes">Observação do pedido (opcional)</label>
+                        <input id="lux-cart-notes"
+                               type="text"
+                               class="lux-input"
+                               placeholder="Ex.: Retirar na loja, entrega no bairro..."
+                               @bind="_cartNotes" />
+
+                        <div class="lux-cart-total-row">
+                            <span>Subtotal estimado</span>
+                            <strong>@CartService.SubtotalAmount.ToString("C", PtBr)</strong>
+                        </div>
+
+                        @if (!string.IsNullOrWhiteSpace(_store.WhatsappNumber))
+                        {
+                            <a href="@WhatsAppLinkBuilder.BuildCartOrderLink(_store.WhatsappNumber, _store.StoreName, CartService.ToWhatsAppItems(), _cartNotes)"
+                               target="_blank"
+                               rel="noopener noreferrer"
+                               class="lux-btn lux-btn-whatsapp"
+                               style="width: 100%;">
+                                💬 Enviar Pedido Completo no WhatsApp
+                            </a>
+                        }
+                        <button type="button"
+                                class="lux-btn lux-btn-outline lux-btn-sm"
+                                style="width: 100%;"
+                                @onclick="ClearCartAsync">
+                            Limpar Sacola
+                        </button>
+                    </div>
+                }
+            </aside>
         </div>
     }
 </div>
 
 @code {
+    private static readonly CultureInfo PtBr = CultureInfo.GetCultureInfo("pt-BR");
+
     private PublicStoreSettingsDto? _store;
+    private PlatformPortalSnapshot? _portalSnapshot;
     private string? _activeStoreSlug;
     private bool _isPortalMode;
-    private bool _lastWasRootHome;
+    private string? _lastPortalRouteKind;
+    private string? _storeFontsHref;
+    private string? _cartNotes;
+    private bool _hasInteractiveRender;
 
     private string HomeHref =>
         string.IsNullOrWhiteSpace(_activeStoreSlug) ? "/" : $"/loja/{Uri.EscapeDataString(_activeStoreSlug)}";
 
     private string CatalogHref =>
         string.IsNullOrWhiteSpace(_activeStoreSlug) ? "/catalogo" : $"/loja/{Uri.EscapeDataString(_activeStoreSlug)}/catalogo";
+
+    private string StorePrivacyHref =>
+        string.IsNullOrWhiteSpace(_activeStoreSlug) ? "/privacidade" : $"/loja/{Uri.EscapeDataString(_activeStoreSlug)}/privacidade";
+
+    private string StoreTermsHref =>
+        string.IsNullOrWhiteSpace(_activeStoreSlug) ? "/termos" : $"/loja/{Uri.EscapeDataString(_activeStoreSlug)}/termos";
+
+    private string? PortalSupportWhatsappUrl =>
+        WhatsAppLinkBuilder.BuildSupportWhatsappUrl(
+            _portalSnapshot?.SupportWhatsappNumber,
+            "Olá! Preciso de ajuda com o YouLink.");
+
+    private string? EffectiveCartSlug =>
+        !string.IsNullOrWhiteSpace(_activeStoreSlug) ? _activeStoreSlug : _store?.StoreSlug;
 
     private string BrandInitial =>
         string.IsNullOrWhiteSpace(_store?.StoreName)
@@ -156,24 +331,60 @@
 
     protected override async Task OnInitializedAsync()
     {
+        CartService.OnChanged += HandleCartChanged;
         Navigation.LocationChanged += HandleLocationChanged;
         _activeStoreSlug = ExtractStoreSlugFromUri(Navigation.Uri);
-        _lastWasRootHome = IsRootHomeUri(Navigation.Uri);
+        _lastPortalRouteKind = GetPortalRouteKind(Navigation.Uri);
         await LoadStoreAsync(Navigation.Uri);
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        _hasInteractiveRender = true;
+        if (!_isPortalMode)
+        {
+            await CartService.EnsureLoadedAsync(JS, EffectiveCartSlug);
+        }
+    }
+
+    private void HandleCartChanged() => InvokeAsync(StateHasChanged);
+
+    private Task UpdateCartItemQtyAsync(int index, int delta) =>
+        CartService.UpdateQuantityAsync(JS, EffectiveCartSlug, index, delta);
+
+    private Task RemoveCartItemAsync(int index) =>
+        CartService.RemoveItemAsync(JS, EffectiveCartSlug, index);
+
+    private Task ClearCartAsync() =>
+        CartService.ClearAsync(JS, EffectiveCartSlug);
+
+    private string BuildCartProductHref(string productSlug) =>
+        string.IsNullOrWhiteSpace(_activeStoreSlug)
+            ? $"/produto/{Uri.EscapeDataString(productSlug)}"
+            : $"/loja/{Uri.EscapeDataString(_activeStoreSlug)}/produto/{Uri.EscapeDataString(productSlug)}";
+
+    private static string FormatCartVariant(StoreCartService.CartItemEntry item)
+    {
+        var parts = new List<string>(2);
+        if (!WhatsAppLinkBuilder.IsPlaceholderColor(item.Color))
+            parts.Add(item.Color!.Trim());
+        if (!WhatsAppLinkBuilder.IsPlaceholderSize(item.Size))
+            parts.Add(item.Size!.Trim());
+        return parts.Count > 0 ? string.Join(" • ", parts) : "Opção padrão";
     }
 
     private async void HandleLocationChanged(object? sender, Microsoft.AspNetCore.Components.Routing.LocationChangedEventArgs e)
     {
         var nextSlug = ExtractStoreSlugFromUri(e.Location);
-        var nextIsRoot = IsRootHomeUri(e.Location);
+        var nextKind = GetPortalRouteKind(e.Location);
         if (string.Equals(nextSlug, _activeStoreSlug, StringComparison.OrdinalIgnoreCase) &&
-            nextIsRoot == _lastWasRootHome)
+            string.Equals(nextKind, _lastPortalRouteKind, StringComparison.Ordinal))
         {
             return;
         }
 
         _activeStoreSlug = nextSlug;
-        _lastWasRootHome = nextIsRoot;
+        _lastPortalRouteKind = nextKind;
         await InvokeAsync(async () =>
         {
             await LoadStoreAsync(e.Location);
@@ -183,44 +394,74 @@
 
     private async Task LoadStoreAsync(string currentUri)
     {
+        var routeKind = GetPortalRouteKind(currentUri);
         try
         {
-            _isPortalMode = string.IsNullOrWhiteSpace(_activeStoreSlug) &&
-                            IsRootHomeUri(currentUri) &&
-                            await PortalService.IsPortalHomeAsync(_activeStoreSlug);
+            if (routeKind == "always-portal")
+            {
+                _isPortalMode = true;
+            }
+            else if (routeKind == "portal-or-store" && string.IsNullOrWhiteSpace(_activeStoreSlug))
+            {
+                _isPortalMode = await PortalService.IsPortalHomeAsync(null);
+            }
+            else
+            {
+                _isPortalMode = false;
+            }
         }
         catch
         {
-            _isPortalMode = false;
+            _isPortalMode = routeKind == "always-portal";
         }
 
         if (_isPortalMode)
         {
             _store = null;
+            _storeFontsHref = null;
+            try
+            {
+                _portalSnapshot ??= await PortalService.GetPortalSnapshotAsync(fetchLiveRelease: false);
+            }
+            catch
+            {
+                _portalSnapshot = null;
+            }
             return;
         }
+
+        _portalSnapshot = null;
 
         try
         {
             _store = await CatalogDataGateway.GetStoreInfoOrNullAsync(_activeStoreSlug);
+            _storeFontsHref = _store is null ? null : StoreDesignCssHelper.BuildGoogleFontsUrl(_store.Design);
+            if (_hasInteractiveRender)
+            {
+                await CartService.EnsureLoadedAsync(JS, EffectiveCartSlug);
+            }
         }
         catch
         {
             _store = null;
+            _storeFontsHref = null;
         }
     }
 
-    private bool IsRootHomeUri(string uri)
+    private string GetPortalRouteKind(string uri)
     {
         try
         {
-            var rel = Navigation.ToBaseRelativePath(uri).Split(['?', '#'], 2)[0].Trim('/');
-            return string.IsNullOrEmpty(rel);
+            var rel = Navigation.ToBaseRelativePath(uri).Split(['?', '#'], 2)[0].Trim('/').ToLowerInvariant();
+            if (rel == "como-instalar")
+                return "always-portal";
+            if (string.IsNullOrEmpty(rel) || rel == "privacidade" || rel == "termos")
+                return "portal-or-store";
         }
         catch
         {
-            return false;
         }
+        return "store";
     }
 
     private string? ExtractStoreSlugFromUri(string uri)
@@ -244,6 +485,7 @@
 
     public void Dispose()
     {
+        CartService.OnChanged -= HandleCartChanged;
         Navigation.LocationChanged -= HandleLocationChanged;
     }
 }

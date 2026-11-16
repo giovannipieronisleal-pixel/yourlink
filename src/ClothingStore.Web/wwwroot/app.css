@@ -1383,3 +1383,380 @@ html.pwa-can-install .lux-pwa-install-btn {
         grid-template-columns: 1fr;
     }
 }
+
+/* ---------------- Sacola Multi-Itens, Compartilhar & QR Code ---------------- */
+.lux-cart-nav-btn {
+    position: relative;
+    gap: 0.4rem;
+}
+
+.lux-cart-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 20px;
+    height: 20px;
+    padding: 0 5px;
+    border-radius: 999px;
+    background: var(--brand-accent);
+    color: #FFFFFF;
+    font-size: 0.72rem;
+    font-weight: 800;
+}
+
+.lux-cart-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 90;
+    background: rgba(15, 23, 42, 0.52);
+    backdrop-filter: blur(4px);
+    display: flex;
+    justify-content: flex-end;
+}
+
+.lux-cart-drawer {
+    width: min(100vw, 430px);
+    height: 100%;
+    background: var(--brand-surface);
+    color: var(--brand-text);
+    border-left: 1px solid var(--brand-border);
+    display: flex;
+    flex-direction: column;
+    padding: 1.25rem;
+    gap: 1rem;
+    box-shadow: -12px 0 32px rgba(0, 0, 0, 0.18);
+}
+
+.lux-cart-drawer-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    padding-bottom: 0.85rem;
+    border-bottom: 1px solid var(--brand-border);
+}
+
+.lux-cart-empty {
+    margin: auto 0;
+    text-align: center;
+    padding: 2rem 1rem;
+    color: var(--brand-text-muted);
+}
+
+.lux-cart-items {
+    flex: 1 1 auto;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 0.85rem;
+}
+
+.lux-cart-item {
+    display: grid;
+    grid-template-columns: 64px 1fr;
+    gap: 0.75rem;
+    padding: 0.75rem;
+    border-radius: var(--brand-radius-card);
+    border: 1px solid var(--brand-border);
+    background: var(--brand-bg);
+}
+
+.lux-cart-item-thumb {
+    width: 64px;
+    height: 64px;
+    object-fit: cover;
+    border-radius: 6px;
+    border: 1px solid var(--brand-border);
+}
+
+.lux-cart-item-placeholder {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--brand-surface-subtle);
+    font-size: 1.35rem;
+}
+
+.lux-cart-item-body {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+}
+
+.lux-cart-item-title {
+    font-weight: 700;
+    font-size: 0.92rem;
+    color: var(--brand-text);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.lux-cart-item-meta {
+    font-size: 0.78rem;
+    color: var(--brand-text-muted);
+}
+
+.lux-cart-item-price {
+    font-weight: 800;
+    font-size: 0.9rem;
+    color: var(--brand-text);
+}
+
+.lux-cart-item-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+    margin-top: 0.25rem;
+}
+
+.lux-qty-btn {
+    width: 28px;
+    height: 28px;
+    border-radius: 6px;
+    border: 1px solid var(--brand-border);
+    background: var(--brand-surface);
+    color: var(--brand-text);
+    font-weight: 700;
+    cursor: pointer;
+}
+
+.lux-qty-val {
+    min-width: 22px;
+    text-align: center;
+    font-weight: 700;
+    font-size: 0.88rem;
+}
+
+.lux-cart-remove {
+    margin-left: auto;
+    border: none;
+    background: transparent;
+    color: var(--brand-text-muted);
+    font-size: 0.76rem;
+    text-decoration: underline;
+    cursor: pointer;
+}
+
+.lux-cart-footer {
+    border-top: 1px solid var(--brand-border);
+    padding-top: 0.9rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.65rem;
+}
+
+.lux-cart-total-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 1rem;
+    color: var(--brand-text);
+}
+
+.lux-cart-total-row strong {
+    font-size: 1.2rem;
+}
+
+.lux-detail-actions-stack {
+    display: flex;
+    flex-direction: column;
+    gap: 0.55rem;
+}
+
+.lux-detail-qty-bar {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    flex-wrap: wrap;
+}
+
+.lux-detail-share-row {
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+    margin-top: 0.25rem;
+}
+
+.lux-qr-box {
+    margin-top: 0.75rem;
+    padding: 0.9rem;
+    border-radius: var(--brand-radius-card);
+    border: 1px solid var(--brand-border);
+    background: var(--brand-surface);
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    flex-wrap: wrap;
+}
+
+.lux-qr-box img {
+    width: 148px;
+    height: 148px;
+    border-radius: 8px;
+    border: 1px solid var(--brand-border);
+    background: #FFFFFF;
+}
+
+.ylk-footer-links {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1rem;
+    align-items: center;
+}
+
+.ylk-footer-links a {
+    font-size: 0.86rem;
+    font-weight: 600;
+}
+
+.ylk-legal-shell {
+    padding: 0.5rem 0 2.25rem;
+}
+
+.ylk-legal-card {
+    background: var(--brand-surface);
+    border: 1px solid var(--brand-border);
+    border-radius: var(--brand-radius-card);
+    padding: 2rem;
+    box-shadow: 0 18px 40px -28px rgba(15, 23, 42, 0.25);
+}
+
+.ylk-legal-header {
+    border-bottom: 1px solid var(--brand-border);
+    padding-bottom: 1.25rem;
+    margin-bottom: 1.5rem;
+}
+
+.ylk-legal-title {
+    margin: 0.35rem 0 0.4rem;
+    font-size: clamp(1.55rem, 3vw, 2.15rem);
+    font-family: var(--brand-font-display);
+}
+
+.ylk-legal-updated {
+    margin: 0;
+    color: var(--brand-text-muted);
+    font-size: 0.92rem;
+}
+
+.ylk-legal-body {
+    display: flex;
+    flex-direction: column;
+    gap: 0.85rem;
+    font-size: 0.96rem;
+    line-height: 1.65;
+}
+
+.ylk-legal-body h2 {
+    margin: 0.85rem 0 0.15rem;
+    font-size: 1.15rem;
+}
+
+.ylk-legal-body p,
+.ylk-legal-body ul {
+    margin: 0;
+}
+
+.ylk-legal-body ul {
+    padding-left: 1.25rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+}
+
+.ylk-legal-callout {
+    padding: 0.85rem 1rem;
+    border-radius: 10px;
+    background: var(--brand-surface-subtle);
+    border: 1px solid var(--brand-border);
+}
+
+.ylk-legal-actions {
+    margin-top: 1.65rem;
+    padding-top: 1.2rem;
+    border-top: 1px solid var(--brand-border);
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.7rem;
+}
+
+.ylk-install-columns {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(290px, 1fr));
+    gap: 1.25rem;
+}
+
+.ylk-install-platform-box {
+    border: 1px solid var(--brand-border);
+    border-radius: 12px;
+    background: var(--brand-bg);
+    padding: 1.35rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.8rem;
+}
+
+.ylk-install-platform-box h2 {
+    margin: 0;
+    font-size: 1.25rem;
+}
+
+.ylk-install-platform-box p {
+    margin: 0;
+    font-size: 0.92rem;
+    line-height: 1.55;
+    color: var(--brand-text-muted);
+}
+
+.ylk-install-steps {
+    margin: 0;
+    padding-left: 1.25rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.55rem;
+    font-size: 0.92rem;
+    line-height: 1.5;
+}
+
+.ylk-install-callout {
+    padding: 0.75rem 0.95rem;
+    border-radius: 8px;
+    background: var(--brand-surface-subtle);
+    border-left: 3px solid var(--brand-accent);
+    font-size: 0.86rem;
+    font-weight: 600;
+}
+
+.ylk-install-btn-group {
+    margin-top: auto;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.6rem;
+}
+
+.ylk-portal-support-banner {
+    margin-top: 1.5rem;
+    padding: 1.25rem 1.4rem;
+    border-radius: 14px;
+    border: 1px solid var(--brand-border);
+    background: var(--brand-surface);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    flex-wrap: wrap;
+}
+
+.ylk-portal-support-banner strong {
+    display: block;
+    font-size: 1rem;
+    margin-bottom: 0.2rem;
+}
+
+.ylk-portal-support-banner span {
+    font-size: 0.9rem;
+    color: var(--brand-text-muted);
+}
+

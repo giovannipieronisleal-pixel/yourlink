@@ -1,5 +1,7 @@
 using System.Diagnostics;
+using System.IO.Compression;
 using System.Net;
+using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Net.Sockets;
 using System.Text;
@@ -31,8 +33,48 @@ public sealed class GoogleCloudSyncService
     private readonly HttpClient _httpClient;
     private readonly OrderAndShippingService? _orderAndShippingService;
     private readonly HttpClient _externalHttpClient;
-    private static readonly HttpClient ExternalHttpClient = new() { Timeout = TimeSpan.FromSeconds(60) };
+    private static readonly HttpClient ExternalHttpClient = CreateExternalHttpClient();
+    private static readonly JsonSerializerOptions SyncPayloadJsonOptions = new(JsonSerializerDefaults.Web);
     private readonly SemaphoreSlim _syncLock = new(1, 1);
+    private readonly object _debounceLock = new();
+    private CancellationTokenSource? _autoSyncDebounceCts;
+
+    private static HttpClient CreateExternalHttpClient()
+    {
+        var handler = new HttpClientHandler
+        {
+            AutomaticDecompression = DecompressionMethods.All
+        };
+        return new HttpClient(handler)
+        {
+            Timeout = TimeSpan.FromSeconds(60)
+        };
+    }
+
+    private static HttpContent CreateSyncPayloadContent(CloudCatalogSyncPayload payload, bool useGzip)
+    {
+        if (!useGzip)
+            return JsonContent.Create(payload, options: SyncPayloadJsonOptions);
+
+        var jsonBytes = JsonSerializer.SerializeToUtf8Bytes(payload, SyncPayloadJsonOptions);
+        if (jsonBytes.Length < 1024)
+        {
+            var plain = new ByteArrayContent(jsonBytes);
+            plain.Headers.ContentType = new MediaTypeHeaderValue("application/json") { CharSet = "utf-8" };
+            return plain;
+        }
+
+        using var ms = new MemoryStream();
+        using (var gzip = new GZipStream(ms, CompressionLevel.Optimal, leaveOpen: true))
+        {
+            gzip.Write(jsonBytes, 0, jsonBytes.Length);
+        }
+
+        var compressed = new ByteArrayContent(ms.ToArray());
+        compressed.Headers.ContentType = new MediaTypeHeaderValue("application/json") { CharSet = "utf-8" };
+        compressed.Headers.ContentEncoding.Add("gzip");
+        return compressed;
+    }
 
     public event Action? OnSyncStatusChanged;
 
@@ -1093,12 +1135,13 @@ public sealed class GoogleCloudSyncService
         var payload = BuildCatalogSyncPayload(settings, categories, products);
         var endpoint = $"{targetBase}/api/cloud/publish-store?storeSlug={Uri.EscapeDataString(slug)}";
         const int maxAttempts = 3;
+        var useGzip = true;
 
         for (var attempt = 1; attempt <= maxAttempts; attempt++)
         {
             using var request = new HttpRequestMessage(HttpMethod.Post, endpoint)
             {
-                Content = JsonContent.Create(payload)
+                Content = CreateSyncPayloadContent(payload, useGzip)
             };
             ApplyStoreControlHeaders(request, settings, slug, publishToken, ownerEmail, includeSyncSecretIfByo: false);
 
@@ -1108,6 +1151,12 @@ public sealed class GoogleCloudSyncService
             try
             {
                 var response = await _externalHttpClient.SendAsync(request, cts.Token);
+                if (useGzip && (response.StatusCode == HttpStatusCode.UnsupportedMediaType || response.StatusCode == HttpStatusCode.BadRequest))
+                {
+                    useGzip = false;
+                    attempt--;
+                    continue;
+                }
                 if (response.IsSuccessStatusCode)
                 {
                     var result = await response.Content.ReadFromJsonAsync<CloudStorePublishResponse>(cancellationToken: cts.Token);
@@ -1196,12 +1245,13 @@ public sealed class GoogleCloudSyncService
         var payload = BuildCatalogSyncPayload(settings, categories, products);
         var cloudEndpoint = $"{normalizedUrl}/api/cloud/sync-state";
         const int maxAttempts = 3;
+        var useGzip = true;
 
         for (var attempt = 1; attempt <= maxAttempts; attempt++)
         {
             using var request = new HttpRequestMessage(HttpMethod.Post, cloudEndpoint)
             {
-                Content = JsonContent.Create(payload)
+                Content = CreateSyncPayloadContent(payload, useGzip)
             };
 
             if (!string.IsNullOrWhiteSpace(cleanSecret))
@@ -1221,6 +1271,12 @@ public sealed class GoogleCloudSyncService
             try
             {
                 var response = await _externalHttpClient.SendAsync(request, cts.Token);
+                if (useGzip && (response.StatusCode == HttpStatusCode.UnsupportedMediaType || response.StatusCode == HttpStatusCode.BadRequest))
+                {
+                    useGzip = false;
+                    attempt--;
+                    continue;
+                }
                 if (response.IsSuccessStatusCode)
                 {
                     settings.LastOnlineSyncAt = DateTimeOffset.UtcNow;
@@ -1406,19 +1462,35 @@ public sealed class GoogleCloudSyncService
     }
 
     /// <summary>
-    /// Dispara a sincronização automática em background sem bloquear a interface de usuário.
+    /// Dispara a sincronização automática em background com debounce de 1,5s para agrupar edições rápidas em sequência.
     /// </summary>
     public void TriggerAutoSyncIfEnabled()
     {
+        CancellationTokenSource debounceCts;
+        lock (_debounceLock)
+        {
+            _autoSyncDebounceCts?.Cancel();
+            _autoSyncDebounceCts?.Dispose();
+            _autoSyncDebounceCts = new CancellationTokenSource();
+            debounceCts = _autoSyncDebounceCts;
+        }
+
         _ = Task.Run(async () =>
         {
             try
             {
-                var settings = await _repository.GetStoreSettingsAsync();
+                await Task.Delay(TimeSpan.FromMilliseconds(1500), debounceCts.Token);
+                if (debounceCts.IsCancellationRequested)
+                    return;
+
+                var settings = await _repository.GetStoreSettingsAsync(debounceCts.Token);
                 if (settings.AutoSyncOnlineOnSave && !string.IsNullOrWhiteSpace(settings.OnlineBaseUrl))
                 {
-                    await SyncCatalogToCloudAsync();
+                    await SyncCatalogToCloudAsync(debounceCts.Token);
                 }
+            }
+            catch (OperationCanceledException)
+            {
             }
             catch
             {

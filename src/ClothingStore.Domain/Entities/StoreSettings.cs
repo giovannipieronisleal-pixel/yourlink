@@ -67,8 +67,9 @@ public sealed class StoreSettings
     public int MaxDeliveryDistanceKm { get; set; } = 0;
     public int DefaultPackageWeightGrams { get; set; } = 450;
 
-    // Modo Servidor Central YouLink (1-clique) e Modo "Meu Servidor Próprio" (BYO Server)
+    // Servidor Central YouLink (1-clique) e Modo "Meu Servidor Próprio" (BYO Server)
     public string? CentralCatalogBaseUrl { get; set; }
+    public string? PlatformSupportWhatsapp { get; set; }
     public string? CentralPublishToken { get; set; }
     public const string DomainModePlatformDefault = "PlataformaPadrao";
     public const string DomainModeFreeDomain = "DominioGratis";
