@@ -40,11 +40,11 @@ jobs:
       - name: Checkout do código
         uses: actions/checkout@v4
 
-      - name: Configurar Java 17
+      - name: Configurar Java 21
         uses: actions/setup-java@v4
         with:
           distribution: "microsoft"
-          java-version: "17"
+          java-version: "21"
 
       - name: Configurar .NET 10
         uses: actions/setup-dotnet@v4
@@ -64,18 +64,73 @@ jobs:
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
-          if [[ -z "$ANDROID_KEYSTORE_BASE64" || -z "$ANDROID_KEYSTORE_PASSWORD" || -z "$ANDROID_KEY_ALIAS" || -z "$ANDROID_KEY_PASSWORD" ]]; then
+          set -euo pipefail
+          CLEAN_B64=$(printf '%s' "$ANDROID_KEYSTORE_BASE64" | tr -d '\r\n\t ')
+          CLEAN_STORE_PASS=$(printf '%s' "$ANDROID_KEYSTORE_PASSWORD" | tr -d '\r\n\t ')
+          CLEAN_ALIAS=$(printf '%s' "$ANDROID_KEY_ALIAS" | tr -d '\r\n\t ')
+          CLEAN_KEY_PASS=$(printf '%s' "$ANDROID_KEY_PASSWORD" | tr -d '\r\n\t ')
+
+          if [[ -z "$CLEAN_B64" || -z "$CLEAN_STORE_PASS" || -z "$CLEAN_ALIAS" || -z "$CLEAN_KEY_PASS" ]]; then
             echo "::error::Configure os 4 Secrets obrigatorios do GitHub Actions (ANDROID_KEYSTORE_BASE64, ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS, ANDROID_KEY_PASSWORD) antes de publicar um release Android."
             exit 1
           fi
+
+          if ! printf '%s' "$CLEAN_B64" | base64 -d > "$RUNNER_TEMP/youlink-release.keystore" 2>/dev/null; then
+            echo "::error::ANDROID_KEYSTORE_BASE64 nao contem um Base64 valido. Copie somente a linha Base64 abaixo do item 1) em App_Data/android-secrets.local.txt."
+            exit 1
+          fi
+
+          KS_BYTES=$(wc -c < "$RUNNER_TEMP/youlink-release.keystore")
+          echo "Keystore decodificada: ${KS_BYTES} bytes."
+          if [[ "$KS_BYTES" -lt 500 ]]; then
+            echo "::error::A keystore decodificada tem apenas ${KS_BYTES} bytes (incompleta). Atualize o Secret ANDROID_KEYSTORE_BASE64."
+            exit 1
+          fi
+
+          cat > "$RUNNER_TEMP/VerifyKeystore.java" << 'JAVA'
+          import java.io.FileInputStream;
+          import java.security.Key;
+          import java.security.KeyStore;
+          import java.util.Collections;
+
+          public class VerifyKeystore {
+              public static void main(String[] args) throws Exception {
+                  String path = args[0], alias = args[1], storePass = args[2], keyPass = args[3];
+                  KeyStore ks = KeyStore.getInstance("PKCS12");
+                  try (FileInputStream fis = new FileInputStream(path)) {
+                      ks.load(fis, storePass.toCharArray());
+                  } catch (Exception ex) {
+                      System.err.println("ERRO_KEYSTORE_OU_SENHA_STORE: " + ex.getClass().getSimpleName() + ": " + ex.getMessage());
+                      System.exit(11);
+                  }
+                  if (!ks.containsAlias(alias)) {
+                      System.err.println("ERRO_ALIAS_NAO_ENCONTRADO. Aliases na keystore: " + Collections.list(ks.aliases()));
+                      System.exit(12);
+                  }
+                  try {
+                      Key k = ks.getKey(alias, keyPass.toCharArray());
+                      if (k == null) {
+                          System.err.println("ERRO_CHAVE_NULA para alias: " + alias);
+                          System.exit(13);
+                      }
+                      System.out.println("Keystore e chave privada validadas (" + k.getAlgorithm() + ").");
+                  } catch (Exception ex) {
+                      System.err.println("ERRO_SENHA_CHAVE_PRIVADA (ANDROID_KEY_PASSWORD): " + ex.getClass().getSimpleName() + ": " + ex.getMessage());
+                      System.exit(14);
+                  }
+              }
+          }
+          JAVA
+          java "$RUNNER_TEMP/VerifyKeystore.java" "$RUNNER_TEMP/youlink-release.keystore" "$CLEAN_ALIAS" "$CLEAN_STORE_PASS" "$CLEAN_KEY_PASS"
+          rm -f "$RUNNER_TEMP/VerifyKeystore.java"
+
           echo "Assinando APK com keystore privada configurada nos Secrets do GitHub..."
-          echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/youlink-release.keystore"
           dotnet publish appmaui.blazor.csproj -f net10.0-android -c Release -p:AndroidPackageFormat=apk -m:1 \
             -p:AndroidKeyStore=true \
             -p:AndroidSigningKeyStore="$RUNNER_TEMP/youlink-release.keystore" \
-            -p:AndroidSigningKeyAlias="$ANDROID_KEY_ALIAS" \
-            -p:AndroidSigningKeyPass="$ANDROID_KEY_PASSWORD" \
-            -p:AndroidSigningStorePass="$ANDROID_KEYSTORE_PASSWORD"
+            -p:AndroidSigningKeyAlias="$CLEAN_ALIAS" \
+            -p:AndroidSigningKeyPass="$CLEAN_KEY_PASS" \
+            -p:AndroidSigningStorePass="$CLEAN_STORE_PASS"
 
       - name: Preparar arquivo YouLink-Android.apk
         run: |
