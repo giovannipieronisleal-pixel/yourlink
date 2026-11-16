@@ -1,8 +1,9 @@
-const CACHE_NAME = "youlink-store-pwa-v1";
+const CACHE_NAME = "youlink-store-pwa-v2";
 const OFFLINE_URL = "/offline.html";
 const PRECACHE_ASSETS = [
     OFFLINE_URL,
     "/app.css",
+    "/store-utils.js",
     "/favicon.svg",
     "/icons/icon-192.png",
     "/icons/icon-512.png"
@@ -40,7 +41,10 @@ self.addEventListener("fetch", (event) => {
     if (url.pathname.startsWith("/_blazor") ||
         url.pathname.startsWith("/_framework/") ||
         url.pathname.startsWith("/api/") ||
-        url.pathname.startsWith("/uploads/")) {
+        url.pathname.startsWith("/uploads/") ||
+        url.pathname === "/health" ||
+        url.pathname === "/robots.txt" ||
+        url.pathname === "/sitemap.xml") {
         return;
     }
 
@@ -55,18 +59,20 @@ self.addEventListener("fetch", (event) => {
     }
 
     if (url.pathname === "/app.css" ||
+        url.pathname === "/store-utils.js" ||
+        url.pathname === "/pwa-install.js" ||
         url.pathname === "/favicon.svg" ||
         url.pathname.startsWith("/icons/")) {
         event.respondWith(
-            caches.match(event.request).then((cached) => {
-                const networkFetch = fetch(event.request).then((response) => {
-                    if (response && response.ok) {
-                        const clone = response.clone();
-                        caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
-                    }
-                    return response;
-                }).catch(() => cached || Response.error());
-                return cached || networkFetch;
+            fetch(event.request).then((response) => {
+                if (response && response.ok) {
+                    const clone = response.clone();
+                    caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
+                }
+                return response;
+            }).catch(async () => {
+                const cached = await caches.match(event.request);
+                return cached || Response.error();
             })
         );
     }

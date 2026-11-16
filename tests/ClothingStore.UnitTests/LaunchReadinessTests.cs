@@ -167,5 +167,23 @@ public class LaunchReadinessTests
                     $"Nova página pública contém palavra restrita '{word}'.");
             }
         }
+
+        // Integridade web: rota /Error existe, NotFound usa tema oficial e fallback de servidor central não sofre bug de string vazia ""
+        var errorRazorPath = Path.Combine(root, "src", "ClothingStore.Web", "Components", "Pages", "Error.razor");
+        Assert.IsTrue(File.Exists(errorRazorPath), "Error.razor precisa existir para app.UseExceptionHandler(\"/Error\").");
+        var errorRazor = File.ReadAllText(errorRazorPath, Encoding.UTF8);
+        Assert.IsTrue(errorRazor.Contains("@page \"/Error\"", StringComparison.Ordinal));
+        Assert.IsFalse(errorRazor.Contains("AdminApp", StringComparison.OrdinalIgnoreCase));
+
+        var routesRazor = File.ReadAllText(Path.Combine(root, "src", "ClothingStore.Web", "Components", "Routes.razor"), Encoding.UTF8);
+        Assert.IsTrue(routesRazor.Contains("lux-btn-primary", StringComparison.Ordinal));
+
+        var swJs = File.ReadAllText(Path.Combine(root, "src", "ClothingStore.Web", "wwwroot", "sw.js"), Encoding.UTF8);
+        Assert.IsTrue(swJs.Contains("youlink-store-pwa-v2", StringComparison.Ordinal));
+        Assert.IsTrue(swJs.Contains("url.pathname === \"/health\"", StringComparison.Ordinal));
+
+        Assert.IsFalse(webProgram.Contains("NormalizePublicServerUrl(settings.CentralCatalogBaseUrl)\r\n                          ??", StringComparison.Ordinal) ||
+                       webProgram.Contains("NormalizePublicServerUrl(settings.CentralCatalogBaseUrl)\n                          ??", StringComparison.Ordinal));
+        Assert.IsTrue(detailRazor.Contains("ResetPixOrderForm();", StringComparison.Ordinal));
     }
 }

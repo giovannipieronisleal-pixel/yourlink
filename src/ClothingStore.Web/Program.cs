@@ -684,8 +684,11 @@ app.MapGet("/api/platform-sync/plan-catalog", async (
     var settings = await repository.GetStoreSettingsAsync(ct);
     var isAppConfigured = mercadoPago.GetConfiguredApp().IsOAuthConfigured;
     var conn = await tokenStore.GetConnectionStatusAsync(isAppConfigured, ct);
-    var resolvedCentral = WhatsAppLinkBuilder.NormalizePublicServerUrl(settings.CentralCatalogBaseUrl)
-                          ?? WhatsAppLinkBuilder.NormalizePublicServerUrl(GetPublicOrigin(ctx));
+    var resolvedCentral = WhatsAppLinkBuilder.NormalizePublicServerUrl(settings.CentralCatalogBaseUrl);
+    if (string.IsNullOrWhiteSpace(resolvedCentral) || StoreSettings.IsPlaceholderStoreUrl(resolvedCentral))
+    {
+        resolvedCentral = WhatsAppLinkBuilder.NormalizePublicServerUrl(GetPublicOrigin(ctx));
+    }
 
     var resolvedSupportWhatsapp = WhatsAppLinkBuilder.SanitizeSupportPhone(
         app.Configuration["YOULINK_SUPPORT_WHATSAPP"]
