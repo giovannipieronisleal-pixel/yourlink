@@ -900,6 +900,19 @@ public class MultiAccountStoreIsolationTests
             Assert.IsTrue(updatedAfterRevoke);
             Assert.AreEqual(StoreSettings.PlanTierBasic, basicSettings.PlanTier);
 
+            // 2b) VIP Vitalício (sem vencimento) é sempre tratado como Cortesia mesmo se vindo de registro legado sem flag explícita
+            var legacyLifetime = await registry.ApplyPlanAsync(
+                targetEmail: "cortesia1@gmail.com",
+                targetUsername: "cortesia1",
+                storeName: "Loja Cortesia",
+                planTier: StoreSettings.PlanTierPremium,
+                durationDays: null,
+                extendExistingDuration: false,
+                activateSite: true,
+                isCourtesyVip: false);
+            Assert.IsNotNull(legacyLifetime);
+            Assert.IsTrue(legacyLifetime!.IsCourtesyVip, "Todo VIP Vitalício sem assinatura recorrente deve ser identificado como Cortesia.");
+
             // 3) VIP Comprado em falha recorrente entra em carência de 5 dias e desativa após expirar
             await registry.ApplyPlanAsync(
                 targetEmail: "cortesia1@gmail.com",

@@ -962,6 +962,10 @@ app.MapPost("/api/platform-sync/apply-vip", async (
             statusCode: StatusCodes.Status401Unauthorized);
     }
 
+    var normalizedRequestTier = StoreSettings.NormalizePlanTier(request.PlanTier);
+    var isBasicRequestRemoval = string.Equals(normalizedRequestTier, StoreSettings.PlanTierBasic, StringComparison.OrdinalIgnoreCase);
+    var effectiveRequestIsCourtesy = !isBasicRequestRemoval && (request.IsCourtesyVip || !request.DurationDays.HasValue);
+
     var cloudMatch = await accountRegistry.ApplyPlanAsync(
         request.TargetEmail,
         request.TargetUsername,
@@ -971,7 +975,7 @@ app.MapPost("/api/platform-sync/apply-vip", async (
         request.ExtendExistingDuration,
         request.ActivateSite,
         ct,
-        isCourtesyVip: request.IsCourtesyVip);
+        isCourtesyVip: effectiveRequestIsCourtesy);
 
     var targetRepo = await ResolvePlatformSyncTargetRepositoryAsync(repository, gateway, request, cloudMatch, ct);
     if (targetRepo is not null)
@@ -1005,7 +1009,7 @@ app.MapPost("/api/platform-sync/apply-vip", async (
         }
         else
         {
-            settings.ActivePlanBillingKind = request.IsCourtesyVip
+            settings.ActivePlanBillingKind = effectiveRequestIsCourtesy
                 ? PlanActivationCode.BillingKindGiftedUnpaid
                 : PlanActivationCode.BillingKindPaid;
             if (request.ActivateSite)
@@ -1424,7 +1428,7 @@ app.MapGet("/api/cloud/plan-status", async (
                     IsSiteActive: tenantSettings.IsSiteActive,
                     StoreName: tenantSettings.StoreName,
                     StoreSlug: tenantSettings.StoreSlug,
-                    IsCourtesyVip: string.Equals(tenantSettings.ActivePlanBillingKind, PlanActivationCode.BillingKindGiftedUnpaid, StringComparison.OrdinalIgnoreCase),
+                    IsCourtesyVip: ResolveTenantIsCourtesyVip(tenantSettings, fromCloud?.IsCourtesyVip),
                     PlanRevokedAt: null,
                     IsRecurringSubscription: tenantSettings.IsRecurringSubscription,
                     BillingGraceEndsAt: tenantSettings.BillingGraceEndsAt,
@@ -1445,7 +1449,7 @@ app.MapGet("/api/cloud/plan-status", async (
                 IsSiteActive: tenantSettings.IsSiteActive,
                 StoreName: tenantSettings.StoreName,
                 StoreSlug: tenantSettings.StoreSlug,
-                IsCourtesyVip: string.Equals(tenantSettings.ActivePlanBillingKind, PlanActivationCode.BillingKindGiftedUnpaid, StringComparison.OrdinalIgnoreCase),
+                IsCourtesyVip: ResolveTenantIsCourtesyVip(tenantSettings, fromCloud?.IsCourtesyVip),
                 PlanRevokedAt: null,
                 IsRecurringSubscription: tenantSettings.IsRecurringSubscription,
                 BillingGraceEndsAt: tenantSettings.BillingGraceEndsAt,
@@ -1840,7 +1844,7 @@ static async Task<PlatformAccountsSyncEnvelopeDto> BuildPlatformAccountsSyncEnve
             seenUsernames.Add(usernameKey);
 
         var isCourtesyVip = matchedTenantSettings is not null
-            ? string.Equals(matchedTenantSettings.ActivePlanBillingKind, PlanActivationCode.BillingKindGiftedUnpaid, StringComparison.OrdinalIgnoreCase)
+            ? ResolveTenantIsCourtesyVip(matchedTenantSettings, acc.IsCourtesyVip)
             : acc.IsCourtesyVip;
         var graceEndsAt = matchedTenantSettings?.BillingGraceEndsAt ?? acc.BillingGraceEndsAt;
         var isBillingSuspended = matchedTenantSettings?.IsBillingSuspended ?? acc.IsBillingSuspended;
@@ -1907,7 +1911,7 @@ static async Task<PlatformAccountsSyncEnvelopeDto> BuildPlatformAccountsSyncEnve
             OnlineBaseUrl: info.PublicUrl,
             PlanTier: info.EffectiveTier,
             PlanExpiresAt: info.Settings.PlanExpiresAt,
-            IsCourtesyVip: string.Equals(info.Settings.ActivePlanBillingKind, PlanActivationCode.BillingKindGiftedUnpaid, StringComparison.OrdinalIgnoreCase),
+            IsCourtesyVip: ResolveTenantIsCourtesyVip(info.Settings),
             PlanRevokedAt: null,
             IsRecurringSubscription: info.Settings.IsRecurringSubscription,
             BillingGraceEndsAt: info.Settings.BillingGraceEndsAt,
@@ -1971,13 +1975,32 @@ static async Task AppendRepositoryAccountsAsync(
             OnlineBaseUrl: publicUrl,
             PlanTier: effectiveTier,
             PlanExpiresAt: settings.PlanExpiresAt,
-            IsCourtesyVip: string.Equals(settings.ActivePlanBillingKind, PlanActivationCode.BillingKindGiftedUnpaid, StringComparison.OrdinalIgnoreCase),
+            IsCourtesyVip: ResolveTenantIsCourtesyVip(settings),
             PlanRevokedAt: null,
             IsRecurringSubscription: settings.IsRecurringSubscription,
             BillingGraceEndsAt: settings.BillingGraceEndsAt,
             IsBillingSuspended: settings.IsBillingSuspended,
             BillingWarningMessage: settings.LastPaymentFailureMessage));
     }
+}
+
+static bool ResolveTenantIsCourtesyVip(StoreSettings settings, bool? cloudIsCourtesy = null)
+{
+    var tier = settings.GetEffectivePlanTier();
+    if (string.Equals(tier, StoreSettings.PlanTierBasic, StringComparison.OrdinalIgnoreCase))
+        return false;
+
+    if (cloudIsCourtesy == true)
+        return true;
+
+    if (string.Equals(settings.ActivePlanBillingKind, PlanActivationCode.BillingKindGiftedUnpaid, StringComparison.OrdinalIgnoreCase))
+        return true;
+
+    // VIP Vitalício (sem vencimento e sem assinatura recorrente) é sempre cortesia concedida pelo Admin.
+    if (!settings.PlanExpiresAt.HasValue && !settings.IsRecurringSubscription)
+        return true;
+
+    return false;
 }
 
 static string? ResolveCentralStorePublicUrl(string? onlineBaseUrl, string? tenantSlug, string publicOrigin)
