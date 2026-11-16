@@ -163,6 +163,17 @@ public sealed class OrderAndShippingService
         CancellationToken ct = default)
     {
         var settings = await _repository.GetStoreSettingsAsync(ct);
+        if (settings.EvaluateRecurringBillingStatus())
+        {
+            await _repository.UpdateStoreSettingsAsync(settings, ct);
+        }
+
+        if (settings.IsBillingSuspended)
+        {
+            throw new DomainException(
+                "Esta loja está temporariamente pausada devido à pendência da assinatura mensal após o prazo de 5 dias de carência. Regularize o pagamento para voltar a vender.");
+        }
+
         if (!settings.CanUseDirectPixSales())
         {
             throw new DomainException(
@@ -699,6 +710,17 @@ public sealed class OrderAndShippingService
         CancellationToken ct = default)
     {
         var settings = await _repository.GetStoreSettingsAsync(ct);
+        if (settings.EvaluateRecurringBillingStatus())
+        {
+            await _repository.UpdateStoreSettingsAsync(settings, ct);
+        }
+
+        if (settings.IsBillingSuspended)
+        {
+            throw new DomainException(
+                "Sua conta e loja foram pausadas após 5 dias sem pagamento da assinatura mensal. Regularize o pagamento no Mercado Pago ou resgate um Gift Card para voltar a registrar vendas.");
+        }
+
         if (!settings.CanViewSalesAnalytics())
         {
             throw new DomainException(

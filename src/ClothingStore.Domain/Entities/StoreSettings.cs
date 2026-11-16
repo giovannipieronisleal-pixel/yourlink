@@ -119,7 +119,9 @@ public sealed class StoreSettings
     public bool IsPremiumPlan => string.Equals(PlanTier, PlanTierPremium, StringComparison.OrdinalIgnoreCase);
 
     public bool IsLicenseActive(DateTimeOffset? now = null) =>
-        !PlanExpiresAt.HasValue || (now ?? DateTimeOffset.UtcNow) < PlanExpiresAt.Value;
+        !PlanExpiresAt.HasValue ||
+        (now ?? DateTimeOffset.UtcNow) < PlanExpiresAt.Value ||
+        IsInSubscriptionGrace(now);
 
     public bool IsEffectiveIntermediatePlan(DateTimeOffset? now = null) =>
         IsIntermediatePlan && IsLicenseActive(now);

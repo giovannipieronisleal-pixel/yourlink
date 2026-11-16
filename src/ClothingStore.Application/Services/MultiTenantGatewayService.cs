@@ -157,6 +157,23 @@ public sealed class MultiTenantGatewayService
             ?? throw new DomainException("Loja não encontrada neste servidor.");
 
         var settings = await repository.GetStoreSettingsAsync(ct);
+        if (settings.EvaluateRecurringBillingStatus())
+        {
+            await repository.UpdateStoreSettingsAsync(settings, ct);
+        }
+
+        if (settings.IsBillingSuspended)
+        {
+            throw new DomainException(
+                "Esta loja está temporariamente pausada devido à pendência da assinatura mensal após o prazo de 5 dias de carência. Regularize o pagamento para voltar a vender.");
+        }
+
+        if (!settings.IsSiteActive)
+        {
+            throw new DomainException(
+                "Esta loja/vitrine está pausada no momento e não está recebendo novos pedidos.");
+        }
+
         var effectiveSlug = _storeResolver.NormalizeStoreSlug(
             string.IsNullOrWhiteSpace(storeSlug) ? settings.StoreSlug : storeSlug);
 
