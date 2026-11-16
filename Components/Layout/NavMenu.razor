@@ -62,6 +62,13 @@
     </NavLink>
 
     <button type="button"
+            class="adm-nav-item adm-nav-secondary"
+            @onclick="OpenHelpModal">
+        <span class="adm-nav-icon">💬</span>
+        <span>Suporte</span>
+    </button>
+
+    <button type="button"
             class="adm-nav-item adm-nav-more-btn @(IsSecondaryRouteActive() || _mobileMoreOpen ? "active" : string.Empty)"
             @onclick="ToggleMobileMore"
             aria-expanded="@_mobileMoreOpen"
@@ -196,6 +203,58 @@
                     </span>
                     <span class="adm-mobile-sheet-chevron" aria-hidden="true">›</span>
                 </NavLink>
+                <button type="button" class="adm-mobile-sheet-link" style="text-align: left; width: 100%; border: none; background: transparent; cursor: pointer;" @onclick="OpenHelpFromMobileSheet">
+                    <span class="adm-mobile-sheet-icon">💬</span>
+                    <span class="adm-mobile-sheet-copy">
+                        <span class="adm-mobile-sheet-item-title">Suporte, Ajuda &amp; Privacidade</span>
+                        <span class="adm-mobile-sheet-item-desc">Guia de instalação, LGPD, termos e contato</span>
+                    </span>
+                    <span class="adm-mobile-sheet-chevron" aria-hidden="true">›</span>
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+@if (_helpModalOpen)
+{
+    <div style="position: fixed; inset: 0; background: rgba(0,0,0,0.72); display: flex; align-items: center; justify-content: center; z-index: 9998; padding: 1rem;" @onclick="CloseHelpModal">
+        <div class="adm-card" style="width: 100%; max-width: 440px; padding: 1.45rem; border: 1.5px solid var(--adm-accent); border-radius: 14px;" @onclick:stopPropagation="true">
+            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.75rem;">
+                <h3 style="margin: 0; font-size: 1.1rem; font-weight: 800;">💬 Suporte &amp; Transparência YouLink</h3>
+                <button type="button" class="adm-btn adm-btn-outline" style="padding: 0.25rem 0.6rem;" @onclick="CloseHelpModal">✕</button>
+            </div>
+            <p style="margin: 0 0 1rem; font-size: 0.85rem; color: var(--adm-muted); line-height: 1.45;">
+                Consulte o guia de instalação no Windows/Android, documentos de privacidade ou fale com nosso suporte quando disponível.
+            </p>
+            <div style="display: flex; flex-direction: column; gap: 0.55rem;">
+                @if (!string.IsNullOrWhiteSpace(SupportWhatsappUrl))
+                {
+                    <button type="button"
+                            class="adm-btn adm-btn-success"
+                            style="width: 100%; justify-content: center;"
+                            @onclick="() => Gateway.OpenExternalUrlSafeAsync(SupportWhatsappUrl)">
+                        💬 Falar com Suporte no WhatsApp
+                    </button>
+                }
+                <button type="button"
+                        class="adm-btn adm-btn-primary"
+                        style="width: 100%; justify-content: center;"
+                        @onclick='() => Gateway.OpenExternalUrlSafeAsync($"{Gateway.GetPublicPortalBaseUrl()}/como-instalar")'>
+                    📲 Abrir Guia Como Instalar
+                </button>
+                <button type="button"
+                        class="adm-btn adm-btn-outline"
+                        style="width: 100%; justify-content: center;"
+                        @onclick='() => Gateway.OpenExternalUrlSafeAsync($"{Gateway.GetPublicPortalBaseUrl()}/privacidade")'>
+                    🔒 Política de Privacidade (LGPD)
+                </button>
+                <button type="button"
+                        class="adm-btn adm-btn-outline"
+                        style="width: 100%; justify-content: center;"
+                        @onclick='() => Gateway.OpenExternalUrlSafeAsync($"{Gateway.GetPublicPortalBaseUrl()}/termos")'>
+                    📜 Termos de Uso
+                </button>
             </div>
         </div>
     </div>
@@ -207,16 +266,41 @@
 
     private string _storeSlug = "minha-loja";
     private bool _mobileMoreOpen;
+    private bool _helpModalOpen;
+
+    private string? SupportWhatsappUrl =>
+        Gateway.GetSupportWhatsappUrl("Olá! Preciso de ajuda com minha loja no aplicativo YouLink.");
 
     protected override async Task OnInitializedAsync()
     {
         Navigation.LocationChanged += OnLocationChanged;
         Gateway.AuthStateChanged += OnAuthStateChanged;
         await RefreshSlugAsync();
+        _ = LoadSupportCatalogAsync();
     }
 
     private void ToggleMobileMore() => _mobileMoreOpen = !_mobileMoreOpen;
     private void CloseMobileMore() => _mobileMoreOpen = false;
+    private void OpenHelpModal()
+    {
+        _mobileMoreOpen = false;
+        _helpModalOpen = true;
+        _ = LoadSupportCatalogAsync();
+    }
+    private void OpenHelpFromMobileSheet() => OpenHelpModal();
+    private void CloseHelpModal() => _helpModalOpen = false;
+
+    private async Task LoadSupportCatalogAsync()
+    {
+        try
+        {
+            await Gateway.TryLoadPublicPlatformCatalogAsync();
+            await InvokeAsync(StateHasChanged);
+        }
+        catch
+        {
+        }
+    }
 
     private async Task OpenProfileAsync()
     {

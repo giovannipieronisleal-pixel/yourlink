@@ -1,8 +1,22 @@
 @page "/catalogo"
 @page "/loja/{StoreSlug}/catalogo"
 @inject CatalogDataGateway CatalogDataGateway
+@inject NavigationManager Navigation
 
 <PageTitle>Catálogo — @(_store?.StoreName ?? "YouLink Loja")</PageTitle>
+
+@if (!_storeNotFound && _store is { IsSiteActive: true })
+{
+    <HeadContent>
+        <meta name="description" content="@CatalogMetaDescription" />
+        <meta property="og:type" content="website" />
+        <meta property="og:site_name" content="@_store.StoreName" />
+        <meta property="og:title" content="@($"Catálogo — {_store.StoreName}")" />
+        <meta property="og:description" content="@CatalogMetaDescription" />
+        <meta property="og:url" content="@CanonicalPageUrl" />
+        <link rel="canonical" href="@CanonicalPageUrl" />
+    </HeadContent>
+}
 
 @if (_storeNotFound)
 {
@@ -243,6 +257,21 @@ else
         finally
         {
             _loading = false;
+        }
+    }
+
+    private string CanonicalPageUrl =>
+        Navigation.Uri.Split(['?', '#'], 2)[0];
+
+    private string CatalogMetaDescription
+    {
+        get
+        {
+            var raw = !string.IsNullOrWhiteSpace(_store?.StoreDescription)
+                ? _store!.StoreDescription
+                : $"Explore todos os produtos disponíveis em {_store?.StoreName ?? "YouLink Loja"} e faça seu pedido pelo WhatsApp.";
+            var clean = string.Join(' ', raw.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+            return clean.Length > 155 ? clean[..152].TrimEnd() + "..." : clean;
         }
     }
 }

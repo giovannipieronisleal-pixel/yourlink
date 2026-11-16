@@ -1,3 +1,4 @@
+using System.IO.Compression;
 using System.Security.Claims;
 using System.Security.Cryptography;
 using System.Text;
@@ -16,8 +17,21 @@ using ClothingStore.Shared.Helpers;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.AspNetCore.RateLimiting;
+using Microsoft.AspNetCore.ResponseCompression;
 
 var builder = WebApplication.CreateBuilder(args);
+
+builder.Services.AddRequestDecompression();
+builder.Services.AddResponseCompression(options =>
+{
+    options.EnableForHttps = true;
+    options.Providers.Add<BrotliCompressionProvider>();
+    options.Providers.Add<GzipCompressionProvider>();
+});
+builder.Services.Configure<BrotliCompressionProviderOptions>(options =>
+    options.Level = CompressionLevel.Fastest);
+builder.Services.Configure<GzipCompressionProviderOptions>(options =>
+    options.Level = CompressionLevel.Fastest);
 
 // Suporte automático à variável PORT exigida pelo Google Cloud Run
 var cloudRunPort = Environment.GetEnvironmentVariable("PORT");
@@ -244,13 +258,15 @@ if (!Directory.Exists(webRootPath))
 {
     Directory.CreateDirectory(webRootPath);
 }
+app.UseRequestDecompression();
+app.UseResponseCompression();
 app.UseStaticFiles();
 app.UseCors();
 app.UseRateLimiter();
 app.UseAuthentication();
 app.UseAuthorization();
 
-app.MapGet("/health", () => Results.Ok(new
+app.MapMethods("/health", new[] { "GET", "HEAD" }, () => Results.Ok(new
 {
     status = "healthy",
     service = "ClothingStore.Api",
@@ -1594,6 +1610,11 @@ app.MapGet("/api/platform-sync/plan-catalog", async (
     var settings = await repository.GetStoreSettingsAsync(ct);
     var isAppConfigured = gateway.MercadoPago.GetConfiguredApp().IsOAuthConfigured;
     var conn = await tokenStore.GetConnectionStatusAsync(isAppConfigured, ct);
+    var resolvedSupportWhatsapp = WhatsAppLinkBuilder.SanitizeSupportPhone(
+        app.Configuration["YOULINK_SUPPORT_WHATSAPP"]
+        ?? Environment.GetEnvironmentVariable("YOULINK_SUPPORT_WHATSAPP")
+        ?? settings.PlatformSupportWhatsapp);
+
     return Results.Ok(new PlatformPlanCatalogDto(
         BasicPlanMonthlyPrice: settings.BasicPlanMonthlyPrice,
         IntermediaryPlanMonthlyPrice: settings.IntermediaryPlanMonthlyPrice,
@@ -1602,7 +1623,8 @@ app.MapGet("/api/platform-sync/plan-catalog", async (
         CentralCatalogServerUrl: settings.CentralCatalogBaseUrl,
         HasMercadoPagoAppConfigured: isAppConfigured,
         HasPlatformMercadoPagoConnected: conn.IsConnected,
-        PlatformMercadoPagoAccountLabel: conn.AccountLabel));
+        PlatformMercadoPagoAccountLabel: conn.AccountLabel,
+        SupportWhatsappNumber: resolvedSupportWhatsapp));
 }).AllowAnonymous();
 
 app.MapPost("/api/platform-sync/gift-cards/sync", async (

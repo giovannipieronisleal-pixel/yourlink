@@ -1,3 +1,5 @@
+using System.IO.Compression;
+using System.Security;
 using System.Security.Cryptography;
 using System.Text;
 using System.Threading.RateLimiting;
@@ -15,6 +17,7 @@ using ClothingStore.Shared.Helpers;
 using ClothingStore.Web.Components;
 using ClothingStore.Web.Services;
 using Microsoft.AspNetCore.RateLimiting;
+using Microsoft.AspNetCore.ResponseCompression;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -30,6 +33,27 @@ if (!string.IsNullOrWhiteSpace(cloudPort) && int.TryParse(cloudPort, out var par
 
 builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();
+builder.Services.AddRequestDecompression();
+builder.Services.AddResponseCompression(options =>
+{
+    options.EnableForHttps = true;
+    options.Providers.Add<BrotliCompressionProvider>();
+    options.Providers.Add<GzipCompressionProvider>();
+    options.MimeTypes = ResponseCompressionDefaults.MimeTypes.Concat(
+    [
+        "image/svg+xml",
+        "application/manifest+json",
+        "application/json",
+        "application/ld+json",
+        "application/xml",
+        "text/xml",
+        "text/plain"
+    ]);
+});
+builder.Services.Configure<BrotliCompressionProviderOptions>(options =>
+    options.Level = CompressionLevel.Fastest);
+builder.Services.Configure<GzipCompressionProviderOptions>(options =>
+    options.Level = CompressionLevel.Fastest);
 
 var apiBaseUrl = builder.Configuration["ApiBaseUrl"]
     ?? Environment.GetEnvironmentVariable("API_BASE_URL")
@@ -146,6 +170,7 @@ builder.Services.AddScoped<PlatformSubscriptionService>(sp =>
         sp.GetRequiredService<IPlatformMercadoPagoTokenStore>()));
 builder.Services.AddScoped<CatalogDataGateway>();
 builder.Services.AddScoped<PlatformPortalService>();
+builder.Services.AddScoped<StoreCartService>();
 
 var app = builder.Build();
 if (cloudMirror is not null)
@@ -171,17 +196,160 @@ app.Use(async (context, next) =>
     await next();
 });
 
-app.UseStaticFiles();
+app.UseRequestDecompression();
+app.UseResponseCompression();
+app.UseStaticFiles(new StaticFileOptions
+{
+    OnPrepareResponse = ctx =>
+    {
+        var path = ctx.Context.Request.Path.Value ?? string.Empty;
+        if (string.Equals(path, "/sw.js", StringComparison.OrdinalIgnoreCase))
+        {
+            ctx.Context.Response.Headers.CacheControl = "no-cache, must-revalidate";
+            return;
+        }
+
+        if (path.StartsWith("/icons/", StringComparison.OrdinalIgnoreCase) ||
+            path.StartsWith("/uploads/", StringComparison.OrdinalIgnoreCase) ||
+            path.EndsWith(".css", StringComparison.OrdinalIgnoreCase) ||
+            path.EndsWith(".js", StringComparison.OrdinalIgnoreCase) ||
+            path.EndsWith(".svg", StringComparison.OrdinalIgnoreCase) ||
+            path.EndsWith(".png", StringComparison.OrdinalIgnoreCase))
+        {
+            ctx.Context.Response.Headers.CacheControl = "public, max-age=604800";
+        }
+    }
+});
 app.UseAntiforgery();
 app.UseRateLimiter();
 
-app.MapGet("/health", () => Results.Ok(new
+app.MapMethods("/health", new[] { "GET", "HEAD" }, () => Results.Ok(new
 {
     status = "healthy",
     service = "ClothingStore.Web",
     persistence = cloudMirror?.ProviderName ?? "LocalDisk",
     timestamp = DateTimeOffset.UtcNow
 }));
+
+app.MapGet("/robots.txt", (HttpContext httpContext) =>
+{
+    var origin = GetPublicOrigin(httpContext).TrimEnd('/');
+    var sb = new StringBuilder();
+    sb.AppendLine("User-agent: *");
+    sb.AppendLine("Allow: /");
+    sb.AppendLine("Disallow: /api/");
+    if (!string.IsNullOrWhiteSpace(origin))
+    {
+        sb.AppendLine($"Sitemap: {origin}/sitemap.xml");
+    }
+
+    httpContext.Response.Headers.CacheControl = "public, max-age=300";
+    return Results.Text(sb.ToString(), "text/plain; charset=utf-8");
+});
+
+app.MapGet("/sitemap.xml", async (
+    HttpContext httpContext,
+    MultiTenantGatewayService gateway,
+    PlatformPortalService portalService,
+    CancellationToken ct) =>
+{
+    var origin = GetPublicOrigin(httpContext).TrimEnd('/');
+    if (string.IsNullOrWhiteSpace(origin))
+        origin = AppUpdateCatalog.DefaultCentralPlatformServerUrl;
+
+    var sb = new StringBuilder();
+    sb.AppendLine("<?xml version=\"1.0\" encoding=\"UTF-8\"?>");
+    sb.AppendLine("<urlset xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\">");
+
+    static void AppendUrl(StringBuilder target, string loc, string changefreq, string priority, DateTimeOffset? lastMod = null)
+    {
+        target.Append("  <url><loc>").Append(SecurityElement.Escape(loc)).Append("</loc>");
+        if (lastMod.HasValue)
+            target.Append("<lastmod>").Append(lastMod.Value.ToUniversalTime().ToString("yyyy-MM-dd")).Append("</lastmod>");
+        target.Append("<changefreq>").Append(changefreq).Append("</changefreq>");
+        target.Append("<priority>").Append(priority).Append("</priority></url>").AppendLine();
+    }
+
+    AppendUrl(sb, $"{origin}/", "daily", "1.0");
+    AppendUrl(sb, $"{origin}/como-instalar", "weekly", "0.85");
+    AppendUrl(sb, $"{origin}/privacidade", "monthly", "0.6");
+    AppendUrl(sb, $"{origin}/termos", "monthly", "0.6");
+
+    var isPortalHome = false;
+    try { isPortalHome = await portalService.IsPortalHomeAsync(null, ct); } catch { }
+
+    if (!isPortalHome)
+    {
+        try
+        {
+            var rootRepo = await gateway.ResolveReadRepositoryAsync(null, ct);
+            if (rootRepo is not null)
+            {
+                var catService = gateway.CreateCatalogService(rootRepo);
+                var settings = await catService.GetPublicStoreSettingsAsync(ct);
+                if (settings.IsSiteActive)
+                {
+                    AppendUrl(sb, $"{origin}/catalogo", "daily", "0.9", settings.UpdatedAt);
+                    var products = await catService.GetCatalogProductsAsync(new CatalogQueryFilter(), ct);
+                    foreach (var p in products.Take(250))
+                    {
+                        AppendUrl(sb, $"{origin}/produto/{Uri.EscapeDataString(p.Slug)}", "weekly", "0.8");
+                    }
+                }
+            }
+        }
+        catch { }
+    }
+
+    try
+    {
+        var slugs = await gateway.StoreResolver.ListTenantSlugsAsync(ct);
+        foreach (var slug in slugs)
+        {
+            if (string.IsNullOrWhiteSpace(slug) || string.Equals(slug, "__root__", StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            var repo = await gateway.ResolveReadRepositoryAsync(slug, ct);
+            if (repo is null)
+                continue;
+
+            var catService = gateway.CreateCatalogService(repo);
+            var settings = await catService.GetPublicStoreSettingsAsync(ct);
+            if (!settings.IsSiteActive)
+                continue;
+
+            var encodedSlug = Uri.EscapeDataString(slug);
+            AppendUrl(sb, $"{origin}/loja/{encodedSlug}", "daily", "0.9", settings.UpdatedAt);
+            AppendUrl(sb, $"{origin}/loja/{encodedSlug}/catalogo", "daily", "0.85", settings.UpdatedAt);
+
+            var products = await catService.GetCatalogProductsAsync(new CatalogQueryFilter(), ct);
+            foreach (var p in products.Take(200))
+            {
+                AppendUrl(sb, $"{origin}/loja/{encodedSlug}/produto/{Uri.EscapeDataString(p.Slug)}", "weekly", "0.8");
+            }
+        }
+    }
+    catch { }
+
+    sb.AppendLine("</urlset>");
+    httpContext.Response.Headers.CacheControl = "public, max-age=300";
+    return Results.Text(sb.ToString(), "application/xml; charset=utf-8");
+});
+
+app.MapGet("/media/product/{productId:guid}", (
+    Guid productId,
+    HttpContext httpContext,
+    MultiTenantGatewayService gateway,
+    CancellationToken ct) =>
+    ServePublicProductMediaAsync(null, productId, httpContext, gateway, ct));
+
+app.MapGet("/loja/{storeSlug}/media/product/{productId:guid}", (
+    string storeSlug,
+    Guid productId,
+    HttpContext httpContext,
+    MultiTenantGatewayService gateway,
+    CancellationToken ct) =>
+    ServePublicProductMediaAsync(storeSlug, productId, httpContext, gateway, ct));
 
 app.MapGet("/manifest.webmanifest", async (
     string? storeSlug,
@@ -199,7 +367,7 @@ app.MapGet("/manifest.webmanifest", async (
     {
     }
 
-    return Results.Text(PwaManifestBuilder.BuildJson(settings), "application/manifest+json; charset=utf-8");
+    return Results.Text(PwaManifestBuilder.BuildJson(settings, storeSlug), "application/manifest+json; charset=utf-8");
 });
 
 app.MapGet("/loja/{storeSlug}/manifest.webmanifest", async (
@@ -218,7 +386,7 @@ app.MapGet("/loja/{storeSlug}/manifest.webmanifest", async (
     {
     }
 
-    return Results.Text(PwaManifestBuilder.BuildJson(settings), "application/manifest+json; charset=utf-8");
+    return Results.Text(PwaManifestBuilder.BuildJson(settings, storeSlug), "application/manifest+json; charset=utf-8");
 });
 
 app.MapGet("/api/public/store-info", async (
@@ -519,6 +687,11 @@ app.MapGet("/api/platform-sync/plan-catalog", async (
     var resolvedCentral = WhatsAppLinkBuilder.NormalizePublicServerUrl(settings.CentralCatalogBaseUrl)
                           ?? WhatsAppLinkBuilder.NormalizePublicServerUrl(GetPublicOrigin(ctx));
 
+    var resolvedSupportWhatsapp = WhatsAppLinkBuilder.SanitizeSupportPhone(
+        app.Configuration["YOULINK_SUPPORT_WHATSAPP"]
+        ?? Environment.GetEnvironmentVariable("YOULINK_SUPPORT_WHATSAPP")
+        ?? settings.PlatformSupportWhatsapp);
+
     return Results.Ok(new PlatformPlanCatalogDto(
         BasicPlanMonthlyPrice: settings.BasicPlanMonthlyPrice,
         IntermediaryPlanMonthlyPrice: settings.IntermediaryPlanMonthlyPrice,
@@ -527,7 +700,8 @@ app.MapGet("/api/platform-sync/plan-catalog", async (
         CentralCatalogServerUrl: resolvedCentral,
         HasMercadoPagoAppConfigured: isAppConfigured,
         HasPlatformMercadoPagoConnected: conn.IsConnected,
-        PlatformMercadoPagoAccountLabel: conn.AccountLabel));
+        PlatformMercadoPagoAccountLabel: conn.AccountLabel,
+        SupportWhatsappNumber: resolvedSupportWhatsapp));
 });
 
 app.MapPost("/api/platform-sync/plan-orders", async (
@@ -1663,4 +1837,57 @@ static async Task<RemoteToggleUserActiveResponse?> ToggleUserActiveAcrossReposit
     }
 
     return null;
+}
+
+static async Task<IResult> ServePublicProductMediaAsync(
+    string? storeSlug,
+    Guid productId,
+    HttpContext httpContext,
+    MultiTenantGatewayService gateway,
+    CancellationToken ct)
+{
+    var repo = await gateway.ResolveReadRepositoryAsync(storeSlug, ct);
+    if (repo is null)
+        return Results.NotFound();
+
+    var catalogService = gateway.CreateCatalogService(repo);
+    var settings = await catalogService.GetPublicStoreSettingsAsync(ct);
+    if (!settings.IsSiteActive)
+        return Results.NotFound();
+
+    var product = await catalogService.GetPublicProductDetailAsync(productId.ToString("D"), ct);
+    var rawUrl = product?.Images.FirstOrDefault()?.PublicUrl;
+    if (string.IsNullOrWhiteSpace(rawUrl) || !WhatsAppLinkBuilder.IsSafeMediaUrl(rawUrl))
+        return Results.NotFound();
+
+    var sanitized = WhatsAppLinkBuilder.SanitizeMediaUrl(rawUrl);
+    if (sanitized.StartsWith("data:image/", StringComparison.OrdinalIgnoreCase))
+    {
+        var commaIdx = sanitized.IndexOf(',');
+        if (commaIdx > 0)
+        {
+            var header = sanitized[5..commaIdx];
+            var base64Part = sanitized[(commaIdx + 1)..];
+            var semiIdx = header.IndexOf(';');
+            var mime = (semiIdx >= 0 ? header[..semiIdx] : header).Trim().ToLowerInvariant();
+            if (mime is "image/jpeg" or "image/jpg" or "image/png" or "image/webp" or "image/gif" &&
+                header.Contains("base64", StringComparison.OrdinalIgnoreCase))
+            {
+                try
+                {
+                    var bytes = Convert.FromBase64String(base64Part);
+                    httpContext.Response.Headers.CacheControl = "public, max-age=86400";
+                    return Results.Bytes(bytes, mime == "image/jpg" ? "image/jpeg" : mime);
+                }
+                catch
+                {
+                    return Results.NotFound();
+                }
+            }
+        }
+        return Results.NotFound();
+    }
+
+    httpContext.Response.Headers.CacheControl = "public, max-age=3600";
+    return Results.Redirect(sanitized);
 }

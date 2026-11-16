@@ -1,9 +1,32 @@
 @page "/produto/{Slug}"
 @page "/loja/{StoreSlug}/produto/{Slug}"
 @implements IDisposable
+@using System.Globalization
+@using System.Text.Json
 @inject CatalogDataGateway CatalogDataGateway
+@inject StoreCartService CartService
+@inject NavigationManager Navigation
+@inject IJSRuntime JS
 
 <PageTitle>@(_product?.Name ?? "Produto") — @(_store?.StoreName ?? "YouLink Loja")</PageTitle>
+
+@if (!_loading && _product is not null && _store is { IsSiteActive: true })
+{
+    <HeadContent>
+        <meta name="description" content="@MetaDescription" />
+        <meta property="og:type" content="product" />
+        <meta property="og:site_name" content="@_store.StoreName" />
+        <meta property="og:title" content="@ProductOgTitle" />
+        <meta property="og:description" content="@MetaDescription" />
+        <meta property="og:url" content="@ProductAbsoluteUrl" />
+        <meta property="og:image" content="@ProductOgImageUrl" />
+        <meta property="product:price:amount" content="@_product.BasePrice.ToString("0.00", CultureInfo.InvariantCulture)" />
+        <meta property="product:price:currency" content="BRL" />
+        <meta name="twitter:card" content="summary_large_image" />
+        <link rel="canonical" href="@ProductAbsoluteUrl" />
+        <script type="application/ld+json">@((MarkupString)BuildProductJsonLd())</script>
+    </HeadContent>
+}
 
 @if (_loading)
 {
@@ -153,13 +176,66 @@ else
 
             @if (_store is not null && !string.IsNullOrWhiteSpace(_store.WhatsappNumber))
             {
-                <a href="@WhatsAppLinkBuilder.BuildProductConsultationLink(_store.WhatsappNumber, _product.Name, _selectedColor, _selectedSize)"
-                   target="_blank"
-                   rel="noopener noreferrer"
-                   class="lux-btn lux-btn-whatsapp"
-                   style="width: 100%; font-size: 0.98rem; padding: 0.95rem 1.25rem;">
-                    💬 Pedir este Produto no WhatsApp
-                </a>
+                <div class="lux-detail-actions-stack">
+                    <div class="lux-detail-qty-bar">
+                        <span style="font-size: 0.82rem; font-weight: 700;">Quantidade:</span>
+                        <button type="button" class="lux-qty-btn" @onclick="() => AdjustDetailQuantity(-1)" aria-label="Diminuir quantidade">−</button>
+                        <span class="lux-qty-val">@_orderQuantity</span>
+                        <button type="button" class="lux-qty-btn" @onclick="() => AdjustDetailQuantity(1)" aria-label="Aumentar quantidade">+</button>
+                    </div>
+
+                    <button type="button"
+                            class="lux-btn lux-btn-primary"
+                            style="width: 100%; font-size: 0.96rem; padding: 0.9rem 1.2rem;"
+                            disabled="@(SelectedVariant is null || SelectedVariant.StockQuantity <= 0)"
+                            @onclick="AddToCartAsync">
+                        🛍️ Adicionar à Sacola (@((_product.BasePrice * Math.Max(1, _orderQuantity)).ToString("C", PtBr)))
+                    </button>
+
+                    @if (_addedToCartFeedback)
+                    {
+                        <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; flex-wrap: wrap; background: rgba(22,163,74,0.12); border: 1px solid #16A34A; border-radius: 8px; padding: 0.55rem 0.75rem; font-size: 0.84rem;">
+                            <strong style="color: #166534;">✓ Item adicionado à sacola!</strong>
+                            <button type="button" class="lux-btn lux-btn-outline lux-btn-sm" @onclick="CartService.OpenDrawer">
+                                Ver Sacola (@CartService.TotalQuantity)
+                            </button>
+                        </div>
+                    }
+
+                    <a href="@WhatsAppLinkBuilder.BuildProductConsultationLink(_store.WhatsappNumber, _product.Name, _selectedColor, _selectedSize)"
+                       target="_blank"
+                       rel="noopener noreferrer"
+                       class="lux-btn lux-btn-whatsapp"
+                       style="width: 100%; font-size: 0.98rem; padding: 0.95rem 1.25rem;">
+                        💬 Pedir este Produto no WhatsApp
+                    </a>
+                </div>
+
+                <div class="lux-detail-share-row">
+                    <button type="button" class="lux-btn lux-btn-outline lux-btn-sm" @onclick="ShareProductAsync">
+                        @(_copiedProductLink ? "✓ Link Copiado!" : "📤 Compartilhar Produto")
+                    </button>
+                    <button type="button" class="lux-btn lux-btn-outline lux-btn-sm" @onclick="() => _showProductQr = !_showProductQr">
+                        @(_showProductQr ? "Ocultar QR Code" : "📱 QR Code do Produto")
+                    </button>
+                </div>
+
+                @if (_showProductQr)
+                {
+                    <div class="lux-qr-box">
+                        <img src="@WhatsAppLinkBuilder.GenerateQrCodeSvgDataUri(ProductAbsoluteUrl)"
+                             alt="QR Code para abrir @_product.Name" />
+                        <div style="flex: 1; min-width: 180px;">
+                            <strong style="display: block; font-size: 0.92rem; margin-bottom: 0.25rem;">QR Code deste Produto</strong>
+                            <p style="margin: 0 0 0.6rem; font-size: 0.8rem; color: var(--brand-text-muted);">
+                                Aponte a câmera do celular para abrir o link direto de <strong>@_product.Name</strong>.
+                            </p>
+                            <button type="button" class="lux-btn lux-btn-outline lux-btn-sm" @onclick="CopyProductLinkAsync">
+                                @(_copiedProductLink ? "✓ Link Copiado!" : "📋 Copiar Link Direto")
+                            </button>
+                        </div>
+                    </div>
+                }
 
                 <div class="lux-msg-preview">
                     <strong>Mensagem pronta que vamos enviar para a loja:</strong>
@@ -261,8 +337,11 @@ else
                                         ? "Gerando pedido Pix..."
                                         : $"💸 Finalizar Pedido no Pix ({((_product.BasePrice * Math.Max(1, _orderQuantity))).ToString("C", new System.Globalization.CultureInfo("pt-BR"))})")
                                 </button>
-                                <div style="font-size: 0.74rem; color: var(--brand-text-muted, #57534E); margin-top: 0.4rem;">
+                                <div style="font-size: 0.74rem; color: var(--brand-text-muted, #57534E); margin-top: 0.4rem; line-height: 1.45;">
                                     Após finalizar no Pix, o vendedor receberá seu endereço e organizará o envio (Correios/entrega combinada). Não aceita cartão.
+                                    Ao enviar o pedido, seus dados são usados apenas para atendimento desta compra conforme nossa
+                                    <a href="@(string.IsNullOrWhiteSpace(EffectiveStoreSlug) ? "/privacidade" : $"/loja/{Uri.EscapeDataString(EffectiveStoreSlug)}/privacidade")" style="text-decoration: underline;">Política de Privacidade (LGPD)</a>
+                                    e <a href="@(string.IsNullOrWhiteSpace(EffectiveStoreSlug) ? "/termos" : $"/loja/{Uri.EscapeDataString(EffectiveStoreSlug)}/termos")" style="text-decoration: underline;">Termos de Uso</a>.
                                 </div>
                             }
                         }
@@ -313,8 +392,16 @@ else
                                         </div>
                                     }
 
-                                    <div style="font-size: 0.8rem; font-weight: 700; margin-bottom: 0.25rem;">
-                                        Código Pix Copia e Cola (R$ @_createdPixOrder.TotalPixAmount.ToString("N2", new System.Globalization.CultureInfo("pt-BR"))):
+                                    <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; margin-bottom: 0.25rem;">
+                                        <span style="font-size: 0.8rem; font-weight: 700;">
+                                            Código Pix Copia e Cola (R$ @_createdPixOrder.TotalPixAmount.ToString("N2", new System.Globalization.CultureInfo("pt-BR"))):
+                                        </span>
+                                        <button type="button"
+                                                class="lux-btn lux-btn-primary lux-btn-sm"
+                                                style="background: #16A34A; color: #FFFFFF; padding: 0.35rem 0.7rem;"
+                                                @onclick="CopyPixCodeAsync">
+                                            @(_copiedPixCode ? "✓ Código Pix Copiado!" : "📋 Copiar Código Pix")
+                                        </button>
                                     </div>
                                     <textarea readonly rows="3" style="width:100%; font-family:monospace; font-size:0.74rem; padding:0.45rem; border-radius:6px; border:1px solid #16A34A; margin-bottom:0.5rem;">@_createdPixOrder.PixBrCode</textarea>
                                     @if (string.Equals(_createdPixOrder.PaymentProvider, "MercadoPago", StringComparison.OrdinalIgnoreCase))
@@ -373,6 +460,8 @@ else
 }
 
 @code {
+    private static readonly CultureInfo PtBr = CultureInfo.GetCultureInfo("pt-BR");
+
     [Parameter]
     public string Slug { get; set; } = string.Empty;
 
@@ -385,6 +474,178 @@ else
     private string? _selectedImageUrl;
     private string? _selectedColor;
     private string? _selectedSize;
+    private bool _addedToCartFeedback;
+    private bool _copiedPixCode;
+    private bool _copiedProductLink;
+    private bool _showProductQr;
+
+    private string? EffectiveStoreSlug =>
+        !string.IsNullOrWhiteSpace(StoreSlug) ? StoreSlug : _store?.StoreSlug;
+
+    private string PublicBaseUrl => Navigation.BaseUri.TrimEnd('/');
+    private string ProductAbsoluteUrl => Navigation.Uri.Split(['?', '#'], 2)[0];
+
+    private string ProductOgTitle =>
+        _product is null
+            ? "Produto"
+            : $"{_product.Name} • {_product.BasePrice.ToString("C", PtBr)} — {_store?.StoreName ?? "YouLink Loja"}";
+
+    private string MetaDescription
+    {
+        get
+        {
+            var raw = !string.IsNullOrWhiteSpace(_product?.Description)
+                ? _product!.Description!
+                : $"{_product?.Name} por {_product?.BasePrice.ToString("C", PtBr)}. Peça rápido pelo WhatsApp ou Pix na {_store?.StoreName ?? "loja"}.";
+            var clean = string.Join(' ', raw.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+            return clean.Length > 155 ? clean[..152].TrimEnd() + "..." : clean;
+        }
+    }
+
+    private string ProductOgImageUrl
+    {
+        get
+        {
+            var rawUrl = _product?.Images.FirstOrDefault()?.PublicUrl;
+            var safe = WhatsAppLinkBuilder.SanitizeMediaUrl(rawUrl);
+            if (safe.StartsWith("https://", StringComparison.OrdinalIgnoreCase) ||
+                safe.StartsWith("http://", StringComparison.OrdinalIgnoreCase))
+            {
+                return safe;
+            }
+            if (safe.StartsWith("/uploads/", StringComparison.OrdinalIgnoreCase))
+            {
+                return $"{PublicBaseUrl}{safe}";
+            }
+            if (_product is not null && !string.IsNullOrWhiteSpace(safe))
+            {
+                var prefix = string.IsNullOrWhiteSpace(EffectiveStoreSlug)
+                    ? string.Empty
+                    : $"/loja/{Uri.EscapeDataString(EffectiveStoreSlug)}";
+                return $"{PublicBaseUrl}{prefix}/media/product/{_product.Id:D}";
+            }
+            return $"{PublicBaseUrl}/icons/icon-512.png";
+        }
+    }
+
+    private string BuildProductJsonLd()
+    {
+        if (_product is null || _store is null)
+            return "{}";
+
+        var payload = new Dictionary<string, object?>
+        {
+            ["@context"] = "https://schema.org/",
+            ["@type"] = "Product",
+            ["name"] = _product.Name,
+            ["description"] = MetaDescription,
+            ["image"] = new[] { ProductOgImageUrl },
+            ["brand"] = new Dictionary<string, object?>
+            {
+                ["@type"] = "Brand",
+                ["name"] = _store.StoreName
+            },
+            ["offers"] = new Dictionary<string, object?>
+            {
+                ["@type"] = "Offer",
+                ["url"] = ProductAbsoluteUrl,
+                ["priceCurrency"] = "BRL",
+                ["price"] = _product.BasePrice.ToString("0.00", CultureInfo.InvariantCulture),
+                ["availability"] = _product.HasAvailableStock
+                    ? "https://schema.org/InStock"
+                    : "https://schema.org/OutOfStock"
+            }
+        };
+
+        return JsonSerializer.Serialize(payload);
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender && _store is not null)
+        {
+            await CartService.EnsureLoadedAsync(JS, EffectiveStoreSlug);
+        }
+    }
+
+    private void AdjustDetailQuantity(int delta)
+    {
+        var max = SelectedVariant?.StockQuantity > 0 ? SelectedVariant.StockQuantity : 99;
+        _orderQuantity = Math.Clamp(_orderQuantity + delta, 1, max);
+    }
+
+    private async Task AddToCartAsync()
+    {
+        if (_product is null)
+            return;
+
+        var variant = SelectedVariant;
+        var maxStock = variant?.StockQuantity > 0 ? variant.StockQuantity : 99;
+        await CartService.AddItemAsync(
+            JS,
+            EffectiveStoreSlug,
+            new StoreCartService.CartItemEntry(
+                ProductId: _product.Id,
+                ProductSlug: _product.Slug,
+                ProductName: _product.Name,
+                Color: _selectedColor,
+                Size: _selectedSize,
+                UnitPrice: _product.BasePrice,
+                Quantity: Math.Clamp(_orderQuantity, 1, maxStock),
+                MaxStock: maxStock,
+                ImageUrl: CurrentImageUrl));
+
+        _addedToCartFeedback = true;
+    }
+
+    private async Task CopyPixCodeAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_createdPixOrder?.PixBrCode))
+            return;
+
+        try
+        {
+            var copied = await JS.InvokeAsync<bool>("youlinkStore.copyText", _createdPixOrder.PixBrCode);
+            if (copied)
+                _copiedPixCode = true;
+        }
+        catch
+        {
+        }
+    }
+
+    private async Task ShareProductAsync()
+    {
+        if (_product is null)
+            return;
+
+        try
+        {
+            var res = await JS.InvokeAsync<string>(
+                "youlinkStore.shareOrCopy",
+                ProductOgTitle,
+                MetaDescription,
+                ProductAbsoluteUrl);
+            if (string.Equals(res, "copied", StringComparison.OrdinalIgnoreCase))
+                _copiedProductLink = true;
+        }
+        catch
+        {
+        }
+    }
+
+    private async Task CopyProductLinkAsync()
+    {
+        try
+        {
+            var copied = await JS.InvokeAsync<bool>("youlinkStore.copyText", ProductAbsoluteUrl);
+            if (copied)
+                _copiedProductLink = true;
+        }
+        catch
+        {
+        }
+    }
 
     private string HomeHref => string.IsNullOrWhiteSpace(StoreSlug) ? "/" : $"/loja/{StoreSlug}";
     private string CatalogHref => string.IsNullOrWhiteSpace(StoreSlug) ? "/catalogo" : $"/loja/{StoreSlug}/catalogo";
@@ -430,6 +691,11 @@ else
     protected override async Task OnParametersSetAsync()
     {
         _loading = true;
+        _addedToCartFeedback = false;
+        _copiedProductLink = false;
+        _copiedPixCode = false;
+        _showProductQr = false;
+        _orderQuantity = 1;
         try
         {
             _store = await CatalogDataGateway.GetStoreInfoOrNullAsync(StoreSlug);

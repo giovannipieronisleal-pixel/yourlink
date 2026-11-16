@@ -228,6 +228,7 @@ public static class StoreDesignCssHelper
 {
     private static readonly HashSet<string> AllowedFontFamilies = new(StringComparer.OrdinalIgnoreCase)
     {
+        "Bodoni Moda",
         "Cormorant Garamond",
         "Playfair Display",
         "Montserrat",
@@ -235,6 +236,7 @@ public static class StoreDesignCssHelper
         "Plus Jakarta Sans",
         "Inter",
         "DM Sans",
+        "Work Sans",
         "Lora",
         "Poppins",
         "Outfit",
@@ -259,6 +261,9 @@ public static class StoreDesignCssHelper
 
     public static string BuildRootCssBlock(StoreDesignDto? raw) =>
         ":root{" + BuildInlineStyle(raw) + "}";
+
+    public const string DefaultPortalGoogleFontsUrl =
+        "https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,500;0,600;0,700;1,500&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap";
 
     public static string BuildGoogleFontsUrl(StoreDesignDto? raw)
     {

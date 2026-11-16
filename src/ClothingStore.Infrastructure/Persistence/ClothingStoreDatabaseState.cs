@@ -51,7 +51,7 @@ public sealed class ClothingStoreDatabaseState
             logoPublicUrl: null,
             defaultLowStockThreshold: 3,
             customSlug: "minha-loja",
-            onlineBaseUrl: "https://lojas.minhaloja.com");
+            onlineBaseUrl: null);
 
         return state;
     }

@@ -21,6 +21,11 @@ src/*/wwwroot/uploads/
 src/ClothingStore.AdminApp/
 *.local.slnx
 *.local.sql
+*.local.txt
+*.keystore
+*.jks
+*.pfx
+*.p12
 deploy-google-cloud.local.ps1
 App_Data/
 build.log

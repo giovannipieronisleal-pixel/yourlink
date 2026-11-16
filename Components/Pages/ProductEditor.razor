@@ -516,17 +516,26 @@
             if (result is null)
                 return;
 
-            await using var stream = await result.OpenReadAsync();
+            await using var rawStream = await result.OpenReadAsync();
+            await using var optimized = await appmaui.blazor.Services.DeviceImageCompressor.OptimizeForUploadAsync(
+                rawStream,
+                result.FileName,
+                result.ContentType,
+                maxDimension: 1200,
+                preservePngFormat: false);
+
             await Gateway.UploadProductImageFileAsync(
                 ProductId,
-                result.FileName,
-                stream,
-                result.ContentType ?? "image/jpeg",
+                optimized.FileName,
+                optimized.Stream,
+                optimized.ContentType,
                 _product?.Name,
                 _product?.Images.Count == 0);
 
             await LoadProductAsync();
-            _success = "Fotografia enviada e vinculada ao produto com sucesso!";
+            _success = optimized.FinalBytes < optimized.OriginalBytes
+                ? $"Fotografia otimizada ({optimized.OriginalBytes / 1024} KB → {optimized.FinalBytes / 1024} KB) e enviada com sucesso!"
+                : "Fotografia enviada e vinculada ao produto com sucesso!";
         }
         catch (Exception ex)
         {

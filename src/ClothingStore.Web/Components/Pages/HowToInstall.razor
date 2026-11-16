@@ -1,0 +1,161 @@
+@page "/como-instalar"
+@inject PlatformPortalService PortalService
+@inject NavigationManager Navigation
+
+<PageTitle>Como Instalar o YouLink no Windows e Android — Guia Passo a Passo</PageTitle>
+
+<HeadContent>
+    <meta name="description" content="Veja o passo a passo visual para baixar e instalar o aplicativo oficial YouLink no Windows (SmartScreen) e no Android (.apk) em segurança." />
+    <meta name="robots" content="index,follow" />
+    <link rel="canonical" href="@CanonicalUrl" />
+</HeadContent>
+
+@if (_snapshot is null)
+{
+    <section class="ylk-portal-loading">
+        <span class="lux-hero-eyebrow">YouLink • Guia de Instalação</span>
+        <h2>Carregando versões oficiais...</h2>
+    </section>
+}
+else
+{
+    <section class="ylk-legal-shell">
+        <div class="ylk-legal-card ylk-install-guide-card">
+            <div class="ylk-legal-header">
+                <span class="lux-hero-eyebrow">Guia Visual • Versão v@_snapshot.AppVersion</span>
+                <h1 class="ylk-legal-title">Como baixar e instalar o YouLink sem bloqueios</h1>
+                <p class="ylk-legal-updated">
+                    Distribuição oficial gratuita direto do nosso repositório. Siga as etapas abaixo conforme o aparelho que você está usando.
+                </p>
+            </div>
+
+            <div class="ylk-install-columns">
+                <article class="ylk-install-platform-box">
+                    <div class="ylk-portal-dl-top">
+                        <span class="ylk-portal-dl-pill">🪟 Windows 10 / 11 (64-bit)</span>
+                        <span class="ylk-portal-dl-ver">v@_snapshot.AppVersion</span>
+                    </div>
+                    <h2>Instalar no Computador</h2>
+                    <p>
+                        Como somos uma plataforma independente distribuindo o instalador diretamente sem taxa de loja corporativa, o <strong>Windows Defender SmartScreen</strong> pode exibir uma tela azul preventiva na primeira vez. Isso é normal e seguro quando você baixa pelos links oficiais abaixo:
+                    </p>
+
+                    <ol class="ylk-install-steps">
+                        <li>
+                            <strong>Passo 1 — Baixe o instalador oficial:</strong>
+                            toque no botão abaixo para salvar <code>@_snapshot.WindowsSetupAssetName</code>.
+                        </li>
+                        <li>
+                            <strong>Passo 2 — Se abrir a tela azul do Windows SmartScreen:</strong>
+                            clique no link discreto <strong>"Mais informações"</strong> (abaixo do aviso).
+                        </li>
+                        <li>
+                            <strong>Passo 3 — Confirme a execução:</strong>
+                            aparecerá o botão <strong>"Executar assim mesmo"</strong>. Clique nele para abrir o assistente de instalação em português.
+                        </li>
+                        <li>
+                            <strong>Alternativa Portável (.zip):</strong>
+                            se preferir não instalar no sistema, baixe <code>@_snapshot.WindowsZipAssetName</code>, extraia em uma pasta e abra <code>YouLink.exe</code>.
+                        </li>
+                    </ol>
+
+                    <div class="ylk-install-callout">
+                        🖥️ Tela azul <em>"O Windows protegeu o computador"</em> → <strong>Mais informações</strong> → <strong>Executar assim mesmo</strong>.
+                    </div>
+
+                    <div class="ylk-install-btn-group">
+                        <a href="@_snapshot.WindowsSetupDownloadUrl"
+                           download="@_snapshot.WindowsSetupAssetName"
+                           rel="noopener noreferrer"
+                           class="lux-btn lux-btn-primary">
+                            ⬇️ Baixar Instalador (.exe)
+                        </a>
+                        <a href="@_snapshot.WindowsZipDownloadUrl"
+                           download="@_snapshot.WindowsZipAssetName"
+                           rel="noopener noreferrer"
+                           class="lux-btn lux-btn-outline">
+                            📦 Baixar ZIP Portável
+                        </a>
+                    </div>
+                </article>
+
+                <article class="ylk-install-platform-box">
+                    <div class="ylk-portal-dl-top">
+                        <span class="ylk-portal-dl-pill ylk-portal-dl-pill-alt">🤖 Android 7+ (.apk)</span>
+                        <span class="ylk-portal-dl-ver">v@_snapshot.AppVersion</span>
+                    </div>
+                    <h2>Instalar no Celular / Tablet</h2>
+                    <p>
+                        O aplicativo Android é instalado fora da Play Store via arquivo oficial <code>.apk</code>. O próprio Android pede uma confirmação rápida de segurança apenas na primeira instalação:
+                    </p>
+
+                    <ol class="ylk-install-steps">
+                        <li>
+                            <strong>Passo 1 — Baixe o APK oficial:</strong>
+                            toque em baixar abaixo e aguarde concluir <code>@_snapshot.AndroidApkAssetName</code>.
+                        </li>
+                        <li>
+                            <strong>Passo 2 — Autorize o navegador:</strong>
+                            ao tocar no arquivo baixado, se o Android pedir permissão, toque em <strong>Configurações</strong> e ative <strong>"Permitir desta fonte"</strong>.
+                        </li>
+                        <li>
+                            <strong>Passo 3 — Caso apareça aviso do Play Protect:</strong>
+                            toque em <strong>"Mais detalhes"</strong> e escolha <strong>"Instalar assim mesmo"</strong>.
+                        </li>
+                        <li>
+                            <strong>Passo 4 — Entre com sua conta YouLink:</strong>
+                            abra o app no celular e use o mesmo usuário/e-mail ou crie sua conta grátis.
+                        </li>
+                    </ol>
+
+                    <div class="ylk-install-callout">
+                        📱 Ao abrir o <code>.apk</code> → <strong>Permitir desta fonte</strong> → <strong>Instalar</strong>.
+                    </div>
+
+                    <div class="ylk-install-btn-group">
+                        <a href="@_snapshot.AndroidApkDownloadUrl"
+                           download="@_snapshot.AndroidApkAssetName"
+                           rel="noopener noreferrer"
+                           class="lux-btn lux-btn-primary">
+                            ⬇️ Baixar APK Android (.apk)
+                        </a>
+                        <a href="@_snapshot.ReleasesAllUrl"
+                           target="_blank"
+                           rel="noopener noreferrer"
+                           class="lux-btn lux-btn-outline">
+                            ↗ Ver Versões no GitHub
+                        </a>
+                    </div>
+                </article>
+            </div>
+
+            <div class="ylk-legal-actions" style="margin-top: 1.5rem;">
+                <a href="/" class="lux-btn lux-btn-outline">← Voltar ao Portal YouLink</a>
+                <a href="/privacidade" class="lux-btn lux-btn-outline">🔒 Política de Privacidade</a>
+                <a href="/termos" class="lux-btn lux-btn-outline">📜 Termos de Uso</a>
+                @if (!string.IsNullOrWhiteSpace(_supportWhatsappUrl))
+                {
+                    <a href="@_supportWhatsappUrl" target="_blank" rel="noopener noreferrer" class="lux-btn lux-btn-whatsapp">
+                        💬 Precisa de ajuda? Falar no WhatsApp
+                    </a>
+                }
+            </div>
+        </div>
+    </section>
+}
+
+@code {
+    private PlatformPortalSnapshot? _snapshot;
+    private string? _supportWhatsappUrl;
+
+    private string CanonicalUrl =>
+        $"{Navigation.BaseUri.TrimEnd('/')}/como-instalar";
+
+    protected override async Task OnInitializedAsync()
+    {
+        _snapshot = await PortalService.GetPortalSnapshotAsync(fetchLiveRelease: true);
+        _supportWhatsappUrl = WhatsAppLinkBuilder.BuildSupportWhatsappUrl(
+            _snapshot.SupportWhatsappNumber,
+            "Olá! Preciso de ajuda para instalar o aplicativo YouLink.");
+    }
+}
