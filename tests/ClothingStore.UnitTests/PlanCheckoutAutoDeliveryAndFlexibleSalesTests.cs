@@ -317,6 +317,15 @@ public class PlanCheckoutAutoDeliveryAndFlexibleSalesTests
             Assert.IsFalse(salesRegistry.Contains("Confirmar Pix", StringComparison.OrdinalIgnoreCase),
                 "SalesRegistryPage não deve exibir botão manual de confirmação de Pix.");
         }
+
+        var giftCardsPath = Path.Combine(root, "src", "ClothingStore.AdminApp", "Components", "Pages", "GiftCardsPage.razor");
+        if (File.Exists(giftCardsPath))
+        {
+            var giftCards = File.ReadAllText(giftCardsPath, Encoding.UTF8);
+            Assert.IsTrue(giftCards.Contains("_request.IsGiftedUnpaid = true", StringComparison.Ordinal));
+            Assert.IsFalse(giftCards.Contains("Valor Cobrado pelo Gift Card", StringComparison.OrdinalIgnoreCase),
+                "Gift Cards devem ser sempre cortesia, sem campo de venda/cobrança manual.");
+        }
     }
 
     [TestMethod]
