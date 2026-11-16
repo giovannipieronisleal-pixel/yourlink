@@ -70,8 +70,12 @@
                 return;
             }
 
+            var trimmedPath = rawPath.Trim('/');
             var isPortal = await PortalService.IsPortalHomeAsync(null);
-            if (isPortal && string.Equals(rawPath.Trim('/'), string.Empty, StringComparison.Ordinal))
+            if (trimmedPath.Equals("como-instalar", StringComparison.OrdinalIgnoreCase) ||
+                (isPortal && (string.IsNullOrEmpty(trimmedPath) ||
+                              trimmedPath.Equals("privacidade", StringComparison.OrdinalIgnoreCase) ||
+                              trimmedPath.Equals("termos", StringComparison.OrdinalIgnoreCase))))
             {
                 _fontsHref = StoreDesignCssHelper.DefaultPortalGoogleFontsUrl;
                 return;

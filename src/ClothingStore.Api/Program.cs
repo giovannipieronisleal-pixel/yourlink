@@ -1602,6 +1602,7 @@ app.MapGet("/api/platform-sync/gift-cards", async (
 }).AllowAnonymous();
 
 app.MapGet("/api/platform-sync/plan-catalog", async (
+    HttpContext httpContext,
     IClothingStoreRepository repository,
     MultiTenantGatewayService gateway,
     IPlatformMercadoPagoTokenStore tokenStore,
@@ -1610,6 +1611,18 @@ app.MapGet("/api/platform-sync/plan-catalog", async (
     var settings = await repository.GetStoreSettingsAsync(ct);
     var isAppConfigured = gateway.MercadoPago.GetConfiguredApp().IsOAuthConfigured;
     var conn = await tokenStore.GetConnectionStatusAsync(isAppConfigured, ct);
+    var resolvedCentral = WhatsAppLinkBuilder.NormalizePublicServerUrl(settings.CentralCatalogBaseUrl);
+    if (string.IsNullOrWhiteSpace(resolvedCentral) || StoreSettings.IsPlaceholderStoreUrl(resolvedCentral))
+    {
+        var reqScheme = httpContext.Request.Headers["X-Forwarded-Proto"].FirstOrDefault()?.Split(',')[0].Trim();
+        var reqHost = httpContext.Request.Headers["X-Forwarded-Host"].FirstOrDefault()?.Split(',')[0].Trim();
+        var scheme = string.IsNullOrWhiteSpace(reqScheme) ? httpContext.Request.Scheme : reqScheme;
+        var host = string.IsNullOrWhiteSpace(reqHost) ? httpContext.Request.Host.Value : reqHost;
+        resolvedCentral = string.IsNullOrWhiteSpace(host)
+            ? null
+            : WhatsAppLinkBuilder.NormalizePublicServerUrl($"{scheme}://{host}");
+    }
+
     var resolvedSupportWhatsapp = WhatsAppLinkBuilder.SanitizeSupportPhone(
         app.Configuration["YOULINK_SUPPORT_WHATSAPP"]
         ?? Environment.GetEnvironmentVariable("YOULINK_SUPPORT_WHATSAPP")
@@ -1620,7 +1633,7 @@ app.MapGet("/api/platform-sync/plan-catalog", async (
         IntermediaryPlanMonthlyPrice: settings.IntermediaryPlanMonthlyPrice,
         PremiumPlanMonthlyPrice: settings.PremiumPlanMonthlyPrice,
         HasOfficialPixKey: !string.IsNullOrWhiteSpace(settings.PicpayPixKey),
-        CentralCatalogServerUrl: settings.CentralCatalogBaseUrl,
+        CentralCatalogServerUrl: string.IsNullOrWhiteSpace(resolvedCentral) ? null : resolvedCentral,
         HasMercadoPagoAppConfigured: isAppConfigured,
         HasPlatformMercadoPagoConnected: conn.IsConnected,
         PlatformMercadoPagoAccountLabel: conn.AccountLabel,

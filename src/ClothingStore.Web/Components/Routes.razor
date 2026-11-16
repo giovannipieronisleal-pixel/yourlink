@@ -5,13 +5,14 @@
     </Found>
     <NotFound>
         <LayoutView Layout="typeof(Layout.MainLayout)">
-            <div class="container" style="padding: 4rem 1.25rem; text-align: center;">
-                <h1 style="font-size: 1.8rem; margin-bottom: 0.75rem;">Página não encontrada</h1>
-                <p style="color: var(--text-secondary); margin-bottom: 1.5rem;">
-                    O endereço solicitado não existe ou foi movido.
+            <section class="lux-empty-card" style="max-width: 620px; margin: 2rem auto;">
+                <span class="lux-hero-eyebrow">Página não encontrada</span>
+                <h1 class="lux-hero-title">Endereço não encontrado</h1>
+                <p class="lux-hero-subtitle" style="margin-left: auto; margin-right: auto;">
+                    O endereço solicitado não existe ou foi movido. Volte para a página inicial para continuar navegando.
                 </p>
-                <a href="/catalogo" class="btn btn-dark">Ir para o Catálogo da Loja</a>
-            </div>
+                <a href="/" class="lux-btn lux-btn-primary">← Voltar ao Início</a>
+            </section>
         </LayoutView>
     </NotFound>
 </Router>

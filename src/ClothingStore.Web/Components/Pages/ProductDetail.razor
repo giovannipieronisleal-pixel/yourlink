@@ -413,10 +413,13 @@ else
                                 }
 
                                 <div style="display:flex; gap:0.5rem; flex-wrap:wrap;">
-                                    <a href="@BuildOrderProofWhatsAppUrl(_createdPixOrder)" target="_blank" rel="noopener noreferrer"
-                                       class="lux-btn lux-btn-whatsapp" style="flex:1;">
-                                        💬 Falar com a Loja no WhatsApp
-                                    </a>
+                                    @if (!string.IsNullOrWhiteSpace(WhatsAppLinkBuilder.SanitizePhoneNumber(_store?.WhatsappNumber)))
+                                    {
+                                        <a href="@BuildOrderProofWhatsAppUrl(_createdPixOrder)" target="_blank" rel="noopener noreferrer"
+                                           class="lux-btn lux-btn-whatsapp" style="flex:1;">
+                                            💬 Falar com a Loja no WhatsApp
+                                        </a>
+                                    }
                                     <button type="button" class="lux-btn lux-btn-outline" @onclick="ResetPixOrderForm">
                                         Novo Pedido
                                     </button>
@@ -696,6 +699,8 @@ else
         _copiedPixCode = false;
         _showProductQr = false;
         _orderQuantity = 1;
+        _shippingQuote = null;
+        ResetPixOrderForm();
         try
         {
             _store = await CatalogDataGateway.GetStoreInfoOrNullAsync(StoreSlug);
@@ -909,7 +914,10 @@ else
 
     private string BuildOrderProofWhatsAppUrl(StoreOrderDto order)
     {
-        var phone = _store?.WhatsappNumber ?? "5511900000000";
+        var phone = WhatsAppLinkBuilder.SanitizePhoneNumber(_store?.WhatsappNumber);
+        if (string.IsNullOrWhiteSpace(phone))
+            return "#";
+
         var msg = $"Olá! Acabei de gerar o pedido Pix {order.OrderNumber} no valor de R$ {order.TotalPixAmount:N2} ({_product?.Name} - {SelectedVariant?.Color}/{SelectedVariant?.Size}). Endereço de entrega: {order.FormattedDeliveryAddress}. Segue comprovante do Pix!";
         return $"https://wa.me/{phone}?text={Uri.EscapeDataString(msg)}";
     }
