@@ -219,7 +219,7 @@ public sealed class CloudAccountRegistryService
                     PlanTier: effectiveTier,
                     PlanExpiresAt: effectiveTier == StoreSettings.PlanTierBasic ? null : match.PlanExpiresAt,
                     IsSiteActive: match.IsSiteActive ?? true,
-                    IsCourtesyVip: string.Equals(match.PlanBillingKind, PlanActivationCode.BillingKindGiftedUnpaid, StringComparison.OrdinalIgnoreCase),
+                    IsCourtesyVip: ResolveIsCourtesyVip(match),
                     PlanRevokedAt: match.PlanRevokedAt,
                     IsRecurringSubscription: match.IsRecurringSubscription,
                     BillingGraceEndsAt: match.BillingGraceEndsAt,
@@ -435,7 +435,7 @@ public sealed class CloudAccountRegistryService
                 IsSiteActive: match.IsSiteActive ?? true,
                 StoreName: match.StoreName,
                 StoreSlug: match.StoreSlug,
-                IsCourtesyVip: string.Equals(match.PlanBillingKind, PlanActivationCode.BillingKindGiftedUnpaid, StringComparison.OrdinalIgnoreCase),
+                IsCourtesyVip: ResolveIsCourtesyVip(match),
                 PlanRevokedAt: match.PlanRevokedAt,
                 IsRecurringSubscription: match.IsRecurringSubscription,
                 BillingGraceEndsAt: match.BillingGraceEndsAt,
@@ -553,12 +553,32 @@ public sealed class CloudAccountRegistryService
             a.PlanExpiresAt,
             a.IsSiteActive ?? true,
             a.PlanUpdatedAt,
-            string.Equals(a.PlanBillingKind, PlanActivationCode.BillingKindGiftedUnpaid, StringComparison.OrdinalIgnoreCase),
+            ResolveIsCourtesyVip(a),
             a.PlanRevokedAt,
             a.IsRecurringSubscription,
             a.BillingGraceEndsAt,
             a.IsBillingSuspended,
             a.BillingWarningMessage);
+
+    private static bool ResolveIsCourtesyVip(CloudAccountEntry entry)
+    {
+        var tier = StoreSettings.NormalizePlanTier(entry.PlanTier);
+        if (string.Equals(tier, StoreSettings.PlanTierBasic, StringComparison.OrdinalIgnoreCase))
+            return false;
+
+        if (string.Equals(entry.PlanBillingKind, PlanActivationCode.BillingKindGiftedUnpaid, StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        // Todo VIP Vitalício (sem vencimento e sem assinatura recorrente) é cortesia concedida pelo Admin.
+        if (!entry.PlanExpiresAt.HasValue && !entry.IsRecurringSubscription)
+            return true;
+
+        // Contas com VIP anterior à v1.0.46 sem registro explícito de pagamento permanecem como cortesia.
+        if (string.IsNullOrWhiteSpace(entry.PlanBillingKind) && !entry.IsRecurringSubscription)
+            return true;
+
+        return false;
+    }
 
     public static string ResolveEffectivePlan(string? rawTier, DateTimeOffset? expiresAt, DateTimeOffset now)
     {
