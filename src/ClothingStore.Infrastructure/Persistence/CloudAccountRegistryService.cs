@@ -202,7 +202,9 @@ public sealed class CloudAccountRegistryService
                     Message: "Credenciais inválidas. Verifique seu e-mail e senha.");
             }
 
-            var effectiveTier = ResolveEffectivePlan(match.PlanTier, match.PlanExpiresAt, DateTimeOffset.UtcNow);
+            var now = DateTimeOffset.UtcNow;
+            EvaluateEntryGraceUnsafe(match, now);
+            var effectiveTier = ResolveEffectivePlan(match.PlanTier, match.PlanExpiresAt, now);
             return new CloudVerifyLoginResponseDto(
                 Verified: true,
                 AccountExists: true,
@@ -216,7 +218,13 @@ public sealed class CloudAccountRegistryService
                     match.StoreSlug,
                     PlanTier: effectiveTier,
                     PlanExpiresAt: effectiveTier == StoreSettings.PlanTierBasic ? null : match.PlanExpiresAt,
-                    IsSiteActive: match.IsSiteActive ?? true),
+                    IsSiteActive: match.IsSiteActive ?? true,
+                    IsCourtesyVip: string.Equals(match.PlanBillingKind, PlanActivationCode.BillingKindGiftedUnpaid, StringComparison.OrdinalIgnoreCase),
+                    PlanRevokedAt: match.PlanRevokedAt,
+                    IsRecurringSubscription: match.IsRecurringSubscription,
+                    BillingGraceEndsAt: match.BillingGraceEndsAt,
+                    IsBillingSuspended: match.IsBillingSuspended,
+                    BillingWarningMessage: match.BillingWarningMessage),
                 Message: "Conta verificada com sucesso.");
         }
         finally
@@ -262,6 +270,16 @@ public sealed class CloudAccountRegistryService
         try
         {
             RefreshFromDiskIfModifiedUnsafe();
+            var now = DateTimeOffset.UtcNow;
+            var anyChanged = false;
+            foreach (var acc in _state.Accounts)
+            {
+                if (EvaluateEntryGraceUnsafe(acc, now))
+                    anyChanged = true;
+            }
+            if (anyChanged)
+                SaveToDiskUnsafe();
+
             return _state.Accounts
                 .Select(MapToSummary)
                 .ToList();
@@ -280,7 +298,9 @@ public sealed class CloudAccountRegistryService
         int? durationDays,
         bool extendExistingDuration,
         bool activateSite,
-        CancellationToken ct = default)
+        CancellationToken ct = default,
+        bool isCourtesyVip = false,
+        bool isRecurringSubscription = false)
     {
         var normalizedTier = StoreSettings.NormalizePlanTier(planTier);
 
@@ -293,29 +313,93 @@ public sealed class CloudAccountRegistryService
                 return null;
 
             var now = DateTimeOffset.UtcNow;
-            DateTimeOffset? nextExpiry = null;
+            var isBasicRemoval = string.Equals(normalizedTier, StoreSettings.PlanTierBasic, StringComparison.OrdinalIgnoreCase);
 
-            if (!string.Equals(normalizedTier, StoreSettings.PlanTierBasic, StringComparison.OrdinalIgnoreCase) &&
-                durationDays.HasValue && durationDays.Value > 0)
+            if (isBasicRemoval)
             {
-                var baseStart = extendExistingDuration &&
-                                string.Equals(match.PlanTier, normalizedTier, StringComparison.OrdinalIgnoreCase) &&
-                                match.PlanExpiresAt.HasValue &&
-                                match.PlanExpiresAt.Value > now
-                    ? match.PlanExpiresAt.Value
-                    : now;
-                nextExpiry = baseStart.AddDays(durationDays.Value);
+                match.PlanTier = StoreSettings.PlanTierBasic;
+                match.PlanExpiresAt = null;
+                match.PlanBillingKind = null;
+                match.PlanRevokedAt = now;
+                match.IsRecurringSubscription = false;
+                match.BillingGraceEndsAt = null;
+                match.IsBillingSuspended = false;
+                match.BillingWarningMessage = null;
+                if (activateSite)
+                    match.IsSiteActive = true;
+            }
+            else
+            {
+                DateTimeOffset? nextExpiry = null;
+                if (durationDays.HasValue && durationDays.Value > 0)
+                {
+                    var baseStart = extendExistingDuration &&
+                                    string.Equals(match.PlanTier, normalizedTier, StringComparison.OrdinalIgnoreCase) &&
+                                    match.PlanExpiresAt.HasValue &&
+                                    match.PlanExpiresAt.Value > now
+                        ? match.PlanExpiresAt.Value
+                        : now;
+                    nextExpiry = baseStart.AddDays(durationDays.Value);
+                }
+
+                match.PlanTier = normalizedTier;
+                match.PlanExpiresAt = nextExpiry;
+                match.PlanBillingKind = isCourtesyVip
+                    ? PlanActivationCode.BillingKindGiftedUnpaid
+                    : PlanActivationCode.BillingKindPaid;
+                match.PlanRevokedAt = null;
+                match.IsRecurringSubscription = !isCourtesyVip && isRecurringSubscription;
+                match.BillingGraceEndsAt = null;
+                match.IsBillingSuspended = false;
+                match.BillingWarningMessage = null;
+                if (activateSite)
+                    match.IsSiteActive = true;
             }
 
-            match.PlanTier = normalizedTier;
-            match.PlanExpiresAt = nextExpiry;
-            if (activateSite)
-                match.IsSiteActive = true;
             if (!string.IsNullOrWhiteSpace(storeName) && string.IsNullOrWhiteSpace(match.StoreName))
                 match.StoreName = storeName.Trim();
             match.PlanUpdatedAt = now;
             match.UpdatedAt = now;
 
+            SaveToDiskUnsafe();
+            return MapToSummary(match);
+        }
+        finally
+        {
+            _lock.Release();
+        }
+    }
+
+    public async Task<CloudAccountSummary?> MarkRecurringPaymentFailureOrGraceAsync(
+        string? targetEmail,
+        string? targetUsername,
+        string? storeName,
+        DateTimeOffset? dueAt = null,
+        string? failureReason = null,
+        CancellationToken ct = default)
+    {
+        await _lock.WaitAsync(ct);
+        try
+        {
+            RefreshFromDiskIfModifiedUnsafe();
+            var match = FindMatchingEntryUnsafe(targetEmail, targetUsername, storeName, storeSlug: null);
+            if (match is null)
+                return null;
+
+            var now = DateTimeOffset.UtcNow;
+            var anchor = dueAt ?? match.PlanExpiresAt ?? now;
+            var targetGraceEnd = anchor.AddDays(StoreSettings.SubscriptionBillingGraceDays);
+            if (match.BillingGraceEndsAt.HasValue && match.BillingGraceEndsAt.Value < targetGraceEnd)
+                targetGraceEnd = match.BillingGraceEndsAt.Value;
+
+            match.IsRecurringSubscription = true;
+            match.BillingGraceEndsAt = targetGraceEnd;
+            if (!string.IsNullOrWhiteSpace(failureReason))
+                match.BillingWarningMessage = failureReason.Trim();
+
+            EvaluateEntryGraceUnsafe(match, now);
+            match.PlanUpdatedAt = now;
+            match.UpdatedAt = now;
             SaveToDiskUnsafe();
             return MapToSummary(match);
         }
@@ -340,13 +424,23 @@ public sealed class CloudAccountRegistryService
             if (match is null)
                 return null;
 
-            var effectiveTier = ResolveEffectivePlan(match.PlanTier, match.PlanExpiresAt, DateTimeOffset.UtcNow);
+            var now = DateTimeOffset.UtcNow;
+            if (EvaluateEntryGraceUnsafe(match, now))
+                SaveToDiskUnsafe();
+
+            var effectiveTier = ResolveEffectivePlan(match.PlanTier, match.PlanExpiresAt, now);
             return new CloudPlanStatusDto(
                 PlanTier: effectiveTier,
                 PlanExpiresAt: effectiveTier == StoreSettings.PlanTierBasic ? null : match.PlanExpiresAt,
                 IsSiteActive: match.IsSiteActive ?? true,
                 StoreName: match.StoreName,
-                StoreSlug: match.StoreSlug);
+                StoreSlug: match.StoreSlug,
+                IsCourtesyVip: string.Equals(match.PlanBillingKind, PlanActivationCode.BillingKindGiftedUnpaid, StringComparison.OrdinalIgnoreCase),
+                PlanRevokedAt: match.PlanRevokedAt,
+                IsRecurringSubscription: match.IsRecurringSubscription,
+                BillingGraceEndsAt: match.BillingGraceEndsAt,
+                IsBillingSuspended: match.IsBillingSuspended,
+                BillingWarningMessage: match.BillingWarningMessage);
         }
         finally
         {
@@ -407,6 +501,44 @@ public sealed class CloudAccountRegistryService
         return null;
     }
 
+    private static bool EvaluateEntryGraceUnsafe(CloudAccountEntry entry, DateTimeOffset now)
+    {
+        if (!entry.IsRecurringSubscription && !entry.BillingGraceEndsAt.HasValue && !entry.IsBillingSuspended)
+            return false;
+
+        if (!entry.BillingGraceEndsAt.HasValue)
+        {
+            if (!entry.PlanExpiresAt.HasValue || now < entry.PlanExpiresAt.Value)
+                return false;
+        }
+
+        var graceEnd = entry.BillingGraceEndsAt ?? entry.PlanExpiresAt!.Value.AddDays(StoreSettings.SubscriptionBillingGraceDays);
+        if (now < graceEnd)
+        {
+            if (entry.BillingGraceEndsAt != graceEnd || entry.IsBillingSuspended)
+            {
+                entry.BillingGraceEndsAt = graceEnd;
+                entry.IsBillingSuspended = false;
+                entry.BillingWarningMessage ??= $"Renovação mensal pendente no Mercado Pago. Regularize em até {StoreSettings.SubscriptionBillingGraceDays} dias.";
+                entry.UpdatedAt = now;
+                return true;
+            }
+            return false;
+        }
+
+        if (!entry.IsBillingSuspended || (entry.IsSiteActive ?? true) || entry.BillingGraceEndsAt != graceEnd)
+        {
+            entry.BillingGraceEndsAt = graceEnd;
+            entry.IsBillingSuspended = true;
+            entry.IsSiteActive = false;
+            entry.BillingWarningMessage = "Assinatura vencida há mais de 5 dias sem pagamento no Mercado Pago. Conta e loja desativadas até a regularização.";
+            entry.UpdatedAt = now;
+            return true;
+        }
+
+        return false;
+    }
+
     private static CloudAccountSummary MapToSummary(CloudAccountEntry a) =>
         new(
             a.FullName,
@@ -420,7 +552,13 @@ public sealed class CloudAccountRegistryService
             a.PlanTier,
             a.PlanExpiresAt,
             a.IsSiteActive ?? true,
-            a.PlanUpdatedAt);
+            a.PlanUpdatedAt,
+            string.Equals(a.PlanBillingKind, PlanActivationCode.BillingKindGiftedUnpaid, StringComparison.OrdinalIgnoreCase),
+            a.PlanRevokedAt,
+            a.IsRecurringSubscription,
+            a.BillingGraceEndsAt,
+            a.IsBillingSuspended,
+            a.BillingWarningMessage);
 
     public static string ResolveEffectivePlan(string? rawTier, DateTimeOffset? expiresAt, DateTimeOffset now)
     {
@@ -515,6 +653,12 @@ public sealed class CloudAccountRegistryService
         public DateTimeOffset? PlanExpiresAt { get; set; }
         public bool? IsSiteActive { get; set; }
         public DateTimeOffset? PlanUpdatedAt { get; set; }
+        public string? PlanBillingKind { get; set; }
+        public DateTimeOffset? PlanRevokedAt { get; set; }
+        public bool IsRecurringSubscription { get; set; }
+        public DateTimeOffset? BillingGraceEndsAt { get; set; }
+        public bool IsBillingSuspended { get; set; }
+        public string? BillingWarningMessage { get; set; }
         public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
         public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.UtcNow;
     }
@@ -534,4 +678,10 @@ public sealed record CloudAccountSummary(
     string? PlanTier = null,
     DateTimeOffset? PlanExpiresAt = null,
     bool IsSiteActive = true,
-    DateTimeOffset? PlanUpdatedAt = null);
+    DateTimeOffset? PlanUpdatedAt = null,
+    bool IsCourtesyVip = false,
+    DateTimeOffset? PlanRevokedAt = null,
+    bool IsRecurringSubscription = false,
+    DateTimeOffset? BillingGraceEndsAt = null,
+    bool IsBillingSuspended = false,
+    string? BillingWarningMessage = null);

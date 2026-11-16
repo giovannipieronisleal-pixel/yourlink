@@ -836,6 +836,138 @@ public class MultiAccountStoreIsolationTests
         }
     }
 
+    [TestMethod]
+    public async Task CourtesyVipExclusion_And_Popups_And_SyncLabel_ShouldWorkAccurately()
+    {
+        var (repo, _, _, settingsService, _, _, hasher, _, tempDir, _) = CreateStack();
+        try
+        {
+            var registryDir = Path.Combine(tempDir, "cloud_courtesy_revoke_root");
+            Directory.CreateDirectory(registryDir);
+            var registry = new CloudAccountRegistryService(registryDir, hasher);
+
+            var passwordHash = hasher.HashPassword("SenhaForte@123");
+            await registry.UpsertAccountAsync(new CloudAccountCredentialSyncDto(
+                FullName: "Loja Cortesia",
+                Username: "cortesia1",
+                Email: "cortesia1@gmail.com",
+                PasswordHash: passwordHash,
+                Phone: "41999990000",
+                StoreName: "Loja Cortesia",
+                StoreSlug: "loja-cortesia"));
+
+            // 1) Admin concede VIP Cortesia -> PlanStatus deve refletir IsCourtesyVip = true
+            var granted = await registry.ApplyPlanAsync(
+                targetEmail: "cortesia1@gmail.com",
+                targetUsername: "cortesia1",
+                storeName: "Loja Cortesia",
+                planTier: StoreSettings.PlanTierPremium,
+                durationDays: null,
+                extendExistingDuration: false,
+                activateSite: true,
+                isCourtesyVip: true);
+            Assert.IsNotNull(granted);
+            Assert.IsTrue(granted!.IsCourtesyVip);
+
+            var courtesyStatus = await registry.GetPlanStatusAsync("cortesia1@gmail.com", "cortesia1", "loja-cortesia", "Loja Cortesia");
+            Assert.IsNotNull(courtesyStatus);
+            Assert.IsTrue(courtesyStatus!.IsCourtesyVip);
+
+            var (updatedVip, vipSettings) = await settingsService.ApplyCloudPlanSyncAsync(courtesyStatus);
+            Assert.IsTrue(updatedVip);
+            Assert.AreEqual(StoreSettings.PlanTierPremium, vipSettings.PlanTier);
+            Assert.AreEqual(PlanActivationCode.BillingKindGiftedUnpaid, vipSettings.ActivePlanBillingKind);
+
+            // 2) Admin exclui VIP Cortesia -> PlanRevokedAt é gravado e ApplyCloudPlanSyncAsync reverte cliente para Básico
+            var revoked = await registry.ApplyPlanAsync(
+                targetEmail: "cortesia1@gmail.com",
+                targetUsername: "cortesia1",
+                storeName: "Loja Cortesia",
+                planTier: StoreSettings.PlanTierBasic,
+                durationDays: null,
+                extendExistingDuration: false,
+                activateSite: true,
+                isCourtesyVip: false);
+            Assert.IsNotNull(revoked);
+            Assert.AreEqual(StoreSettings.PlanTierBasic, revoked!.PlanTier);
+            Assert.IsNotNull(revoked.PlanRevokedAt);
+
+            var revokedStatus = await registry.GetPlanStatusAsync("cortesia1@gmail.com", "cortesia1", "loja-cortesia", "Loja Cortesia");
+            Assert.IsNotNull(revokedStatus);
+            Assert.IsNotNull(revokedStatus!.PlanRevokedAt);
+
+            var (updatedAfterRevoke, basicSettings) = await settingsService.ApplyCloudPlanSyncAsync(revokedStatus);
+            Assert.IsTrue(updatedAfterRevoke);
+            Assert.AreEqual(StoreSettings.PlanTierBasic, basicSettings.PlanTier);
+
+            // 3) VIP Comprado em falha recorrente entra em carência de 5 dias e desativa após expirar
+            await registry.ApplyPlanAsync(
+                targetEmail: "cortesia1@gmail.com",
+                targetUsername: "cortesia1",
+                storeName: "Loja Cortesia",
+                planTier: StoreSettings.PlanTierPremium,
+                durationDays: 30,
+                extendExistingDuration: false,
+                activateSite: true,
+                isCourtesyVip: false);
+            var dueAt = DateTimeOffset.UtcNow;
+            var graceStatus = await registry.MarkRecurringPaymentFailureOrGraceAsync(
+                targetEmail: "cortesia1@gmail.com",
+                targetUsername: "cortesia1",
+                storeName: "Loja Cortesia",
+                dueAt: dueAt,
+                failureReason: "Cartão sem saldo. Carência de até 5 dias.");
+            Assert.IsNotNull(graceStatus);
+            Assert.IsTrue(graceStatus!.IsRecurringSubscription);
+            Assert.IsFalse(graceStatus.IsBillingSuspended);
+            Assert.IsTrue(graceStatus.IsSiteActive);
+
+            // Após 5 dias vencidos: marca automaticamente como suspensa / desativada
+            var suspendedStatus = await registry.MarkRecurringPaymentFailureOrGraceAsync(
+                targetEmail: "cortesia1@gmail.com",
+                targetUsername: "cortesia1",
+                storeName: "Loja Cortesia",
+                dueAt: dueAt.AddDays(-6),
+                failureReason: "Carência de 5 dias encerrada sem pagamento.");
+            Assert.IsNotNull(suspendedStatus);
+            Assert.IsTrue(suspendedStatus!.IsBillingSuspended);
+            Assert.IsFalse(suspendedStatus.IsSiteActive);
+
+            // 4) Validação dos Popups e Excluir VIP somente para Cortesia
+            var root = ResolveRepoRoot();
+            var userMainLayout = File.ReadAllText(Path.Combine(root, "Components", "Layout", "MainLayout.razor"));
+            var userPopup = File.ReadAllText(Path.Combine(root, "Components", "Shared", "PlanStatusPopupModal.razor"));
+            Assert.IsTrue(userMainLayout.Contains("PlanStatusPopupModal", StringComparison.Ordinal));
+            Assert.IsFalse(userMainLayout.Contains("_autoActivatedPlanBanner", StringComparison.Ordinal),
+                "Avisos de VIP/pagamento devem aparecer em popup centralizado e não em faixa no topo.");
+            Assert.IsTrue(userPopup.Contains("BillingSuspended", StringComparison.Ordinal));
+            Assert.IsTrue(userPopup.Contains("PurchasedVip", StringComparison.Ordinal));
+
+            var usersPagePath = Path.Combine(root, "src", "ClothingStore.AdminApp", "Components", "Pages", "UsersAndVipPage.razor");
+            if (File.Exists(usersPagePath))
+            {
+                var usersPage = File.ReadAllText(usersPagePath);
+                Assert.IsTrue(usersPage.Contains("u.HasActiveVip && u.IsCourtesyVip", StringComparison.Ordinal),
+                    "Botão Excluir VIP deve aparecer apenas para VIP Cortesia.");
+                Assert.IsTrue(usersPage.Contains("Excluir VIP", StringComparison.Ordinal));
+                Assert.IsTrue(usersPage.Contains("VIP Comprado (Mercado Pago)", StringComparison.Ordinal));
+            }
+
+            var adminGatewayPath = Path.Combine(root, "src", "ClothingStore.AdminApp", "Services", "PlatformAdminGateway.cs");
+            if (File.Exists(adminGatewayPath))
+            {
+                var adminGateway = File.ReadAllText(adminGatewayPath);
+                Assert.IsTrue(adminGateway.Contains("Portal Central YouLink", StringComparison.Ordinal),
+                    "Status conectado não deve exibir nome genérico 'Minha Loja' para o servidor central.");
+                Assert.IsTrue(adminGateway.Contains("ExcludeCourtesyVipAsync", StringComparison.Ordinal));
+            }
+        }
+        finally
+        {
+            CleanupDir(tempDir);
+        }
+    }
+
     private sealed class InMemoryCloudStateBackend : ICloudStateBackend
     {
         public Dictionary<string, string> Snapshots { get; } = new(StringComparer.OrdinalIgnoreCase);

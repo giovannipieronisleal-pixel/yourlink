@@ -205,6 +205,10 @@ public sealed class EmployeeAndSettingsService
     public async Task<AdminStoreSettingsDto> GetAdminStoreSettingsAsync(CancellationToken ct = default)
     {
         var s = await _repository.GetStoreSettingsAsync(ct);
+        if (s.EvaluateRecurringBillingStatus())
+        {
+            await _repository.UpdateStoreSettingsAsync(s, ct);
+        }
         return MapToAdminSettingsDto(s);
     }
 
@@ -1013,7 +1017,11 @@ public sealed class EmployeeAndSettingsService
             s.MercadoPagoAccountLabel,
             s.MercadoPagoUserId,
             s.MercadoPagoConnectedAt,
-            ClothingStore.Shared.Helpers.WhatsAppLinkBuilder.SanitizeSupportPhone(s.PlatformSupportWhatsapp));
+            ClothingStore.Shared.Helpers.WhatsAppLinkBuilder.SanitizeSupportPhone(s.PlatformSupportWhatsapp),
+            s.IsRecurringSubscription,
+            s.BillingGraceEndsAt,
+            s.IsBillingSuspended,
+            s.LastPaymentFailureMessage);
 
     public async Task<AdminStoreSettingsDto> SyncOwnerPricingAsync(
         UpdateOwnerPricingSyncRequest request,
@@ -1084,6 +1092,8 @@ public sealed class EmployeeAndSettingsService
         settings.PlanExpiresAt = nextExpiry;
         settings.ActivePlanBillingKind = PlanActivationCode.BillingKindPaid;
         settings.ActiveGiftCardCode = normalizedGiftCode;
+        settings.IsRecurringSubscription = string.Equals(status.PaymentMethod, PlatformSubscriptionOrder.MethodMercadoPagoSubscription, StringComparison.OrdinalIgnoreCase);
+        settings.ClearBillingGraceAndActivate(employeeId, now);
 
         if (!string.IsNullOrWhiteSpace(status.DesiredDomain) &&
             (status.DesiredDomain.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
@@ -1116,12 +1126,59 @@ public sealed class EmployeeAndSettingsService
         var now = DateTimeOffset.UtcNow;
         var remoteExpired = remotePlan.PlanExpiresAt.HasValue && now >= remotePlan.PlanExpiresAt.Value;
 
+        if (string.Equals(remoteTier, StoreSettings.PlanTierBasic, StringComparison.OrdinalIgnoreCase) &&
+            remotePlan.PlanRevokedAt.HasValue &&
+            (!settings.PlanActivatedAt.HasValue || remotePlan.PlanRevokedAt.Value >= settings.PlanActivatedAt.Value))
+        {
+            var wasPrivileged = !string.Equals(settings.PlanTier, StoreSettings.PlanTierBasic, StringComparison.OrdinalIgnoreCase) ||
+                                string.Equals(settings.ActivePlanBillingKind, PlanActivationCode.BillingKindGiftedUnpaid, StringComparison.OrdinalIgnoreCase);
+            if (!wasPrivileged && !settings.IsBillingSuspended && !settings.BillingGraceEndsAt.HasValue)
+                return (false, MapToAdminSettingsDto(settings));
+
+            settings.UpdatePlanAndDesign(StoreSettings.PlanTierBasic, designConfig: settings.DesignConfig, employeeId: employeeId);
+            settings.PlanExpiresAt = null;
+            settings.ActiveGiftCardCode = null;
+            settings.ActivePlanBillingKind = PlanActivationCode.BillingKindPaid;
+            settings.IsRecurringSubscription = false;
+            settings.ClearBillingGraceAndActivate(employeeId, now);
+            await _repository.UpdateStoreSettingsAsync(settings, ct);
+            return (true, MapToAdminSettingsDto(settings));
+        }
+
+        if (remotePlan.IsBillingSuspended || remotePlan.BillingGraceEndsAt.HasValue)
+        {
+            var graceChanged =
+                settings.IsRecurringSubscription != remotePlan.IsRecurringSubscription ||
+                settings.BillingGraceEndsAt != remotePlan.BillingGraceEndsAt ||
+                settings.IsBillingSuspended != remotePlan.IsBillingSuspended ||
+                !string.Equals(settings.LastPaymentFailureMessage, remotePlan.BillingWarningMessage, StringComparison.Ordinal);
+
+            if (graceChanged)
+            {
+                settings.IsRecurringSubscription = remotePlan.IsRecurringSubscription;
+                settings.BillingGraceEndsAt = remotePlan.BillingGraceEndsAt;
+                settings.IsBillingSuspended = remotePlan.IsBillingSuspended;
+                settings.LastPaymentFailureMessage = remotePlan.BillingWarningMessage;
+                if (remotePlan.IsBillingSuspended)
+                    settings.DeactivateSite(remotePlan.BillingWarningMessage ?? "Assinatura mensal em atraso há mais de 5 dias sem pagamento.", employeeId);
+                await _repository.UpdateStoreSettingsAsync(settings, ct);
+                return (true, MapToAdminSettingsDto(settings));
+            }
+        }
+
         if (remoteExpired || string.Equals(remoteTier, StoreSettings.PlanTierBasic, StringComparison.OrdinalIgnoreCase))
             return (false, MapToAdminSettingsDto(settings));
 
+        var expectedBillingKind = remotePlan.IsCourtesyVip
+            ? PlanActivationCode.BillingKindGiftedUnpaid
+            : PlanActivationCode.BillingKindPaid;
         var currentEffective = settings.GetEffectivePlanTier(now);
         var alreadySynced = string.Equals(currentEffective, remoteTier, StringComparison.OrdinalIgnoreCase) &&
                             settings.PlanExpiresAt == remotePlan.PlanExpiresAt &&
+                            string.Equals(settings.ActivePlanBillingKind, expectedBillingKind, StringComparison.OrdinalIgnoreCase) &&
+                            settings.IsRecurringSubscription == remotePlan.IsRecurringSubscription &&
+                            !settings.IsBillingSuspended &&
+                            !settings.BillingGraceEndsAt.HasValue &&
                             (!remotePlan.IsSiteActive || settings.IsSiteActive);
 
         if (alreadySynced)
@@ -1130,8 +1187,10 @@ public sealed class EmployeeAndSettingsService
         settings.UpdatePlanAndDesign(remoteTier, designConfig: settings.DesignConfig, employeeId: employeeId);
         settings.PlanActivatedAt ??= now;
         settings.PlanExpiresAt = remotePlan.PlanExpiresAt;
+        settings.ActivePlanBillingKind = expectedBillingKind;
+        settings.IsRecurringSubscription = remotePlan.IsRecurringSubscription;
         if (remotePlan.IsSiteActive)
-            settings.ActivateSite(employeeId);
+            settings.ClearBillingGraceAndActivate(employeeId, now);
 
         await _repository.UpdateStoreSettingsAsync(settings, ct);
         return (true, MapToAdminSettingsDto(settings));

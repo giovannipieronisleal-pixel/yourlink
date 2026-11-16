@@ -75,7 +75,14 @@ public sealed class StoreSettings
     public const string DomainModeFreeDomain = "DominioGratis";
     public const string DomainModePurchasedDomain = "DominioComprado";
 
+    public const int SubscriptionBillingGraceDays = 5;
+
     public string ActivePlanBillingKind { get; set; } = PlanActivationCode.BillingKindPaid;
+    public bool IsRecurringSubscription { get; set; }
+    public DateTimeOffset? BillingGraceEndsAt { get; set; }
+    public bool IsBillingSuspended { get; set; }
+    public DateTimeOffset? LastPaymentFailureAt { get; set; }
+    public string? LastPaymentFailureMessage { get; set; }
     public string DomainAcquisitionMode { get; set; } = DomainModePlatformDefault;
     public string ServerHostingMode { get; set; } = "PlatformShared";
     public string OwnServerProvider { get; set; } = "GoogleCloudRun";
@@ -219,6 +226,11 @@ public sealed class StoreSettings
 
         IsSiteActive = true;
         DeactivationReason = null;
+        IsRecurringSubscription = false;
+        BillingGraceEndsAt = null;
+        IsBillingSuspended = false;
+        LastPaymentFailureAt = null;
+        LastPaymentFailureMessage = null;
         PublishedStoreName = StoreName;
         LastActivityAt = current;
         UpdatedAt = current;
@@ -408,6 +420,115 @@ public sealed class StoreSettings
         DeactivationReason = reason;
         UpdatedAt = DateTimeOffset.UtcNow;
         UpdatedByEmployeeId = employeeId;
+    }
+
+    public bool IsInSubscriptionGrace(DateTimeOffset? now = null) =>
+        !IsBillingSuspended &&
+        BillingGraceEndsAt.HasValue &&
+        (now ?? DateTimeOffset.UtcNow) < BillingGraceEndsAt.Value;
+
+    public void ClearBillingGraceAndActivate(Guid? employeeId = null, DateTimeOffset? now = null)
+    {
+        var ts = now ?? DateTimeOffset.UtcNow;
+        BillingGraceEndsAt = null;
+        IsBillingSuspended = false;
+        LastPaymentFailureAt = null;
+        LastPaymentFailureMessage = null;
+        IsSiteActive = true;
+        DeactivationReason = null;
+        PublishedStoreName = StoreName;
+        LastActivityAt = ts;
+        UpdatedAt = ts;
+        UpdatedByEmployeeId = employeeId;
+    }
+
+    public void StartOrRefreshSubscriptionGrace(
+        DateTimeOffset dueOrFailedAt,
+        string? failureReason = null,
+        DateTimeOffset? now = null)
+    {
+        var current = now ?? DateTimeOffset.UtcNow;
+        var targetGraceEnd = dueOrFailedAt.AddDays(SubscriptionBillingGraceDays);
+        if (BillingGraceEndsAt.HasValue && BillingGraceEndsAt.Value < targetGraceEnd)
+        {
+            targetGraceEnd = BillingGraceEndsAt.Value;
+        }
+
+        IsRecurringSubscription = true;
+        BillingGraceEndsAt = targetGraceEnd;
+        LastPaymentFailureAt = current;
+        if (!string.IsNullOrWhiteSpace(failureReason))
+        {
+            LastPaymentFailureMessage = failureReason.Trim();
+        }
+
+        if (current >= targetGraceEnd)
+        {
+            IsBillingSuspended = true;
+            IsSiteActive = false;
+            DeactivationReason = string.IsNullOrWhiteSpace(LastPaymentFailureMessage)
+                ? "Assinatura mensal em atraso há mais de 5 dias sem pagamento no Mercado Pago."
+                : LastPaymentFailureMessage;
+        }
+        else
+        {
+            IsBillingSuspended = false;
+        }
+
+        UpdatedAt = current;
+    }
+
+    public bool EvaluateRecurringBillingStatus(DateTimeOffset? now = null)
+    {
+        if (!IsRecurringSubscription && !BillingGraceEndsAt.HasValue && !IsBillingSuspended)
+            return false;
+
+        if (!PlanExpiresAt.HasValue && !BillingGraceEndsAt.HasValue)
+        {
+            if (IsBillingSuspended)
+            {
+                BillingGraceEndsAt = null;
+                IsBillingSuspended = false;
+                LastPaymentFailureMessage = null;
+                UpdatedAt = now ?? DateTimeOffset.UtcNow;
+                return true;
+            }
+            return false;
+        }
+
+        var current = now ?? DateTimeOffset.UtcNow;
+        if (!BillingGraceEndsAt.HasValue && PlanExpiresAt.HasValue && current < PlanExpiresAt.Value)
+        {
+            return false;
+        }
+
+        var expectedGraceEnd = BillingGraceEndsAt ?? PlanExpiresAt!.Value.AddDays(SubscriptionBillingGraceDays);
+        if (current < expectedGraceEnd)
+        {
+            if (BillingGraceEndsAt != expectedGraceEnd || IsBillingSuspended)
+            {
+                BillingGraceEndsAt = expectedGraceEnd;
+                IsBillingSuspended = false;
+                var dueDate = PlanExpiresAt ?? expectedGraceEnd.AddDays(-SubscriptionBillingGraceDays);
+                LastPaymentFailureMessage ??= $"Renovação mensal vencida em {dueDate.ToLocalTime():dd/MM/yyyy}. Regularize o pagamento no Mercado Pago em até {SubscriptionBillingGraceDays} dias para não pausar a loja.";
+                UpdatedAt = current;
+                return true;
+            }
+            return false;
+        }
+
+        if (!IsBillingSuspended || IsSiteActive || BillingGraceEndsAt != expectedGraceEnd)
+        {
+            BillingGraceEndsAt = expectedGraceEnd;
+            IsBillingSuspended = true;
+            IsSiteActive = false;
+            LastPaymentFailureMessage = "Passaram 5 dias após o vencimento sem pagamento da assinatura no Mercado Pago. Regularize para reativar sua loja e conta.";
+            DeactivationReason = LastPaymentFailureMessage;
+            UpdatedAt = current;
+            return true;
+        }
+
+        return false;
     }
 
     public void SetLogo(string? storagePath, string? publicUrl, Guid? employeeId)

@@ -78,6 +78,16 @@ public sealed class MauiAdminGateway
 
     public event Action? AuthStateChanged;
     public event Action<AdminStoreSettingsDto>? PlanEntitlementActivated;
+    public event Action? PlanPopupNoticeChanged;
+
+    private readonly HashSet<string> _shownSessionPopupSignatures = new(StringComparer.OrdinalIgnoreCase);
+    public UserPlanStatusPopupNotice? ActivePlanPopupNotice { get; private set; }
+
+    public void DismissPlanPopupNotice()
+    {
+        ActivePlanPopupNotice = null;
+        PlanPopupNoticeChanged?.Invoke();
+    }
 
     public MauiAdminGateway(
         AdminApiClient apiClient,
@@ -779,9 +789,12 @@ public sealed class MauiAdminGateway
     {
         AccessToken = null;
         CurrentEmployee = null;
+        _shownSessionPopupSignatures.Clear();
+        ActivePlanPopupNotice = null;
         _apiClient.ClearSession();
         ClearSavedSession();
         RefreshActiveWorkspaceState(resetCloudStatus: true);
+        PlanPopupNoticeChanged?.Invoke();
         AuthStateChanged?.Invoke();
     }
 
@@ -1540,6 +1553,7 @@ public sealed class MauiAdminGateway
         }
 
         _cloudSyncService?.TriggerAutoSyncIfEnabled();
+        RaisePlanPopupFromSettings(response.UpdatedSettings, "redeem", forcePopup: true);
         PlanEntitlementActivated?.Invoke(response.UpdatedSettings);
         AuthStateChanged?.Invoke();
         return response;
@@ -2243,6 +2257,7 @@ public sealed class MauiAdminGateway
 
             ClearPendingPlanOrder();
             _cloudSyncService?.TriggerAutoSyncIfEnabled();
+            RaisePlanPopupFromSettings(activated, "purchased", orderNumber: status.OrderNumber, forcePopup: true);
             PlanEntitlementActivated?.Invoke(activated);
             AuthStateChanged?.Invoke();
         }
@@ -2527,6 +2542,8 @@ public sealed class MauiAdminGateway
         bool forceRefresh = false,
         CancellationToken ct = default)
     {
+        AdminStoreSettingsDto? currentSettings = null;
+        var popupHandled = false;
         try
         {
             if (!IsAuthenticated)
@@ -2538,7 +2555,7 @@ public sealed class MauiAdminGateway
 
             _lastCloudPlanSyncAt = now;
 
-            var currentSettings = await _employeeAndSettingsService.GetAdminStoreSettingsAsync(ct);
+            currentSettings = await _employeeAndSettingsService.GetAdminStoreSettingsAsync(ct);
             var centralUrl = ResolveCentralBillingServerUrl(currentSettings, allowDefaultFallback: true);
             if (string.IsNullOrWhiteSpace(centralUrl))
                 return null;
@@ -2585,15 +2602,160 @@ public sealed class MauiAdminGateway
             if (updated)
             {
                 _cloudSyncService?.TriggerAutoSyncIfEnabled();
+                var triggerContext = remotePlan.PlanRevokedAt.HasValue &&
+                                     string.Equals(updatedSettings.PlanTier, StoreDesignPresets.PlanBasic, StringComparison.OrdinalIgnoreCase)
+                    ? "revoked"
+                    : "cloud_sync";
+                RaisePlanPopupFromSettings(updatedSettings, triggerContext, forcePopup: true);
+                popupHandled = true;
                 PlanEntitlementActivated?.Invoke(updatedSettings);
                 AuthStateChanged?.Invoke();
                 return updatedSettings;
             }
+
+            RaisePlanPopupFromSettings(updatedSettings, "cloud_session", forcePopup: false);
+            popupHandled = true;
         }
         catch
         {
         }
+        finally
+        {
+            if (!popupHandled && IsAuthenticated && currentSettings is not null)
+                RaisePlanPopupFromSettings(currentSettings, "local_session", forcePopup: false);
+        }
 
         return null;
     }
+
+    public void EnsurePlanPopupFromSettings(AdminStoreSettingsDto? settings)
+    {
+        if (settings is null || !IsAuthenticated)
+            return;
+
+        RaisePlanPopupFromSettings(settings, "session", forcePopup: false);
+    }
+
+    private void RaisePlanPopupFromSettings(
+        AdminStoreSettingsDto settings,
+        string triggerContext,
+        string? orderNumber = null,
+        bool forcePopup = false)
+    {
+        var now = DateTimeOffset.UtcNow;
+        var tier = StoreDesignPresets.NormalizePlanTier(settings.PlanTier);
+        var isBasic = string.Equals(tier, StoreDesignPresets.PlanBasic, StringComparison.OrdinalIgnoreCase);
+        var isCourtesy = string.Equals(
+            settings.ActivePlanBillingKind,
+            PlanActivationCode.BillingKindGiftedUnpaid,
+            StringComparison.OrdinalIgnoreCase);
+        var isExpired = PlanCheckoutGuardHelper.IsPlanExpired(settings.PlanExpiresAt, now);
+
+        UserPlanStatusPopupNotice? notice = null;
+        string? onceSignature = null;
+
+        if (settings.IsBillingSuspended)
+        {
+            notice = new UserPlanStatusPopupNotice(
+                Kind: "BillingSuspended",
+                Eyebrow: "Assinatura Suspensa",
+                Title: "⛔ Conta e Vitrine Desativadas",
+                Message: string.IsNullOrWhiteSpace(settings.LastPaymentFailureMessage)
+                    ? "A cobrança mensal da sua assinatura não foi paga e o prazo de 5 dias de carência encerrou. Sua conta e sua loja foram pausadas automaticamente. Regularize no Mercado Pago ou resgate um Gift Card para reativar imediatamente."
+                    : settings.LastPaymentFailureMessage!,
+                PlanTier: tier,
+                StoreStatusLabel: "Loja desativada após 5 dias sem pagamento",
+                ExpiresAt: settings.PlanExpiresAt,
+                GraceEndsAt: settings.BillingGraceEndsAt,
+                BillingHint: "Mercado Pago • Assinatura Suspensa");
+            onceSignature = $"suspended:{tier}:{settings.PlanExpiresAt:O}";
+        }
+        else if (settings.BillingGraceEndsAt.HasValue && settings.BillingGraceEndsAt.Value > now)
+        {
+            var daysLeft = Math.Max(1, (int)Math.Ceiling((settings.BillingGraceEndsAt.Value - now).TotalDays));
+            notice = new UserPlanStatusPopupNotice(
+                Kind: "BillingGrace",
+                Eyebrow: "Carência de Pagamento (até 5 dias)",
+                Title: $"⚠️ Renovação Pendente — {daysLeft} dia(s) restante(s)",
+                Message: string.IsNullOrWhiteSpace(settings.LastPaymentFailureMessage)
+                    ? $"Não identificamos a aprovação da renovação automática no cartão. Sua loja continua funcionando por até {daysLeft} dia(s) (até {settings.BillingGraceEndsAt.Value.ToLocalTime():dd/MM/yyyy}). Após esse prazo sem pagamento, a conta será desativada automaticamente."
+                    : settings.LastPaymentFailureMessage!,
+                PlanTier: tier,
+                StoreStatusLabel: $"Loja funcionando em carência ({daysLeft}d restante(s))",
+                ExpiresAt: settings.PlanExpiresAt,
+                GraceEndsAt: settings.BillingGraceEndsAt,
+                BillingHint: "Cartão / Assinatura Mercado Pago");
+            onceSignature = $"grace:{settings.BillingGraceEndsAt.Value:yyyyMMdd}";
+        }
+        else if (triggerContext == "revoked" && isBasic)
+        {
+            notice = new UserPlanStatusPopupNotice(
+                Kind: "CourtesyRevoked",
+                Eyebrow: "Atualização de Plano",
+                Title: "ℹ️ VIP Cortesia Removido",
+                Message: "O acesso VIP Cortesia da sua conta foi removido pelo administrador da plataforma. Sua conta retornou para o Plano Básico.",
+                PlanTier: StoreDesignPresets.PlanBasic,
+                StoreStatusLabel: "Plano Básico Ativo",
+                ExpiresAt: null,
+                GraceEndsAt: null,
+                BillingHint: "Cortesia encerrada");
+            onceSignature = null;
+        }
+        else if (!isBasic && !isExpired)
+        {
+            if (isCourtesy)
+            {
+                notice = new UserPlanStatusPopupNotice(
+                    Kind: "CourtesyVip",
+                    Eyebrow: triggerContext == "redeem" ? "Gift Card Cortesia Resgatado" : "Cortesia Oficial YouLink",
+                    Title: $"🎁 VIP Cortesia ({tier}) — Loja Funcionando!",
+                    Message: $"Seu acesso VIP Cortesia no plano {tier} está ativo e sua loja online está funcionando normalmente.",
+                    PlanTier: tier,
+                    StoreStatusLabel: "Loja funcionando normalmente (Cortesia)",
+                    ExpiresAt: settings.PlanExpiresAt,
+                    GraceEndsAt: null,
+                    BillingHint: "VIP Cortesia");
+                onceSignature = $"courtesy:{tier}:{settings.PlanExpiresAt:O}";
+            }
+            else
+            {
+                notice = new UserPlanStatusPopupNotice(
+                    Kind: "PurchasedVip",
+                    Eyebrow: "Mercado Pago Confirmado",
+                    Title: $"✦ VIP Comprado ({tier}) — Loja Funcionando!",
+                    Message: string.IsNullOrWhiteSpace(orderNumber)
+                        ? $"Seu plano {tier} comprado no Mercado Pago está ativo e sua loja online está funcionando normalmente."
+                        : $"Pagamento do pedido {orderNumber} aprovado no Mercado Pago! Seu plano {tier} foi liberado e sua loja está funcionando normalmente.",
+                    PlanTier: tier,
+                    StoreStatusLabel: "Loja funcionando normalmente (Plano Pago)",
+                    ExpiresAt: settings.PlanExpiresAt,
+                    GraceEndsAt: null,
+                    BillingHint: "Mercado Pago • Pago");
+                onceSignature = $"purchased:{tier}:{settings.PlanExpiresAt:O}";
+            }
+        }
+
+        if (notice is null)
+            return;
+
+        if (!forcePopup && !string.IsNullOrWhiteSpace(onceSignature) && !_shownSessionPopupSignatures.Add(onceSignature))
+            return;
+
+        if (forcePopup && !string.IsNullOrWhiteSpace(onceSignature))
+            _shownSessionPopupSignatures.Add(onceSignature);
+
+        ActivePlanPopupNotice = notice;
+        PlanPopupNoticeChanged?.Invoke();
+    }
 }
+
+public sealed record UserPlanStatusPopupNotice(
+    string Kind,
+    string Eyebrow,
+    string Title,
+    string Message,
+    string PlanTier,
+    string? StoreStatusLabel = null,
+    DateTimeOffset? ExpiresAt = null,
+    DateTimeOffset? GraceEndsAt = null,
+    string? BillingHint = null);
