@@ -692,13 +692,33 @@ public sealed class SwitchableClothingStoreRepository : IClothingStoreRepository
 
         if (hasActiveRemoteVip &&
             (!string.Equals(settings.GetEffectivePlanTier(), remoteTier, StringComparison.OrdinalIgnoreCase) ||
-             settings.PlanExpiresAt != account.PlanExpiresAt))
+             settings.PlanExpiresAt != account.PlanExpiresAt ||
+             settings.IsBillingSuspended != account.IsBillingSuspended))
         {
             settings.UpdatePlanAndDesign(remoteTier, designConfig: settings.DesignConfig);
             settings.PlanActivatedAt ??= DateTimeOffset.UtcNow;
             settings.PlanExpiresAt = account.PlanExpiresAt;
-            if (account.IsSiteActive == true)
+            settings.ActivePlanBillingKind = account.IsCourtesyVip
+                ? PlanActivationCode.BillingKindGiftedUnpaid
+                : PlanActivationCode.BillingKindPaid;
+            settings.IsRecurringSubscription = account.IsRecurringSubscription;
+            settings.BillingGraceEndsAt = account.BillingGraceEndsAt;
+            settings.IsBillingSuspended = account.IsBillingSuspended;
+            settings.LastPaymentFailureMessage = account.BillingWarningMessage;
+            if (account.IsBillingSuspended)
+                settings.DeactivateSite(account.BillingWarningMessage ?? "Assinatura em atraso.");
+            else if (account.IsSiteActive == true)
                 settings.ActivateSite();
+            changed = true;
+        }
+        else if (account.IsBillingSuspended || account.BillingGraceEndsAt.HasValue)
+        {
+            settings.IsRecurringSubscription = account.IsRecurringSubscription;
+            settings.BillingGraceEndsAt = account.BillingGraceEndsAt;
+            settings.IsBillingSuspended = account.IsBillingSuspended;
+            settings.LastPaymentFailureMessage = account.BillingWarningMessage;
+            if (account.IsBillingSuspended)
+                settings.DeactivateSite(account.BillingWarningMessage ?? "Assinatura em atraso.");
             changed = true;
         }
 

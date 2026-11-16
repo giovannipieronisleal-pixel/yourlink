@@ -180,7 +180,13 @@ public sealed record PlatformAccountSyncDto(
     string? StoreSlug,
     string? OnlineBaseUrl,
     string PlanTier,
-    DateTimeOffset? PlanExpiresAt);
+    DateTimeOffset? PlanExpiresAt,
+    bool IsCourtesyVip = false,
+    DateTimeOffset? PlanRevokedAt = null,
+    bool IsRecurringSubscription = false,
+    DateTimeOffset? BillingGraceEndsAt = null,
+    bool IsBillingSuspended = false,
+    string? BillingWarningMessage = null);
 
 public sealed record PlatformAccountsSyncEnvelopeDto(
     string ServerVersion,
@@ -198,7 +204,8 @@ public sealed record RemoteApplyVipRequest(
     bool ActivateSite = true,
     string? StoreName = null,
     string? TargetUsername = null,
-    string? TargetEmail = null);
+    string? TargetEmail = null,
+    bool IsCourtesyVip = true);
 
 public sealed record RemoteToggleUserActiveResponse(
     Guid UserId,
@@ -234,7 +241,13 @@ public sealed record CloudAccountCredentialSyncDto(
     string? PreviousEmail = null,
     string? PlanTier = null,
     DateTimeOffset? PlanExpiresAt = null,
-    bool? IsSiteActive = null);
+    bool? IsSiteActive = null,
+    bool IsCourtesyVip = false,
+    DateTimeOffset? PlanRevokedAt = null,
+    bool IsRecurringSubscription = false,
+    DateTimeOffset? BillingGraceEndsAt = null,
+    bool IsBillingSuspended = false,
+    string? BillingWarningMessage = null);
 
 public sealed record CloudVerifyLoginResponseDto(
     bool Verified,
@@ -247,4 +260,10 @@ public sealed record CloudPlanStatusDto(
     DateTimeOffset? PlanExpiresAt,
     bool IsSiteActive,
     string? StoreName = null,
-    string? StoreSlug = null);
+    string? StoreSlug = null,
+    bool IsCourtesyVip = false,
+    DateTimeOffset? PlanRevokedAt = null,
+    bool IsRecurringSubscription = false,
+    DateTimeOffset? BillingGraceEndsAt = null,
+    bool IsBillingSuspended = false,
+    string? BillingWarningMessage = null);

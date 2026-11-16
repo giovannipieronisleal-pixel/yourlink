@@ -29,7 +29,12 @@ public sealed record PublicStoreSettingsDto(
     int MaxDeliveryDistanceKm = 0,
     int DefaultPackageWeightGrams = 450,
     string PixGatewayMode = "DirectPix",
-    bool HasMercadoPagoConnected = false);
+    bool HasMercadoPagoConnected = false,
+    string ActivePlanBillingKind = "Pago",
+    bool IsRecurringSubscription = false,
+    DateTimeOffset? BillingGraceEndsAt = null,
+    bool IsBillingSuspended = false,
+    string? LastPaymentFailureMessage = null);
 
 public sealed record CategoryDto(
     Guid Id,

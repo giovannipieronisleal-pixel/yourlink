@@ -1,0 +1,155 @@
+@using appmaui.blazor.Services
+@inject MauiAdminGateway Gateway
+@inject NavigationManager Navigation
+@implements IDisposable
+
+@if (Gateway.IsAuthenticated && Gateway.ActivePlanPopupNotice is { } notice)
+{
+    var isSuspended = string.Equals(notice.Kind, "BillingSuspended", StringComparison.OrdinalIgnoreCase);
+    var isGrace = string.Equals(notice.Kind, "BillingGrace", StringComparison.OrdinalIgnoreCase);
+    var isRevoked = string.Equals(notice.Kind, "CourtesyRevoked", StringComparison.OrdinalIgnoreCase);
+    var isPurchased = string.Equals(notice.Kind, "PurchasedVip", StringComparison.OrdinalIgnoreCase);
+
+    var badgeIcon = isSuspended ? "⛔"
+        : isGrace ? "⚠️"
+        : isRevoked ? "ℹ️"
+        : isPurchased ? "💳"
+        : "🎁";
+
+    var pillClass = isSuspended ? "pill-red"
+        : isGrace ? "pill-amber"
+        : isRevoked ? "pill-slate"
+        : "pill-green";
+
+    var iconBgStyle = isSuspended
+        ? "background: rgba(239, 68, 68, 0.14); border-color: rgba(239, 68, 68, 0.45);"
+        : isGrace
+            ? "background: rgba(245, 158, 11, 0.14); border-color: rgba(245, 158, 11, 0.45);"
+            : isRevoked
+                ? "background: rgba(148, 163, 184, 0.14); border-color: rgba(148, 163, 184, 0.35);"
+                : "background: rgba(34, 197, 94, 0.14); border-color: rgba(34, 197, 94, 0.45);";
+
+    <div class="adm-modal-overlay aum-overlay" role="dialog" aria-modal="true" aria-labelledby="plan-popup-title">
+        <div class="adm-card adm-modal-card aum-card">
+            <div class="aum-header">
+                <div class="aum-header-main">
+                    <div class="aum-icon-badge" style="@iconBgStyle" aria-hidden="true">@badgeIcon</div>
+                    <div class="aum-title-wrap">
+                        <span class="aum-eyebrow">@notice.Eyebrow</span>
+                        <h2 id="plan-popup-title" class="aum-title">@notice.Title</h2>
+                        <div class="aum-version-row" style="margin-top: 0.35rem; flex-wrap: wrap;">
+                            <span class="pill-badge @pillClass">Plano: @notice.PlanTier</span>
+                            @if (!string.IsNullOrWhiteSpace(notice.StoreStatusLabel))
+                            {
+                                <span class="pill-badge @pillClass">@notice.StoreStatusLabel</span>
+                            }
+                        </div>
+                    </div>
+                </div>
+
+                <button type="button"
+                        class="aum-close-btn"
+                        aria-label="Fechar aviso do plano"
+                        @onclick="Dismiss">
+                    ✕
+                </button>
+            </div>
+
+            <div class="aum-details-box" style="margin-top: 0.85rem;">
+                <p style="margin: 0; font-size: 0.92rem; line-height: 1.5; color: var(--adm-text-main, inherit);">
+                    @notice.Message
+                </p>
+
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 0.6rem; margin-top: 0.85rem; padding-top: 0.75rem; border-top: 1px solid rgba(148, 163, 184, 0.2);">
+                    <div>
+                        <div style="font-size: 0.72rem; opacity: 0.72; text-transform: uppercase;">Origem</div>
+                        <div style="font-size: 0.85rem; font-weight: 600;">@(notice.BillingHint ?? "Assinatura YouLink")</div>
+                    </div>
+                    @if (notice.GraceEndsAt.HasValue)
+                    {
+                        <div>
+                            <div style="font-size: 0.72rem; opacity: 0.72; text-transform: uppercase;">@(isSuspended ? "Carência encerrada em" : "Limite da carência")</div>
+                            <div style="font-size: 0.85rem; font-weight: 600;">@notice.GraceEndsAt.Value.ToLocalTime().ToString("dd/MM/yyyy HH:mm")</div>
+                        </div>
+                    }
+                    else if (notice.ExpiresAt.HasValue)
+                    {
+                        <div>
+                            <div style="font-size: 0.72rem; opacity: 0.72; text-transform: uppercase;">Validade</div>
+                            <div style="font-size: 0.85rem; font-weight: 600;">@notice.ExpiresAt.Value.ToLocalTime().ToString("dd/MM/yyyy")</div>
+                        </div>
+                    }
+                    else if (!isRevoked)
+                    {
+                        <div>
+                            <div style="font-size: 0.72rem; opacity: 0.72; text-transform: uppercase;">Validade</div>
+                            <div style="font-size: 0.85rem; font-weight: 600;">Vitalício</div>
+                        </div>
+                    }
+                </div>
+            </div>
+
+            <div style="display: flex; justify-content: flex-end; gap: 0.55rem; flex-wrap: wrap; margin-top: 1rem;">
+                @if (isSuspended || isGrace)
+                {
+                    <button type="button" class="adm-btn adm-btn-primary" @onclick="GoToPlansAndClose">
+                        💳 Regularizar no Mercado Pago
+                    </button>
+                    @if (isSuspended)
+                    {
+                        <button type="button" class="adm-btn adm-btn-outline" @onclick="LogoutAndClose">
+                            Sair da Conta
+                        </button>
+                    }
+                    <button type="button" class="adm-btn adm-btn-outline" @onclick="Dismiss">
+                        Fechar
+                    </button>
+                }
+                else
+                {
+                    <button type="button" class="adm-btn adm-btn-outline" @onclick="GoToPlansAndClose">
+                        Ver Meu Plano
+                    </button>
+                    <button type="button" class="adm-btn adm-btn-success" @onclick="Dismiss">
+                        Entendi
+                    </button>
+                }
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    protected override void OnInitialized()
+    {
+        Gateway.PlanPopupNoticeChanged += OnPopupNoticeChanged;
+    }
+
+    private void OnPopupNoticeChanged()
+    {
+        InvokeAsync(StateHasChanged);
+    }
+
+    private void Dismiss()
+    {
+        Gateway.DismissPlanPopupNotice();
+    }
+
+    private void GoToPlansAndClose()
+    {
+        Gateway.DismissPlanPopupNotice();
+        Navigation.NavigateTo("/planos");
+    }
+
+    private void LogoutAndClose()
+    {
+        Gateway.DismissPlanPopupNotice();
+        Gateway.Logout();
+        Navigation.NavigateTo("/login", replace: true);
+    }
+
+    public void Dispose()
+    {
+        Gateway.PlanPopupNoticeChanged -= OnPopupNoticeChanged;
+    }
+}

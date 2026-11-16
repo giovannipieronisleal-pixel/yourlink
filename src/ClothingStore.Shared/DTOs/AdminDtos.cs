@@ -293,7 +293,11 @@ public sealed record AdminStoreSettingsDto(
     string? MercadoPagoAccountLabel = null,
     string? MercadoPagoUserId = null,
     DateTimeOffset? MercadoPagoConnectedAt = null,
-    string? PlatformSupportWhatsapp = null);
+    string? PlatformSupportWhatsapp = null,
+    bool IsRecurringSubscription = false,
+    DateTimeOffset? BillingGraceEndsAt = null,
+    bool IsBillingSuspended = false,
+    string? LastPaymentFailureMessage = null);
 
 public sealed class CloudCatalogSyncPayload
 {

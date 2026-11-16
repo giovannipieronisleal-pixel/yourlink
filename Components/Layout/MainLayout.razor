@@ -155,17 +155,6 @@
                     </div>
                 }
 
-                @if (!string.IsNullOrWhiteSpace(_autoActivatedPlanBanner))
-                {
-                    <div class="adm-compat-banner" style="display: flex; align-items: center; justify-content: space-between; gap: 0.65rem; flex-wrap: wrap; padding: 0.65rem 1rem; background: rgba(22, 163, 74, 0.14); border-bottom: 1px solid var(--adm-success); font-size: 0.84rem;">
-                        <span>@_autoActivatedPlanBanner</span>
-                        <div style="display: flex; gap: 0.45rem; align-items: center;">
-                            <a href="/planos" class="adm-btn adm-btn-success" style="padding: 0.3rem 0.65rem; font-size: 0.78rem;">Ver Meu Plano</a>
-                            <button type="button" class="adm-btn adm-btn-outline" style="padding: 0.3rem 0.55rem; font-size: 0.76rem;" @onclick="() => _autoActivatedPlanBanner = null">Dispensar</button>
-                        </div>
-                    </div>
-                }
-
                 <main class="adm-content">
                     @Body
                 </main>
@@ -174,6 +163,7 @@
     }
 
     <appmaui.blazor.Components.Pages.UserProfileModal @bind-IsOpen="_showUserProfileModal" OnLogoutRequested="HandleLogout" />
+    <appmaui.blazor.Components.Shared.PlanStatusPopupModal />
     <appmaui.blazor.Components.Shared.AppUpdateModal />
 </div>
 
@@ -184,7 +174,6 @@
     private bool _showUserProfileModal;
     private ApiCompatibilityStatusDto? _compatibilityStatus;
     private bool _dismissedUpdateBanner;
-    private string? _autoActivatedPlanBanner;
     private CancellationTokenSource? _pendingPlanMonitorCts;
 
     private static string GetUserInitials(string? fullName)
@@ -236,12 +225,29 @@
     private async Task RunStartupBackgroundChecksAsync()
     {
         await TryDeliverPendingPlanQuietlyAsync();
+        await RefreshCloudPlanStatusQuietlyAsync();
         EnsurePendingPlanBackgroundMonitor();
         await RefreshUpdatesInBackgroundAsync();
 
         try
         {
             await CloudSync.EnsureCloudMirrorPopulatedAsync();
+        }
+        catch
+        {
+        }
+    }
+
+    private async Task RefreshCloudPlanStatusQuietlyAsync()
+    {
+        if (!Gateway.IsAuthenticated)
+            return;
+
+        try
+        {
+            var synced = await Gateway.RefreshPlanFromCentralCloudBestEffortAsync(forceRefresh: true);
+            if (synced is not null)
+                await RefreshStoreInfoAsync();
         }
         catch
         {
@@ -326,7 +332,6 @@
             if (status?.IsApproved == true)
             {
                 await RefreshStoreInfoAsync();
-                _autoActivatedPlanBanner = $"🎉 Pagamento Pix do pedido {status.OrderNumber} confirmado! Seu plano {status.PlanTier} foi ativado automaticamente.";
                 await InvokeAsync(StateHasChanged);
             }
         }
@@ -372,7 +377,6 @@
         {
             if (!Gateway.IsAuthenticated)
             {
-                _autoActivatedPlanBanner = null;
                 StopPendingPlanBackgroundMonitor();
             }
 
@@ -394,7 +398,7 @@
         _storeSlug = updated.StoreSlug;
         _onlineBaseUrl = updated.OnlineBaseUrl;
         BrandState.ApplyFromAdminSettings(updated);
-        _autoActivatedPlanBanner ??= $"🎉 Pagamento Pix confirmado! Seu plano {updated.PlanTier} foi liberado automaticamente.";
+        Gateway.EnsurePlanPopupFromSettings(updated);
         InvokeAsync(StateHasChanged);
     }
 

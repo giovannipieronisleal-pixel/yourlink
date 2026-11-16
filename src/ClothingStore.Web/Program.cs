@@ -167,7 +167,8 @@ builder.Services.AddScoped<PlatformSubscriptionService>(sp =>
     new PlatformSubscriptionService(
         sp.GetRequiredService<IClothingStoreRepository>(),
         sp.GetRequiredService<IMercadoPagoPixService>(),
-        sp.GetRequiredService<IPlatformMercadoPagoTokenStore>()));
+        sp.GetRequiredService<IPlatformMercadoPagoTokenStore>(),
+        sp.GetService<IMultiTenantStoreResolver>()));
 builder.Services.AddScoped<CatalogDataGateway>();
 builder.Services.AddScoped<PlatformPortalService>();
 builder.Services.AddScoped<StoreCartService>();
@@ -663,8 +664,9 @@ app.MapMethods("/api/public/webhooks/mercadopago/platform", ["POST", "GET"], asy
     HttpContext ctx,
     MultiTenantGatewayService gateway,
     PlatformSubscriptionService subscriptionService,
+    CloudAccountRegistryService accountRegistry,
     CancellationToken ct) =>
-    await HandlePlatformMercadoPagoWebhookAsync(ctx, gateway.MercadoPago, subscriptionService, ct)).DisableAntiforgery();
+    await HandlePlatformMercadoPagoWebhookAsync(ctx, gateway.MercadoPago, subscriptionService, accountRegistry, ct)).DisableAntiforgery();
 
 app.MapMethods("/api/public/webhooks/mercadopago/{storeSlug}", ["POST", "GET"], async (
     string storeSlug,
@@ -968,7 +970,8 @@ app.MapPost("/api/platform-sync/apply-vip", async (
         request.DurationDays,
         request.ExtendExistingDuration,
         request.ActivateSite,
-        ct);
+        ct,
+        isCourtesyVip: request.IsCourtesyVip);
 
     var targetRepo = await ResolvePlatformSyncTargetRepositoryAsync(repository, gateway, request, cloudMatch, ct);
     if (targetRepo is not null)
@@ -976,9 +979,10 @@ app.MapPost("/api/platform-sync/apply-vip", async (
         var settings = await targetRepo.GetStoreSettingsAsync(ct);
         var now = DateTimeOffset.UtcNow;
         var normalizedTier = StoreSettings.NormalizePlanTier(request.PlanTier);
+        var isBasicRemoval = string.Equals(normalizedTier, StoreSettings.PlanTierBasic, StringComparison.OrdinalIgnoreCase);
         DateTimeOffset? nextExpiry = null;
 
-        if (!string.Equals(normalizedTier, StoreSettings.PlanTierBasic, StringComparison.OrdinalIgnoreCase) &&
+        if (!isBasicRemoval &&
             request.DurationDays.HasValue && request.DurationDays.Value > 0)
         {
             var baseStart = request.ExtendExistingDuration &&
@@ -992,8 +996,21 @@ app.MapPost("/api/platform-sync/apply-vip", async (
 
         settings.UpdatePlanAndDesign(normalizedTier, designConfig: settings.DesignConfig);
         settings.PlanExpiresAt = nextExpiry;
-        if (request.ActivateSite)
-            settings.ActivateSite();
+        if (isBasicRemoval)
+        {
+            settings.ActiveGiftCardCode = null;
+            settings.ActivePlanBillingKind = PlanActivationCode.BillingKindPaid;
+            settings.IsRecurringSubscription = false;
+            settings.ClearBillingGraceAndActivate(null, now);
+        }
+        else
+        {
+            settings.ActivePlanBillingKind = request.IsCourtesyVip
+                ? PlanActivationCode.BillingKindGiftedUnpaid
+                : PlanActivationCode.BillingKindPaid;
+            if (request.ActivateSite)
+                settings.ClearBillingGraceAndActivate(null, now);
+        }
         await targetRepo.UpdateStoreSettingsAsync(settings, ct);
         await TryFlushCloudMirrorAsync(httpContext, ct);
 
@@ -1384,10 +1401,20 @@ app.MapGet("/api/cloud/plan-status", async (
         if (tenantRepo is not null && !ReferenceEquals(tenantRepo, gateway.StoreResolver.DefaultRepository))
         {
             var tenantSettings = await tenantRepo.GetStoreSettingsAsync(ct);
+            if (tenantSettings.EvaluateRecurringBillingStatus(now))
+                await tenantRepo.UpdateStoreSettingsAsync(tenantSettings, ct);
+
             var tenantTier = tenantSettings.GetEffectivePlanTier(now);
             var cloudTier = fromCloud is not null
                 ? CloudAccountRegistryService.ResolveEffectivePlan(fromCloud.PlanTier, fromCloud.PlanExpiresAt, now)
                 : StoreSettings.PlanTierBasic;
+
+            if (fromCloud?.PlanRevokedAt is { } revokedAt &&
+                (!tenantSettings.PlanActivatedAt.HasValue || revokedAt >= tenantSettings.PlanActivatedAt.Value) &&
+                string.Equals(cloudTier, StoreSettings.PlanTierBasic, StringComparison.OrdinalIgnoreCase))
+            {
+                return Results.Ok(fromCloud);
+            }
 
             if (!string.Equals(tenantTier, StoreSettings.PlanTierBasic, StringComparison.OrdinalIgnoreCase))
             {
@@ -1396,10 +1423,18 @@ app.MapGet("/api/cloud/plan-status", async (
                     PlanExpiresAt: tenantSettings.PlanExpiresAt,
                     IsSiteActive: tenantSettings.IsSiteActive,
                     StoreName: tenantSettings.StoreName,
-                    StoreSlug: tenantSettings.StoreSlug));
+                    StoreSlug: tenantSettings.StoreSlug,
+                    IsCourtesyVip: string.Equals(tenantSettings.ActivePlanBillingKind, PlanActivationCode.BillingKindGiftedUnpaid, StringComparison.OrdinalIgnoreCase),
+                    PlanRevokedAt: null,
+                    IsRecurringSubscription: tenantSettings.IsRecurringSubscription,
+                    BillingGraceEndsAt: tenantSettings.BillingGraceEndsAt,
+                    IsBillingSuspended: tenantSettings.IsBillingSuspended,
+                    BillingWarningMessage: tenantSettings.LastPaymentFailureMessage));
             }
 
-            if (!string.Equals(cloudTier, StoreSettings.PlanTierBasic, StringComparison.OrdinalIgnoreCase))
+            if (!string.Equals(cloudTier, StoreSettings.PlanTierBasic, StringComparison.OrdinalIgnoreCase) ||
+                fromCloud?.IsBillingSuspended == true ||
+                fromCloud?.BillingGraceEndsAt is not null)
             {
                 return Results.Ok(fromCloud);
             }
@@ -1409,7 +1444,13 @@ app.MapGet("/api/cloud/plan-status", async (
                 PlanExpiresAt: tenantSettings.PlanExpiresAt,
                 IsSiteActive: tenantSettings.IsSiteActive,
                 StoreName: tenantSettings.StoreName,
-                StoreSlug: tenantSettings.StoreSlug));
+                StoreSlug: tenantSettings.StoreSlug,
+                IsCourtesyVip: string.Equals(tenantSettings.ActivePlanBillingKind, PlanActivationCode.BillingKindGiftedUnpaid, StringComparison.OrdinalIgnoreCase),
+                PlanRevokedAt: null,
+                IsRecurringSubscription: tenantSettings.IsRecurringSubscription,
+                BillingGraceEndsAt: tenantSettings.BillingGraceEndsAt,
+                IsBillingSuspended: tenantSettings.IsBillingSuspended,
+                BillingWarningMessage: tenantSettings.LastPaymentFailureMessage));
         }
     }
 
@@ -1618,6 +1659,7 @@ static async Task<IResult> HandlePlatformMercadoPagoWebhookAsync(
     HttpContext ctx,
     IMercadoPagoPixService mercadoPago,
     PlatformSubscriptionService subscriptionService,
+    CloudAccountRegistryService accountRegistry,
     CancellationToken ct)
 {
     var (rawBody, queryDataId, queryTopic, xSignature, xRequestId) = await ReadWebhookEnvelopeAsync(ctx, ct);
@@ -1626,7 +1668,41 @@ static async Task<IResult> HandlePlatformMercadoPagoWebhookAsync(
     if (!mercadoPago.VerifyWebhookSignature(null, xSignature, xRequestId, queryDataId ?? dataId))
         return Results.Unauthorized();
 
-    var res = await subscriptionService.HandleMercadoPagoWebhookAsync(topic, dataId, ct);
+    var res = await subscriptionService.HandleMercadoPagoWebhookDetailedAsync(topic, dataId, ct);
+    if (res.Order is not null)
+    {
+        if (res.OrderApproved)
+        {
+            await accountRegistry.ApplyPlanAsync(
+                res.Order.BuyerEmail,
+                res.Order.BuyerUsername,
+                res.Order.StoreName,
+                res.Order.PlanTier,
+                res.Order.DurationDays,
+                extendExistingDuration: true,
+                activateSite: true,
+                ct: ct,
+                isCourtesyVip: false,
+                isRecurringSubscription: string.Equals(res.Order.PaymentMethod, PlatformSubscriptionOrder.MethodMercadoPagoSubscription, StringComparison.OrdinalIgnoreCase));
+        }
+        else if (res.IsBillingGraceOrFailure)
+        {
+            var graceNow = DateTimeOffset.UtcNow;
+            var graceAnchor = res.Order.AppliedPlanExpiresAt.HasValue && res.Order.AppliedPlanExpiresAt.Value < graceNow
+                ? res.Order.AppliedPlanExpiresAt.Value
+                : graceNow;
+            await accountRegistry.MarkRecurringPaymentFailureOrGraceAsync(
+                res.Order.BuyerEmail,
+                res.Order.BuyerUsername,
+                res.Order.StoreName,
+                graceAnchor,
+                res.Message,
+                ct);
+        }
+
+        await TryFlushCloudMirrorAsync(ctx, ct);
+    }
+
     return Results.Ok(new
     {
         received = true,
@@ -1763,6 +1839,14 @@ static async Task<PlatformAccountsSyncEnvelopeDto> BuildPlatformAccountsSyncEnve
         if (!string.IsNullOrWhiteSpace(usernameKey))
             seenUsernames.Add(usernameKey);
 
+        var isCourtesyVip = matchedTenantSettings is not null
+            ? string.Equals(matchedTenantSettings.ActivePlanBillingKind, PlanActivationCode.BillingKindGiftedUnpaid, StringComparison.OrdinalIgnoreCase)
+            : acc.IsCourtesyVip;
+        var graceEndsAt = matchedTenantSettings?.BillingGraceEndsAt ?? acc.BillingGraceEndsAt;
+        var isBillingSuspended = matchedTenantSettings?.IsBillingSuspended ?? acc.IsBillingSuspended;
+        var warningMsg = matchedTenantSettings?.LastPaymentFailureMessage ?? acc.BillingWarningMessage;
+        var isRecurring = matchedTenantSettings?.IsRecurringSubscription ?? acc.IsRecurringSubscription;
+
         accounts.Add(new PlatformAccountSyncDto(
             UserId: Guid.Empty,
             EmployeeId: Guid.Empty,
@@ -1772,7 +1856,7 @@ static async Task<PlatformAccountsSyncEnvelopeDto> BuildPlatformAccountsSyncEnve
             RoleName: RoleNames.Admin,
             JobTitle: matchedTenantSettings?.StoreName ?? acc.StoreName,
             Phone: acc.Phone ?? matchedTenantSettings?.WhatsappNumber,
-            IsActive: matchedTenantSettings?.IsSiteActive ?? true,
+            IsActive: matchedTenantSettings?.IsSiteActive ?? acc.IsSiteActive,
             TwoFactorEnabled: false,
             CreatedAt: acc.CreatedAt,
             LastLoginAt: acc.UpdatedAt,
@@ -1780,7 +1864,13 @@ static async Task<PlatformAccountsSyncEnvelopeDto> BuildPlatformAccountsSyncEnve
             StoreSlug: matchedTenantSettings?.StoreSlug ?? acc.StoreSlug,
             OnlineBaseUrl: matchedUrl,
             PlanTier: matchedTier,
-            PlanExpiresAt: matchedExpiry));
+            PlanExpiresAt: matchedExpiry,
+            IsCourtesyVip: isCourtesyVip,
+            PlanRevokedAt: acc.PlanRevokedAt,
+            IsRecurringSubscription: isRecurring,
+            BillingGraceEndsAt: graceEndsAt,
+            IsBillingSuspended: isBillingSuspended,
+            BillingWarningMessage: warningMsg));
     }
 
     // Inclui lojas publicadas cujo dono tenha publicado sem registro prévio no CloudAccountRegistry
@@ -1816,7 +1906,13 @@ static async Task<PlatformAccountsSyncEnvelopeDto> BuildPlatformAccountsSyncEnve
             StoreSlug: string.IsNullOrWhiteSpace(info.Settings.StoreSlug) ? slug : info.Settings.StoreSlug,
             OnlineBaseUrl: info.PublicUrl,
             PlanTier: info.EffectiveTier,
-            PlanExpiresAt: info.Settings.PlanExpiresAt));
+            PlanExpiresAt: info.Settings.PlanExpiresAt,
+            IsCourtesyVip: string.Equals(info.Settings.ActivePlanBillingKind, PlanActivationCode.BillingKindGiftedUnpaid, StringComparison.OrdinalIgnoreCase),
+            PlanRevokedAt: null,
+            IsRecurringSubscription: info.Settings.IsRecurringSubscription,
+            BillingGraceEndsAt: info.Settings.BillingGraceEndsAt,
+            IsBillingSuspended: info.Settings.IsBillingSuspended,
+            BillingWarningMessage: info.Settings.LastPaymentFailureMessage));
     }
 
     return new PlatformAccountsSyncEnvelopeDto(
@@ -1874,7 +1970,13 @@ static async Task AppendRepositoryAccountsAsync(
             StoreSlug: settings.StoreSlug,
             OnlineBaseUrl: publicUrl,
             PlanTier: effectiveTier,
-            PlanExpiresAt: settings.PlanExpiresAt));
+            PlanExpiresAt: settings.PlanExpiresAt,
+            IsCourtesyVip: string.Equals(settings.ActivePlanBillingKind, PlanActivationCode.BillingKindGiftedUnpaid, StringComparison.OrdinalIgnoreCase),
+            PlanRevokedAt: null,
+            IsRecurringSubscription: settings.IsRecurringSubscription,
+            BillingGraceEndsAt: settings.BillingGraceEndsAt,
+            IsBillingSuspended: settings.IsBillingSuspended,
+            BillingWarningMessage: settings.LastPaymentFailureMessage));
     }
 }
 

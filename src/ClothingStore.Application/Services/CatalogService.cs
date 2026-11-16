@@ -19,7 +19,8 @@ public sealed class CatalogService
     public async Task<PublicStoreSettingsDto> GetPublicStoreSettingsAsync(CancellationToken ct = default)
     {
         var settings = await _repository.GetStoreSettingsAsync(ct);
-        if (settings.CheckAndEnforceInactivity())
+        var changedByLifecycle = settings.CheckAndEnforceInactivity() | settings.EvaluateRecurringBillingStatus();
+        if (changedByLifecycle)
         {
             await _repository.UpdateStoreSettingsAsync(settings, ct);
         }
@@ -54,7 +55,12 @@ public sealed class CatalogService
             settings.MaxDeliveryDistanceKm,
             settings.DefaultPackageWeightGrams,
             settings.PixGatewayMode,
-            settings.HasMercadoPagoConnected);
+            settings.HasMercadoPagoConnected,
+            settings.ActivePlanBillingKind,
+            settings.IsRecurringSubscription,
+            settings.BillingGraceEndsAt,
+            settings.IsBillingSuspended,
+            settings.LastPaymentFailureMessage);
     }
 
     public async Task<IReadOnlyList<CategoryDto>> GetPublicCategoriesAsync(CancellationToken ct = default)

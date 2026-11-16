@@ -462,6 +462,81 @@ public sealed class PlatformMercadoPagoPlanBillingTests
     }
 
     [TestMethod]
+    public async Task PlatformPlanOrder_SubscriptionRenewalFailure_Starts5DayGrace_DeactivatesAfter5Days_AndReactivatesOnPayment()
+    {
+        var env = CreatePlatformBillingEnv(envToken: "APP_USR-PLATFORM-TOKEN-1");
+        try
+        {
+            var settings = await env.Repo.GetStoreSettingsAsync();
+            settings.StoreName = "Loja Cartao Debito";
+            settings.StoreSlug = "loja-cartao-debito";
+            await env.Repo.UpdateStoreSettingsAsync(settings);
+
+            var order = await env.Service.CreatePlanOrderAsync(new CreatePlatformPlanOrderRequest(
+                PlanTier: StoreSettings.PlanTierPremium,
+                DurationMonths: 1,
+                Amount: 129.90m,
+                StoreName: "Loja Cartao Debito",
+                BuyerEmail: "lojista@teste.com",
+                PaymentMethod: PlatformSubscriptionOrder.MethodMercadoPagoSubscription),
+                publicBaseOrigin: "https://youlink-loja.onrender.com");
+
+            // Ativação inicial no mês 1 (cartão aprovado)
+            env.Handler.PreapprovalStatus = "authorized";
+            env.Handler.PreapprovalTransactionAmount = 129.90m;
+            var activation = await env.Service.HandleMercadoPagoWebhookDetailedAsync("subscription_preapproval", "PREAPP-SUB-1001");
+            Assert.IsTrue(activation.Handled);
+            Assert.IsTrue(activation.OrderApproved);
+
+            var afterActivationSettings = await env.Repo.GetStoreSettingsAsync();
+            afterActivationSettings.UpdatePlanAndDesign(StoreSettings.PlanTierPremium);
+            afterActivationSettings.IsRecurringSubscription = true;
+            afterActivationSettings.ActivateSite();
+            await env.Repo.UpdateStoreSettingsAsync(afterActivationSettings);
+
+            // Mês 2: cartão sem saldo / débito vazio -> cobrança rejeitada -> inicia carência de até 5 dias
+            env.Handler.AuthorizedPaymentStatus = "rejected";
+            var failedCharge = await env.Service.HandleMercadoPagoWebhookDetailedAsync("subscription_authorized_payment", "99887766");
+            Assert.IsTrue(failedCharge.Handled);
+            Assert.IsTrue(failedCharge.IsBillingGraceOrFailure);
+            Assert.IsFalse(failedCharge.OrderApproved);
+
+            var duringGrace = await env.Repo.GetStoreSettingsAsync();
+            var now = DateTimeOffset.UtcNow;
+            Assert.IsTrue(duringGrace.IsRecurringSubscription);
+            Assert.IsTrue(duringGrace.IsInSubscriptionGrace(now), "Falha na cobrança deve abrir janela de carência de até 5 dias.");
+            Assert.IsNotNull(duringGrace.BillingGraceEndsAt);
+            Assert.IsTrue(duringGrace.BillingGraceEndsAt!.Value <= now.AddDays(StoreSettings.SubscriptionBillingGraceDays).AddMinutes(5));
+            Assert.IsTrue(duringGrace.IsSiteActive, "Durante os 5 dias de carência a loja deve permanecer ativa.");
+            Assert.IsFalse(duringGrace.IsBillingSuspended);
+
+            // Após 5 dias sem pagamento: avaliador desativa automaticamente a conta e a loja
+            var afterFiveDays = now.AddDays(StoreSettings.SubscriptionBillingGraceDays).AddHours(1);
+            var changedAfterGrace = duringGrace.EvaluateRecurringBillingStatus(afterFiveDays);
+            Assert.IsTrue(changedAfterGrace);
+            Assert.IsTrue(duringGrace.IsBillingSuspended, "Após 5 dias sem pagamento a conta deve ficar suspensa por inadimplência.");
+            Assert.IsFalse(duringGrace.IsSiteActive, "Após 5 dias sem pagamento a vitrine/loja deve ser desativada automaticamente.");
+            await env.Repo.UpdateStoreSettingsAsync(duringGrace);
+
+            // Pagamento regularizado no mês seguinte: webhook aprovado reativa conta e limpa suspensão/carência
+            env.Handler.AuthorizedPaymentStatus = "approved";
+            var recovery = await env.Service.HandleMercadoPagoWebhookDetailedAsync("subscription_authorized_payment", "99887767");
+            Assert.IsTrue(recovery.Handled);
+            Assert.IsTrue(recovery.OrderApproved);
+            Assert.IsFalse(recovery.IsBillingGraceOrFailure);
+
+            var reactivated = await env.Repo.GetStoreSettingsAsync();
+            Assert.IsFalse(reactivated.IsBillingSuspended);
+            Assert.IsNull(reactivated.BillingGraceEndsAt);
+            Assert.IsTrue(reactivated.IsSiteActive, "Novo pagamento aprovado deve reativar loja e conta automaticamente.");
+        }
+        finally
+        {
+            Directory.Delete(env.TempDir, recursive: true);
+        }
+    }
+
+    [TestMethod]
     public async Task PlatformMercadoPagoTokenStore_AndOAuth_ShouldEncryptTokens_Refresh_AndKeepTenantsIsolated()
     {
         var env = CreatePlatformBillingEnv(envToken: null);

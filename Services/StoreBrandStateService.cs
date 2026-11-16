@@ -17,6 +17,24 @@ public sealed class StoreBrandStateService
     public DateTimeOffset? PlanActivatedAt { get; private set; }
     public DateTimeOffset? PlanExpiresAt { get; private set; }
     public string? ActiveGiftCardCode { get; private set; }
+    public string ActivePlanBillingKind { get; private set; } = "Pago";
+    public bool IsCourtesyVip =>
+        HasActivePlan &&
+        !IsBasicPlan &&
+        string.Equals(ActivePlanBillingKind, "CortesiaNaoPago", StringComparison.OrdinalIgnoreCase);
+    public bool IsRecurringSubscription { get; private set; }
+    public DateTimeOffset? BillingGraceEndsAt { get; private set; }
+    public bool IsBillingSuspended { get; private set; }
+    public string? LastPaymentFailureMessage { get; private set; }
+    public bool IsSiteActive { get; private set; } = true;
+    public bool IsInSubscriptionGrace =>
+        !IsBillingSuspended &&
+        BillingGraceEndsAt.HasValue &&
+        DateTimeOffset.UtcNow < BillingGraceEndsAt.Value;
+    public int GraceDaysRemaining =>
+        IsInSubscriptionGrace && BillingGraceEndsAt.HasValue
+            ? Math.Max(1, (int)Math.Ceiling((BillingGraceEndsAt.Value - DateTimeOffset.UtcNow).TotalDays))
+            : 0;
 
     public bool IsPlanExpired => PlanCheckoutGuardHelper.IsPlanExpired(PlanExpiresAt);
 
@@ -81,6 +99,12 @@ public sealed class StoreBrandStateService
         PlanActivatedAt = settings.PlanActivatedAt;
         PlanExpiresAt = settings.PlanExpiresAt;
         ActiveGiftCardCode = settings.ActiveGiftCardCode;
+        ActivePlanBillingKind = string.IsNullOrWhiteSpace(settings.ActivePlanBillingKind) ? "Pago" : settings.ActivePlanBillingKind;
+        IsRecurringSubscription = settings.IsRecurringSubscription;
+        BillingGraceEndsAt = settings.BillingGraceEndsAt;
+        IsBillingSuspended = settings.IsBillingSuspended;
+        LastPaymentFailureMessage = settings.LastPaymentFailureMessage;
+        IsSiteActive = settings.IsSiteActive;
         CurrentPlanTier = StoreDesignPresets.NormalizePlanTier(settings.PlanTier);
         EffectiveDesign = ResolveDesignForCurrentPlan(settings.Design);
 
@@ -92,6 +116,12 @@ public sealed class StoreBrandStateService
         PlanActivatedAt = settings.PlanActivatedAt;
         PlanExpiresAt = settings.PlanExpiresAt;
         ActiveGiftCardCode = settings.ActiveGiftCardCode;
+        ActivePlanBillingKind = string.IsNullOrWhiteSpace(settings.ActivePlanBillingKind) ? "Pago" : settings.ActivePlanBillingKind;
+        IsRecurringSubscription = settings.IsRecurringSubscription;
+        BillingGraceEndsAt = settings.BillingGraceEndsAt;
+        IsBillingSuspended = settings.IsBillingSuspended;
+        LastPaymentFailureMessage = settings.LastPaymentFailureMessage;
+        IsSiteActive = settings.IsSiteActive;
         CurrentPlanTier = StoreDesignPresets.NormalizePlanTier(settings.PlanTier);
         EffectiveDesign = ResolveDesignForCurrentPlan(settings.Design);
 

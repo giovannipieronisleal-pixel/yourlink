@@ -18,15 +18,18 @@ public sealed class PlatformSubscriptionService
     private readonly IClothingStoreRepository _repository;
     private readonly IMercadoPagoPixService? _mercadoPago;
     private readonly IPlatformMercadoPagoTokenStore? _platformTokenStore;
+    private readonly IMultiTenantStoreResolver? _storeResolver;
 
     public PlatformSubscriptionService(
         IClothingStoreRepository repository,
         IMercadoPagoPixService? mercadoPago = null,
-        IPlatformMercadoPagoTokenStore? platformTokenStore = null)
+        IPlatformMercadoPagoTokenStore? platformTokenStore = null,
+        IMultiTenantStoreResolver? storeResolver = null)
     {
         _repository = repository;
         _mercadoPago = mercadoPago;
         _platformTokenStore = platformTokenStore;
+        _storeResolver = storeResolver;
     }
 
     public Task<PlatformSubscriptionOrderDto> CreatePlanOrderAsync(
@@ -233,17 +236,33 @@ public sealed class PlatformSubscriptionService
         return MapToDto(order, $"Pagamento confirmado! Plano {order.PlanTier} liberado automaticamente para '{order.StoreName}'.");
     }
 
+    public sealed record WebhookLifecycleOutcome(
+        bool Handled,
+        bool OrderApproved,
+        bool IsBillingGraceOrFailure,
+        PlatformSubscriptionOrderDto? Order,
+        string Message);
+
     public async Task<(bool Handled, bool OrderApproved, string Message)> HandleMercadoPagoWebhookAsync(
         string? topic,
         string? dataId,
         CancellationToken ct = default)
     {
+        var detailed = await HandleMercadoPagoWebhookDetailedAsync(topic, dataId, ct);
+        return (detailed.Handled, detailed.OrderApproved, detailed.Message);
+    }
+
+    public async Task<WebhookLifecycleOutcome> HandleMercadoPagoWebhookDetailedAsync(
+        string? topic,
+        string? dataId,
+        CancellationToken ct = default)
+    {
         if (string.IsNullOrWhiteSpace(dataId) || _mercadoPago is null || _platformTokenStore is null)
-            return (false, false, "Notificação ignorada.");
+            return new(false, false, false, null, "Notificação ignorada.");
 
         var accessToken = await _platformTokenStore.GetValidAccessTokenAsync(_mercadoPago, ct);
         if (string.IsNullOrWhiteSpace(accessToken))
-            return (false, false, "Conta Mercado Pago da plataforma não configurada.");
+            return new(false, false, false, null, "Conta Mercado Pago da plataforma não configurada.");
 
         var normalizedTopic = (topic ?? string.Empty).Trim().ToLowerInvariant();
         var cleanId = dataId.Trim();
@@ -253,7 +272,7 @@ public sealed class PlatformSubscriptionService
         {
             var authPay = await _mercadoPago.GetAuthorizedPaymentAsync(accessToken, cleanId, ct);
             if (authPay is null)
-                return (false, false, "Cobrança recorrente não encontrada no Mercado Pago.");
+                return new(false, false, false, null, "Cobrança recorrente não encontrada no Mercado Pago.");
 
             var order = await FindOrderForWebhookAsync(authPay.ExternalReference, null, authPay.PreapprovalId, ct);
             if (order is null && !string.IsNullOrWhiteSpace(authPay.PreapprovalId))
@@ -263,28 +282,45 @@ public sealed class PlatformSubscriptionService
             }
 
             if (order is null)
-                return (false, false, "Pedido de assinatura não localizado.");
+                return new(false, false, false, null, "Pedido de assinatura não localizado.");
 
             order.MercadoPagoStatus = authPay.Status;
             if (!authPay.IsApproved)
             {
                 await _repository.SavePlatformSubscriptionOrderAsync(order, ct);
-                return (true, false, $"Assinatura em status '{authPay.Status}'.");
+                var isRenewalFailure = string.Equals(order.Status, PlatformSubscriptionOrder.StatusPaid, StringComparison.OrdinalIgnoreCase) ||
+                                       !string.IsNullOrWhiteSpace(order.MercadoPagoPreapprovalId);
+                var failureMsg = $"Cobrança recorrente não aprovada ({authPay.Status ?? "recusada"}). Regularize o cartão/pagamento em até {StoreSettings.SubscriptionBillingGraceDays} dias para evitar desativação da conta e loja.";
+                if (isRenewalFailure)
+                {
+                    var now = DateTimeOffset.UtcNow;
+                    var failureAnchor = order.AppliedPlanExpiresAt.HasValue && order.AppliedPlanExpiresAt.Value < now
+                        ? order.AppliedPlanExpiresAt.Value
+                        : now;
+                    await ApplySubscriptionGraceToStoreAsync(order, failureAnchor, failureMsg, ct);
+                }
+
+                return new(true, false, isRenewalFailure, MapToDto(order, failureMsg), $"Assinatura em status '{authPay.Status}'.");
             }
 
             if (string.Equals(order.Status, PlatformSubscriptionOrder.StatusPaid, StringComparison.OrdinalIgnoreCase))
             {
-                // Renovação mensal automática: estende a validade a partir do vencimento atual.
-                var baseDate = order.AppliedPlanExpiresAt.HasValue && order.AppliedPlanExpiresAt.Value > DateTimeOffset.UtcNow
+                // Renovação mensal automática: estende a validade a partir do vencimento atual e reativa conta/vitrine.
+                var now = DateTimeOffset.UtcNow;
+                var baseDate = order.AppliedPlanExpiresAt.HasValue && order.AppliedPlanExpiresAt.Value > now
                     ? order.AppliedPlanExpiresAt.Value
-                    : DateTimeOffset.UtcNow;
-                order.AppliedPlanExpiresAt = baseDate.AddDays(Math.Max(1, order.DurationDays));
+                    : now;
+                var nextExpiry = baseDate.AddDays(Math.Max(1, order.DurationDays));
+                order.AppliedPlanExpiresAt = nextExpiry;
                 await _repository.SavePlatformSubscriptionOrderAsync(order, ct);
-                return (true, true, $"Renovação automática da assinatura {order.OrderNumber} confirmada.");
+                await SyncTargetStorePlanSettingsAsync(order, nextExpiry, order.IssuedGiftCardCode, now, null, ct);
+                var msg = $"Renovação automática da assinatura {order.OrderNumber} confirmada.";
+                return new(true, true, false, MapToDto(order, msg), msg);
             }
 
             await ApproveOrderInternalAsync(order, "Mercado Pago Assinatura", null, DateTimeOffset.UtcNow, ct);
-            return (true, true, $"Assinatura {order.OrderNumber} aprovada automaticamente.");
+            var approvedMsg = $"Assinatura {order.OrderNumber} aprovada automaticamente.";
+            return new(true, true, false, MapToDto(order, approvedMsg), approvedMsg);
         }
 
         if (normalizedTopic.Contains("subscription_preapproval", StringComparison.Ordinal) ||
@@ -292,11 +328,11 @@ public sealed class PlatformSubscriptionService
         {
             var pre = await _mercadoPago.GetPreapprovalStatusAsync(accessToken, cleanId, ct);
             if (pre is null)
-                return (false, false, "Assinatura não encontrada no Mercado Pago.");
+                return new(false, false, false, null, "Assinatura não encontrada no Mercado Pago.");
 
             var order = await FindOrderForWebhookAsync(pre.ExternalReference, null, pre.PreapprovalId, ct);
             if (order is null)
-                return (false, false, "Pedido de assinatura não localizado.");
+                return new(false, false, false, null, "Pedido de assinatura não localizado.");
 
             order.MercadoPagoPreapprovalId ??= pre.PreapprovalId;
             order.MercadoPagoStatus = pre.Status;
@@ -304,29 +340,47 @@ public sealed class PlatformSubscriptionService
             if (!pre.IsAuthorized)
             {
                 await _repository.SavePlatformSubscriptionOrderAsync(order, ct);
-                return (true, false, $"Assinatura '{pre.Status}' registrada.");
+                var statusLower = (pre.Status ?? string.Empty).Trim().ToLowerInvariant();
+                var pausedOrCancelledAfterPaid =
+                    string.Equals(order.Status, PlatformSubscriptionOrder.StatusPaid, StringComparison.OrdinalIgnoreCase) &&
+                    (statusLower is "paused" or "cancelled" or "canceled");
+                var msg = pausedOrCancelledAfterPaid
+                    ? $"Assinatura '{pre.Status}' no Mercado Pago. Tolerância de até {StoreSettings.SubscriptionBillingGraceDays} dias após o vencimento antes da desativação."
+                    : $"Assinatura '{pre.Status}' registrada.";
+
+                if (pausedOrCancelledAfterPaid)
+                {
+                    var now = DateTimeOffset.UtcNow;
+                    var failureAnchor = order.AppliedPlanExpiresAt.HasValue && order.AppliedPlanExpiresAt.Value < now
+                        ? order.AppliedPlanExpiresAt.Value
+                        : now;
+                    await ApplySubscriptionGraceToStoreAsync(order, failureAnchor, msg, ct);
+                }
+
+                return new(true, false, pausedOrCancelledAfterPaid, MapToDto(order, msg), msg);
             }
 
             var minMonthly = Math.Round(order.Amount / Math.Max(1, order.DurationMonths), 2, MidpointRounding.AwayFromZero);
             if (pre.TransactionAmount.HasValue && pre.TransactionAmount.Value + 0.01m < minMonthly)
             {
                 await _repository.SavePlatformSubscriptionOrderAsync(order, ct);
-                return (false, false, "Valor divergente na assinatura Mercado Pago.");
+                return new(false, false, false, MapToDto(order, "Valor divergente na assinatura Mercado Pago."), "Valor divergente na assinatura Mercado Pago.");
             }
 
             await ApproveOrderInternalAsync(order, "Mercado Pago Assinatura Automática", null, DateTimeOffset.UtcNow, ct);
-            return (true, true, $"Assinatura {order.OrderNumber} ativada automaticamente.");
+            var subMsg = $"Assinatura {order.OrderNumber} ativada automaticamente.";
+            return new(true, true, false, MapToDto(order, subMsg), subMsg);
         }
 
         if (normalizedTopic.Contains("payment", StringComparison.Ordinal) || string.IsNullOrWhiteSpace(normalizedTopic))
         {
             var payment = await _mercadoPago.GetPaymentStatusAsync(accessToken, cleanId, ct);
             if (payment is null)
-                return (false, false, "Pagamento não encontrado no Mercado Pago.");
+                return new(false, false, false, null, "Pagamento não encontrado no Mercado Pago.");
 
             var order = await FindOrderForWebhookAsync(payment.ExternalReference, payment.ProviderPaymentId, null, ct);
             if (order is null)
-                return (false, false, "Pedido de plano correspondente não encontrado.");
+                return new(false, false, false, null, "Pedido de plano correspondente não encontrado.");
 
             order.MercadoPagoPaymentId ??= payment.ProviderPaymentId;
             order.MercadoPagoStatus = payment.Status;
@@ -334,14 +388,15 @@ public sealed class PlatformSubscriptionService
             if (!payment.IsApproved || payment.TransactionAmount + 0.01m < order.Amount)
             {
                 await _repository.SavePlatformSubscriptionOrderAsync(order, ct);
-                return (true, false, $"Pagamento '{payment.Status}' registrado para {order.OrderNumber}.");
+                return new(true, false, false, MapToDto(order, $"Pagamento '{payment.Status}' registrado."), $"Pagamento '{payment.Status}' registrado para {order.OrderNumber}.");
             }
 
             await ApproveOrderInternalAsync(order, "Mercado Pago Automático", null, payment.DateApproved ?? DateTimeOffset.UtcNow, ct);
-            return (true, true, $"Pagamento {order.OrderNumber} aprovado automaticamente via Mercado Pago.");
+            var okMsg = $"Pagamento {order.OrderNumber} aprovado automaticamente via Mercado Pago.";
+            return new(true, true, false, MapToDto(order, okMsg), okMsg);
         }
 
-        return (false, false, "Tópico não tratado.");
+        return new(false, false, false, null, "Tópico não tratado.");
     }
 
     private async Task<string> InitializeMercadoPagoOrderAsync(
@@ -579,36 +634,86 @@ public sealed class PlatformSubscriptionService
         order.Approve(auditCode.Code, expiresAt, adminName, now);
         await _repository.SavePlatformSubscriptionOrderAsync(order, ct);
 
-        var settings = await _repository.GetStoreSettingsAsync(ct);
-        if (string.IsNullOrWhiteSpace(order.StoreName) ||
-            string.Equals(settings.StoreName, order.StoreName, StringComparison.OrdinalIgnoreCase))
+        await SyncTargetStorePlanSettingsAsync(order, expiresAt, auditCode.Code, now, adminEmployeeId, ct);
+    }
+
+    private async Task<IClothingStoreRepository?> ResolveTargetStoreRepositoryForOrderAsync(
+        PlatformSubscriptionOrder order,
+        CancellationToken ct)
+    {
+        if (_storeResolver is not null && !string.IsNullOrWhiteSpace(order.StoreSlug))
         {
-            settings.UpdatePlanAndDesign(order.PlanTier);
-            settings.PlanActivatedAt = now;
-            settings.PlanExpiresAt = expiresAt;
-            settings.ActivePlanBillingKind = PlanActivationCode.BillingKindPaid;
-            settings.ActiveGiftCardCode = auditCode.Code;
-            if (order.UseOwnDedicatedServer)
-            {
-                settings.ServerHostingMode = "DedicatedOwnServer";
-            }
-
-            if (!string.IsNullOrWhiteSpace(order.DesiredDomain) &&
-                (order.DesiredDomain.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
-                 order.DesiredDomain.StartsWith("https://", StringComparison.OrdinalIgnoreCase)))
-            {
-                try
-                {
-                    settings.ConfigureDomainChoice(null, order.DesiredDomain, order.BuyerUserId ?? adminEmployeeId);
-                }
-                catch
-                {
-                }
-            }
-
-            settings.ActivateSite(adminEmployeeId);
-            await _repository.UpdateStoreSettingsAsync(settings, ct);
+            var tenantRepo = await _storeResolver.ResolveReadRepositoryAsync(order.StoreSlug, ct);
+            if (tenantRepo is not null)
+                return tenantRepo;
         }
+
+        var rootSettings = await _repository.GetStoreSettingsAsync(ct);
+        if (string.IsNullOrWhiteSpace(order.StoreName) ||
+            string.Equals(rootSettings.StoreName, order.StoreName, StringComparison.OrdinalIgnoreCase))
+        {
+            return _repository;
+        }
+
+        return null;
+    }
+
+    private async Task SyncTargetStorePlanSettingsAsync(
+        PlatformSubscriptionOrder order,
+        DateTimeOffset expiresAt,
+        string? auditCode,
+        DateTimeOffset now,
+        Guid? adminEmployeeId,
+        CancellationToken ct)
+    {
+        var targetRepo = await ResolveTargetStoreRepositoryForOrderAsync(order, ct);
+        if (targetRepo is null)
+            return;
+
+        var settings = await targetRepo.GetStoreSettingsAsync(ct);
+        settings.UpdatePlanAndDesign(order.PlanTier);
+        settings.PlanActivatedAt ??= now;
+        settings.PlanExpiresAt = expiresAt;
+        settings.ActivePlanBillingKind = PlanActivationCode.BillingKindPaid;
+        if (!string.IsNullOrWhiteSpace(auditCode))
+            settings.ActiveGiftCardCode = auditCode;
+        settings.IsRecurringSubscription = string.Equals(
+            order.PaymentMethod,
+            PlatformSubscriptionOrder.MethodMercadoPagoSubscription,
+            StringComparison.OrdinalIgnoreCase);
+        if (order.UseOwnDedicatedServer)
+            settings.ServerHostingMode = "DedicatedOwnServer";
+
+        if (!string.IsNullOrWhiteSpace(order.DesiredDomain) &&
+            (order.DesiredDomain.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
+             order.DesiredDomain.StartsWith("https://", StringComparison.OrdinalIgnoreCase)))
+        {
+            try
+            {
+                settings.ConfigureDomainChoice(null, order.DesiredDomain, order.BuyerUserId ?? adminEmployeeId);
+            }
+            catch
+            {
+            }
+        }
+
+        settings.ClearBillingGraceAndActivate(adminEmployeeId, now);
+        await targetRepo.UpdateStoreSettingsAsync(settings, ct);
+    }
+
+    private async Task ApplySubscriptionGraceToStoreAsync(
+        PlatformSubscriptionOrder order,
+        DateTimeOffset dueAt,
+        string failureMessage,
+        CancellationToken ct)
+    {
+        var targetRepo = await ResolveTargetStoreRepositoryForOrderAsync(order, ct);
+        if (targetRepo is null)
+            return;
+
+        var settings = await targetRepo.GetStoreSettingsAsync(ct);
+        settings.StartOrRefreshSubscriptionGrace(dueAt, failureMessage, DateTimeOffset.UtcNow);
+        await targetRepo.UpdateStoreSettingsAsync(settings, ct);
     }
 
     private static string ResolveEffectivePublicOrigin(string? publicBaseOrigin, string? fallbackCatalogUrl)
