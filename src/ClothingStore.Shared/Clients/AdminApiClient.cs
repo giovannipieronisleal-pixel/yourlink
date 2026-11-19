@@ -289,6 +289,17 @@ public sealed class AdminApiClient
         return (await response.Content.ReadFromJsonAsync<AdminStoreSettingsDto>(cancellationToken: ct))!;
     }
 
+    public Task<RemoteVerifyClientVipResult> VerifyRemoteClientVipAsync(
+        RemoteVerifyClientVipRequest request,
+        string? syncSecret = null,
+        CancellationToken ct = default) =>
+        SendSyncRequestAsync<RemoteVerifyClientVipResult>(
+            HttpMethod.Post,
+            "/api/platform-sync/verify-client-vip",
+            syncSecret,
+            CreateBufferedJsonContent(request),
+            ct);
+
     public async Task<RemoteToggleUserActiveResponse> ToggleRemoteUserActiveAsync(
         Guid userId,
         string? syncSecret = null,

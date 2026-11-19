@@ -1184,13 +1184,19 @@ public sealed class EmployeeAndSettingsService
         if (alreadySynced)
             return (false, MapToAdminSettingsDto(settings));
 
-        settings.UpdatePlanAndDesign(remoteTier, designConfig: settings.DesignConfig, employeeId: employeeId);
-        settings.PlanActivatedAt ??= now;
+        settings.PlanActivatedAt = now;
         settings.PlanExpiresAt = remotePlan.PlanExpiresAt;
         settings.ActivePlanBillingKind = expectedBillingKind;
         settings.IsRecurringSubscription = remotePlan.IsRecurringSubscription;
         if (remotePlan.IsSiteActive)
             settings.ClearBillingGraceAndActivate(employeeId, now);
+        else
+        {
+            settings.BillingGraceEndsAt = null;
+            settings.IsBillingSuspended = false;
+            settings.LastPaymentFailureMessage = null;
+        }
+        settings.UpdatePlanAndDesign(remoteTier, designConfig: settings.DesignConfig, employeeId: employeeId);
 
         await _repository.UpdateStoreSettingsAsync(settings, ct);
         return (true, MapToAdminSettingsDto(settings));

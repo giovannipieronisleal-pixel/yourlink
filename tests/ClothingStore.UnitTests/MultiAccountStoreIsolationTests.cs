@@ -820,7 +820,10 @@ public class MultiAccountStoreIsolationTests
             var webProgram = File.ReadAllText(Path.Combine(root, "src", "ClothingStore.Web", "Program.cs"));
             Assert.IsTrue(webProgram.Contains("/api/cloud/plan-status", StringComparison.Ordinal));
             Assert.IsTrue(webProgram.Contains("ApplyGrantedCloudAccountVipToPublishedTenantAsync", StringComparison.Ordinal));
-            Assert.IsTrue(webProgram.Contains("hasExplicitNonRootTarget", StringComparison.Ordinal));
+            var syncHelper = File.ReadAllText(Path.Combine(root, "src", "ClothingStore.Infrastructure", "Persistence", "CloudPlatformPlanSyncHelper.cs"));
+            Assert.IsTrue(
+                webProgram.Contains("hasExplicitNonRootTarget", StringComparison.Ordinal) ||
+                syncHelper.Contains("hasExplicitNonRootTarget", StringComparison.Ordinal));
 
             var adminGatewayPath = Path.Combine(root, "src", "ClothingStore.AdminApp", "Services", "PlatformAdminGateway.cs");
             if (File.Exists(adminGatewayPath))

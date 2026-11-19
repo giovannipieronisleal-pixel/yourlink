@@ -78,11 +78,24 @@ public sealed class CloudAccountRegistryService
             existing ??= _state.Accounts.FirstOrDefault(a =>
                 string.Equals(NormalizeIdentifier(a.Email), email, StringComparison.OrdinalIgnoreCase));
 
+            existing ??= _state.Accounts.FirstOrDefault(a =>
+                string.IsNullOrWhiteSpace(a.PasswordHash) &&
+                ((!string.IsNullOrWhiteSpace(username) &&
+                  string.Equals(NormalizeIdentifier(a.Username), username, StringComparison.OrdinalIgnoreCase) &&
+                  (string.IsNullOrWhiteSpace(a.Email) || string.Equals(NormalizeIdentifier(a.Email), email, StringComparison.OrdinalIgnoreCase))) ||
+                 (string.IsNullOrWhiteSpace(a.Email) &&
+                  string.IsNullOrWhiteSpace(a.Username) &&
+                  !string.IsNullOrWhiteSpace(dto.StoreName) &&
+                  !IsGenericStoreIdentifier(dto.StoreName) &&
+                  string.Equals(a.StoreName?.Trim(), dto.StoreName.Trim(), StringComparison.OrdinalIgnoreCase))));
+
             var usernameConflict = _state.Accounts.FirstOrDefault(a =>
                 !ReferenceEquals(a, existing) &&
                 !string.IsNullOrWhiteSpace(username) &&
                 string.Equals(NormalizeIdentifier(a.Username), username, StringComparison.OrdinalIgnoreCase) &&
-                !string.Equals(NormalizeIdentifier(a.Email), email, StringComparison.OrdinalIgnoreCase));
+                !string.IsNullOrWhiteSpace(a.Email) &&
+                !string.Equals(NormalizeIdentifier(a.Email), email, StringComparison.OrdinalIgnoreCase) &&
+                !string.IsNullOrWhiteSpace(a.PasswordHash));
 
             if (usernameConflict is not null)
             {
@@ -94,11 +107,14 @@ public sealed class CloudAccountRegistryService
 
             if (existing is not null)
             {
-                var hashMatchesCurrent = string.Equals(existing.PasswordHash, passwordHash, StringComparison.Ordinal);
-                var hashMatchesPrevious = !string.IsNullOrWhiteSpace(prevHash) &&
+                var isClaimingUnregisteredEntitlement = string.IsNullOrWhiteSpace(existing.PasswordHash);
+                var hashMatchesCurrent = !isClaimingUnregisteredEntitlement &&
+                                         string.Equals(existing.PasswordHash, passwordHash, StringComparison.Ordinal);
+                var hashMatchesPrevious = !isClaimingUnregisteredEntitlement &&
+                                          !string.IsNullOrWhiteSpace(prevHash) &&
                                           string.Equals(existing.PasswordHash, prevHash, StringComparison.Ordinal);
 
-                if (!hasValidSyncKey && !hashMatchesCurrent && !hashMatchesPrevious)
+                if (!hasValidSyncKey && !isClaimingUnregisteredEntitlement && !hashMatchesCurrent && !hashMatchesPrevious)
                 {
                     return new CloudAccountUpsertResult(
                         Success: false,
@@ -111,8 +127,8 @@ public sealed class CloudAccountRegistryService
                 existing.FullName = fullName;
                 existing.PasswordHash = passwordHash;
                 existing.Phone = TrimOrNull(dto.Phone) ?? existing.Phone;
-                existing.StoreName = TrimOrNull(dto.StoreName) ?? existing.StoreName;
-                existing.StoreSlug = TrimOrNull(dto.StoreSlug) ?? existing.StoreSlug;
+                existing.StoreName = (!IsGenericStoreIdentifier(dto.StoreName) ? TrimOrNull(dto.StoreName) : null) ?? existing.StoreName;
+                existing.StoreSlug = (!IsGenericStoreIdentifier(dto.StoreSlug) ? TrimOrNull(dto.StoreSlug) : null) ?? existing.StoreSlug;
                 if (hasValidSyncKey && !string.IsNullOrWhiteSpace(dto.PlanTier))
                 {
                     existing.PlanTier = StoreSettings.NormalizePlanTier(dto.PlanTier);
@@ -184,7 +200,7 @@ public sealed class CloudAccountRegistryService
                 string.Equals(NormalizeIdentifier(a.Email), normalized, StringComparison.OrdinalIgnoreCase) ||
                 string.Equals(NormalizeIdentifier(a.Username), normalized, StringComparison.OrdinalIgnoreCase));
 
-            if (match is null)
+            if (match is null || string.IsNullOrWhiteSpace(match.PasswordHash))
             {
                 return new CloudVerifyLoginResponseDto(
                     Verified: false,
@@ -290,7 +306,7 @@ public sealed class CloudAccountRegistryService
         }
     }
 
-    public async Task<CloudAccountSummary?> ApplyPlanAsync(
+    public Task<CloudAccountSummary?> ApplyPlanAsync(
         string? targetEmail,
         string? targetUsername,
         string? storeName,
@@ -300,7 +316,68 @@ public sealed class CloudAccountRegistryService
         bool activateSite,
         CancellationToken ct = default,
         bool isCourtesyVip = false,
-        bool isRecurringSubscription = false)
+        bool isRecurringSubscription = false) =>
+        ApplyPlanCoreAsync(
+            targetEmail,
+            targetUsername,
+            storeName,
+            storeSlug: null,
+            planTier,
+            durationDays,
+            explicitExpiresAt: null,
+            extendExistingDuration,
+            activateSite,
+            createIfMissing: false,
+            isCourtesyVip,
+            isRecurringSubscription,
+            ct);
+
+    /// <summary>
+    /// Aplica o plano VIP em uma conta existente na nuvem ou cria um registro de direito VIP pré-provisionado
+    /// quando acionado por requisição administrativa autenticada (X-YouLink-Sync-Key).
+    /// </summary>
+    public Task<CloudAccountSummary?> ApplyOrCreatePlanEntitlementAsync(
+        string? targetEmail,
+        string? targetUsername,
+        string? storeName,
+        string? storeSlug,
+        string planTier,
+        int? durationDays,
+        bool extendExistingDuration,
+        bool activateSite,
+        CancellationToken ct = default,
+        bool isCourtesyVip = false,
+        bool isRecurringSubscription = false,
+        DateTimeOffset? explicitExpiresAt = null) =>
+        ApplyPlanCoreAsync(
+            targetEmail,
+            targetUsername,
+            storeName,
+            storeSlug,
+            planTier,
+            durationDays,
+            explicitExpiresAt,
+            extendExistingDuration,
+            activateSite,
+            createIfMissing: true,
+            isCourtesyVip,
+            isRecurringSubscription,
+            ct);
+
+    private async Task<CloudAccountSummary?> ApplyPlanCoreAsync(
+        string? targetEmail,
+        string? targetUsername,
+        string? storeName,
+        string? storeSlug,
+        string planTier,
+        int? durationDays,
+        DateTimeOffset? explicitExpiresAt,
+        bool extendExistingDuration,
+        bool activateSite,
+        bool createIfMissing,
+        bool isCourtesyVip,
+        bool isRecurringSubscription,
+        CancellationToken ct)
     {
         var normalizedTier = StoreSettings.NormalizePlanTier(planTier);
 
@@ -308,9 +385,40 @@ public sealed class CloudAccountRegistryService
         try
         {
             RefreshFromDiskIfModifiedUnsafe();
-            var match = FindMatchingEntryUnsafe(targetEmail, targetUsername, storeName, storeSlug: null);
+            var match = FindMatchingEntryUnsafe(targetEmail, targetUsername, storeName, storeSlug);
             if (match is null)
-                return null;
+            {
+                if (!createIfMissing)
+                    return null;
+
+                var cleanEmail = NormalizeIdentifier(targetEmail);
+                var cleanUsername = NormalizeIdentifier(targetUsername);
+                if (cleanUsername == "-")
+                    cleanUsername = null;
+                var cleanStoreName = !IsGenericStoreIdentifier(storeName) ? TrimOrNull(storeName) : null;
+                var cleanStoreSlug = !IsGenericStoreIdentifier(storeSlug) ? TrimOrNull(storeSlug) : null;
+
+                if (string.IsNullOrWhiteSpace(cleanEmail) &&
+                    string.IsNullOrWhiteSpace(cleanUsername) &&
+                    string.IsNullOrWhiteSpace(cleanStoreName) &&
+                    string.IsNullOrWhiteSpace(cleanStoreSlug))
+                {
+                    return null;
+                }
+
+                match = new CloudAccountEntry
+                {
+                    Email = cleanEmail ?? string.Empty,
+                    Username = cleanUsername ?? (!string.IsNullOrWhiteSpace(cleanEmail) ? User.DeriveDefaultUsername(cleanEmail) : string.Empty),
+                    FullName = cleanStoreName ?? cleanUsername ?? cleanEmail ?? "Cliente YouLink",
+                    PasswordHash = string.Empty,
+                    StoreName = cleanStoreName,
+                    StoreSlug = cleanStoreSlug ?? (!string.IsNullOrWhiteSpace(cleanStoreName) ? Category.GenerateSlug(cleanStoreName) : null),
+                    CreatedAt = DateTimeOffset.UtcNow,
+                    UpdatedAt = DateTimeOffset.UtcNow
+                };
+                _state.Accounts.Add(match);
+            }
 
             var now = DateTimeOffset.UtcNow;
             var isBasicRemoval = string.Equals(normalizedTier, StoreSettings.PlanTierBasic, StringComparison.OrdinalIgnoreCase);
@@ -330,8 +438,8 @@ public sealed class CloudAccountRegistryService
             }
             else
             {
-                DateTimeOffset? nextExpiry = null;
-                if (durationDays.HasValue && durationDays.Value > 0)
+                DateTimeOffset? nextExpiry = explicitExpiresAt;
+                if (!nextExpiry.HasValue && durationDays.HasValue && durationDays.Value > 0)
                 {
                     var baseStart = extendExistingDuration &&
                                     string.Equals(match.PlanTier, normalizedTier, StringComparison.OrdinalIgnoreCase) &&
@@ -356,8 +464,15 @@ public sealed class CloudAccountRegistryService
                     match.IsSiteActive = true;
             }
 
-            if (!string.IsNullOrWhiteSpace(storeName) && string.IsNullOrWhiteSpace(match.StoreName))
-                match.StoreName = storeName.Trim();
+            if (!string.IsNullOrWhiteSpace(targetEmail) && string.IsNullOrWhiteSpace(match.Email))
+                match.Email = NormalizeIdentifier(targetEmail) ?? string.Empty;
+            if (!string.IsNullOrWhiteSpace(targetUsername) && targetUsername.Trim() != "-" && string.IsNullOrWhiteSpace(match.Username))
+                match.Username = NormalizeIdentifier(targetUsername) ?? string.Empty;
+            if (!IsGenericStoreIdentifier(storeName) && (string.IsNullOrWhiteSpace(match.StoreName) || IsGenericStoreIdentifier(match.StoreName)))
+                match.StoreName = storeName!.Trim();
+            if (!IsGenericStoreIdentifier(storeSlug) && (string.IsNullOrWhiteSpace(match.StoreSlug) || IsGenericStoreIdentifier(match.StoreSlug)))
+                match.StoreSlug = storeSlug!.Trim();
+
             match.PlanUpdatedAt = now;
             match.UpdatedAt = now;
 
@@ -416,6 +531,17 @@ public sealed class CloudAccountRegistryService
         string? storeName = null,
         CancellationToken ct = default)
     {
+        var meta = await GetPlanStatusWithAccountAsync(email, username, storeSlug, storeName, ct);
+        return meta?.Status;
+    }
+
+    public async Task<(CloudPlanStatusDto Status, CloudAccountSummary Account)?> GetPlanStatusWithAccountAsync(
+        string? email,
+        string? username,
+        string? storeSlug,
+        string? storeName = null,
+        CancellationToken ct = default)
+    {
         await _lock.WaitAsync(ct);
         try
         {
@@ -429,7 +555,7 @@ public sealed class CloudAccountRegistryService
                 SaveToDiskUnsafe();
 
             var effectiveTier = ResolveEffectivePlan(match.PlanTier, match.PlanExpiresAt, now);
-            return new CloudPlanStatusDto(
+            var dto = new CloudPlanStatusDto(
                 PlanTier: effectiveTier,
                 PlanExpiresAt: effectiveTier == StoreSettings.PlanTierBasic ? null : match.PlanExpiresAt,
                 IsSiteActive: match.IsSiteActive ?? true,
@@ -441,6 +567,48 @@ public sealed class CloudAccountRegistryService
                 BillingGraceEndsAt: match.BillingGraceEndsAt,
                 IsBillingSuspended: match.IsBillingSuspended,
                 BillingWarningMessage: match.BillingWarningMessage);
+
+            return (dto, MapToSummary(match));
+        }
+        finally
+        {
+            _lock.Release();
+        }
+    }
+
+    public async Task<bool> RecordClientCheckInAsync(
+        string? email,
+        string? username,
+        string? storeSlug,
+        string? storeName,
+        string? clientPlanTier,
+        DateTimeOffset? clientExpiresAt = null,
+        string? clientAppVersion = null,
+        CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(clientPlanTier) && string.IsNullOrWhiteSpace(clientAppVersion))
+            return false;
+
+        await _lock.WaitAsync(ct);
+        try
+        {
+            RefreshFromDiskIfModifiedUnsafe();
+            var match = FindMatchingEntryUnsafe(email, username, storeName, storeSlug);
+            if (match is null)
+                return false;
+
+            var now = DateTimeOffset.UtcNow;
+            match.LastClientCheckInAt = now;
+            if (!string.IsNullOrWhiteSpace(clientPlanTier))
+                match.LastReportedClientPlanTier = StoreSettings.NormalizePlanTier(clientPlanTier);
+            if (clientExpiresAt.HasValue)
+                match.LastReportedClientPlanExpiresAt = clientExpiresAt;
+            if (!string.IsNullOrWhiteSpace(clientAppVersion))
+                match.LastClientAppVersion = clientAppVersion.Trim();
+            match.UpdatedAt = now;
+
+            SaveToDiskUnsafe();
+            return true;
         }
         finally
         {
@@ -458,6 +626,7 @@ public sealed class CloudAccountRegistryService
         if (!string.IsNullOrWhiteSpace(normEmail))
         {
             var byEmail = _state.Accounts.FirstOrDefault(a =>
+                !string.IsNullOrWhiteSpace(a.Email) &&
                 string.Equals(NormalizeIdentifier(a.Email), normEmail, StringComparison.OrdinalIgnoreCase));
             if (byEmail is not null)
                 return byEmail;
@@ -473,27 +642,34 @@ public sealed class CloudAccountRegistryService
                 return byUser;
         }
 
-        var trimmedSlug = TrimOrNull(storeSlug);
+        var trimmedSlug = !IsGenericStoreIdentifier(storeSlug) ? TrimOrNull(storeSlug) : null;
         if (!string.IsNullOrWhiteSpace(trimmedSlug))
         {
             var generatedSlug = Category.GenerateSlug(trimmedSlug);
+            var compactSlug = CompressSlug(generatedSlug);
             var bySlug = _state.Accounts.FirstOrDefault(a =>
                 !string.IsNullOrWhiteSpace(a.StoreSlug) &&
+                !IsGenericStoreIdentifier(a.StoreSlug) &&
                 (string.Equals(a.StoreSlug.Trim(), trimmedSlug, StringComparison.OrdinalIgnoreCase) ||
-                 string.Equals(Category.GenerateSlug(a.StoreSlug), generatedSlug, StringComparison.OrdinalIgnoreCase)));
+                 string.Equals(Category.GenerateSlug(a.StoreSlug), generatedSlug, StringComparison.OrdinalIgnoreCase) ||
+                 (!string.IsNullOrWhiteSpace(compactSlug) && string.Equals(CompressSlug(Category.GenerateSlug(a.StoreSlug)), compactSlug, StringComparison.OrdinalIgnoreCase))));
             if (bySlug is not null)
                 return bySlug;
         }
 
-        var trimmedStore = TrimOrNull(storeName);
+        var trimmedStore = !IsGenericStoreIdentifier(storeName) ? TrimOrNull(storeName) : null;
         if (!string.IsNullOrWhiteSpace(trimmedStore))
         {
             var generatedStoreSlug = Category.GenerateSlug(trimmedStore);
+            var compactStoreSlug = CompressSlug(generatedStoreSlug);
             var byStore = _state.Accounts.FirstOrDefault(a =>
                 (!string.IsNullOrWhiteSpace(a.StoreName) &&
+                 !IsGenericStoreIdentifier(a.StoreName) &&
                  string.Equals(a.StoreName.Trim(), trimmedStore, StringComparison.OrdinalIgnoreCase)) ||
                 (!string.IsNullOrWhiteSpace(a.StoreSlug) &&
-                 string.Equals(Category.GenerateSlug(a.StoreSlug), generatedStoreSlug, StringComparison.OrdinalIgnoreCase)));
+                 !IsGenericStoreIdentifier(a.StoreSlug) &&
+                 (string.Equals(Category.GenerateSlug(a.StoreSlug), generatedStoreSlug, StringComparison.OrdinalIgnoreCase) ||
+                  (!string.IsNullOrWhiteSpace(compactStoreSlug) && string.Equals(CompressSlug(Category.GenerateSlug(a.StoreSlug)), compactStoreSlug, StringComparison.OrdinalIgnoreCase)))));
             if (byStore is not null)
                 return byStore;
         }
@@ -558,7 +734,10 @@ public sealed class CloudAccountRegistryService
             a.IsRecurringSubscription,
             a.BillingGraceEndsAt,
             a.IsBillingSuspended,
-            a.BillingWarningMessage);
+            a.BillingWarningMessage,
+            a.LastClientCheckInAt,
+            a.LastReportedClientPlanTier,
+            a.LastClientAppVersion);
 
     private static bool ResolveIsCourtesyVip(CloudAccountEntry entry)
     {
@@ -655,6 +834,20 @@ public sealed class CloudAccountRegistryService
     private static string? TrimOrNull(string? value) =>
         string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 
+    internal static bool IsGenericStoreIdentifier(string? value)
+    {
+        var trimmed = TrimOrNull(value);
+        return trimmed is null ||
+               string.Equals(trimmed, "Minha Loja", StringComparison.OrdinalIgnoreCase) ||
+               string.Equals(trimmed, "minha-loja", StringComparison.OrdinalIgnoreCase) ||
+               string.Equals(trimmed, "minhaloja", StringComparison.OrdinalIgnoreCase);
+    }
+
+    internal static string CompressSlug(string? slug) =>
+        string.IsNullOrWhiteSpace(slug)
+            ? string.Empty
+            : new string(slug.Where(char.IsLetterOrDigit).ToArray()).ToLowerInvariant();
+
     private sealed class CloudAccountsRegistryState
     {
         public List<CloudAccountEntry> Accounts { get; set; } = [];
@@ -679,6 +872,10 @@ public sealed class CloudAccountRegistryService
         public DateTimeOffset? BillingGraceEndsAt { get; set; }
         public bool IsBillingSuspended { get; set; }
         public string? BillingWarningMessage { get; set; }
+        public DateTimeOffset? LastClientCheckInAt { get; set; }
+        public string? LastReportedClientPlanTier { get; set; }
+        public DateTimeOffset? LastReportedClientPlanExpiresAt { get; set; }
+        public string? LastClientAppVersion { get; set; }
         public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
         public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.UtcNow;
     }
@@ -704,4 +901,7 @@ public sealed record CloudAccountSummary(
     bool IsRecurringSubscription = false,
     DateTimeOffset? BillingGraceEndsAt = null,
     bool IsBillingSuspended = false,
-    string? BillingWarningMessage = null);
+    string? BillingWarningMessage = null,
+    DateTimeOffset? LastClientCheckInAt = null,
+    string? LastReportedClientPlanTier = null,
+    string? LastClientAppVersion = null);

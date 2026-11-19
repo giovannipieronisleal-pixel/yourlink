@@ -511,6 +511,8 @@ else
     protected override async Task OnInitializedAsync()
     {
         BrandState.OnBrandChanged += OnBrandStateChanged;
+        Gateway.PlanEntitlementActivated += OnPlanEntitlementActivated;
+        Gateway.AuthStateChanged += OnGatewayAuthStateChanged;
         if (Gateway.IsAuthenticated)
         {
             await LoadReportAsync();
@@ -526,12 +528,47 @@ else
         _ = InvokeAsync(StateHasChanged);
     }
 
-    private async Task LoadReportAsync()
+    private void OnGatewayAuthStateChanged()
+    {
+        if (Gateway.IsAuthenticated)
+        {
+            _ = InvokeAsync(async () =>
+            {
+                await LoadReportCoreAsync(refreshCloud: false);
+                StateHasChanged();
+            });
+        }
+        else
+        {
+            _report = null;
+            _loading = false;
+            _ = InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private void OnPlanEntitlementActivated(AdminStoreSettingsDto updated)
+    {
+        BrandState.ApplyFromAdminSettings(updated);
+        _ = InvokeAsync(async () =>
+        {
+            await LoadReportCoreAsync(refreshCloud: false);
+            StateHasChanged();
+        });
+    }
+
+    private Task LoadReportAsync() => LoadReportCoreAsync(refreshCloud: true);
+
+    private async Task LoadReportCoreAsync(bool refreshCloud)
     {
         _loading = true;
         _error = null;
         try
         {
+            if (refreshCloud && Gateway.IsAuthenticated)
+            {
+                await Gateway.RefreshPlanFromCentralCloudBestEffortAsync(forceRefresh: false);
+            }
+
             var publicStore = await CatalogService.GetPublicStoreSettingsAsync();
             BrandState.ApplyFromPublicSettings(publicStore);
 
@@ -715,5 +752,7 @@ else
     public void Dispose()
     {
         BrandState.OnBrandChanged -= OnBrandStateChanged;
+        Gateway.PlanEntitlementActivated -= OnPlanEntitlementActivated;
+        Gateway.AuthStateChanged -= OnGatewayAuthStateChanged;
     }
 }

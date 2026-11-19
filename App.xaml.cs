@@ -55,6 +55,12 @@ namespace appmaui.blazor
                 {
                     _ = updateService.CheckForUpdatesOnResumeAsync();
                 }
+
+                var gateway = services?.GetService<MauiAdminGateway>();
+                if (gateway is not null && gateway.IsAuthenticated)
+                {
+                    _ = gateway.RefreshPlanFromCentralCloudBestEffortAsync(forceRefresh: false);
+                }
             }
             catch
             {

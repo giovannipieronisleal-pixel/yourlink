@@ -962,87 +962,54 @@ app.MapPost("/api/platform-sync/apply-vip", async (
             statusCode: StatusCodes.Status401Unauthorized);
     }
 
-    var normalizedRequestTier = StoreSettings.NormalizePlanTier(request.PlanTier);
-    var isBasicRequestRemoval = string.Equals(normalizedRequestTier, StoreSettings.PlanTierBasic, StringComparison.OrdinalIgnoreCase);
-    var effectiveRequestIsCourtesy = !isBasicRequestRemoval && (request.IsCourtesyVip || !request.DurationDays.HasValue);
+    var applied = await CloudPlatformPlanSyncHelper.ApplyRemoteVipAsync(
+        request,
+        repository,
+        gateway,
+        accountRegistry,
+        ct);
 
-    var cloudMatch = await accountRegistry.ApplyPlanAsync(
-        request.TargetEmail,
-        request.TargetUsername,
-        request.StoreName,
-        request.PlanTier,
-        request.DurationDays,
-        request.ExtendExistingDuration,
-        request.ActivateSite,
-        ct,
-        isCourtesyVip: effectiveRequestIsCourtesy);
-
-    var targetRepo = await ResolvePlatformSyncTargetRepositoryAsync(repository, gateway, request, cloudMatch, ct);
-    if (targetRepo is not null)
-    {
-        var settings = await targetRepo.GetStoreSettingsAsync(ct);
-        var now = DateTimeOffset.UtcNow;
-        var normalizedTier = StoreSettings.NormalizePlanTier(request.PlanTier);
-        var isBasicRemoval = string.Equals(normalizedTier, StoreSettings.PlanTierBasic, StringComparison.OrdinalIgnoreCase);
-        DateTimeOffset? nextExpiry = null;
-
-        if (!isBasicRemoval &&
-            request.DurationDays.HasValue && request.DurationDays.Value > 0)
-        {
-            var baseStart = request.ExtendExistingDuration &&
-                            string.Equals(settings.PlanTier, normalizedTier, StringComparison.OrdinalIgnoreCase) &&
-                            settings.PlanExpiresAt.HasValue &&
-                            settings.PlanExpiresAt.Value > now
-                ? settings.PlanExpiresAt.Value
-                : now;
-            nextExpiry = baseStart.AddDays(request.DurationDays.Value);
-        }
-
-        settings.UpdatePlanAndDesign(normalizedTier, designConfig: settings.DesignConfig);
-        settings.PlanExpiresAt = nextExpiry;
-        if (isBasicRemoval)
-        {
-            settings.ActiveGiftCardCode = null;
-            settings.ActivePlanBillingKind = PlanActivationCode.BillingKindPaid;
-            settings.IsRecurringSubscription = false;
-            settings.ClearBillingGraceAndActivate(null, now);
-        }
-        else
-        {
-            settings.ActivePlanBillingKind = effectiveRequestIsCourtesy
-                ? PlanActivationCode.BillingKindGiftedUnpaid
-                : PlanActivationCode.BillingKindPaid;
-            if (request.ActivateSite)
-                settings.ClearBillingGraceAndActivate(null, now);
-        }
-        await targetRepo.UpdateStoreSettingsAsync(settings, ct);
-        await TryFlushCloudMirrorAsync(httpContext, ct);
-
-        return Results.Ok(EmployeeAndSettingsService.MapToAdminSettingsDto(settings));
-    }
-
-    if (cloudMatch is not null)
+    if (applied is not null)
     {
         await TryFlushCloudMirrorAsync(httpContext, ct);
-        var virtualSettings = new StoreSettings
-        {
-            StoreName = string.IsNullOrWhiteSpace(cloudMatch.StoreName) ? request.StoreName ?? "Loja YouLink" : cloudMatch.StoreName,
-            StoreSlug = string.IsNullOrWhiteSpace(cloudMatch.StoreSlug) ? string.Empty : cloudMatch.StoreSlug
-        };
-        virtualSettings.UpdatePlanAndDesign(
-            StoreSettings.NormalizePlanTier(cloudMatch.PlanTier),
-            designConfig: virtualSettings.DesignConfig);
-        virtualSettings.PlanExpiresAt = cloudMatch.PlanExpiresAt;
-        if (cloudMatch.IsSiteActive)
-            virtualSettings.ActivateSite();
-
-        return Results.Ok(EmployeeAndSettingsService.MapToAdminSettingsDto(virtualSettings));
+        return Results.Ok(applied);
     }
 
     return Results.NotFound(new
     {
         error = "Conta ou loja de destino ainda não encontrada neste servidor central."
     });
+}).DisableAntiforgery();
+
+app.MapPost("/api/platform-sync/verify-client-vip", async (
+    HttpContext httpContext,
+    RemoteVerifyClientVipRequest request,
+    IClothingStoreRepository repository,
+    MultiTenantGatewayService gateway,
+    CloudAccountRegistryService accountRegistry,
+    CancellationToken ct) =>
+{
+    if (!await IsAuthorizedSyncRequestAsync(httpContext, repository, ct))
+    {
+        return Results.Json(
+            new { error = "Chave de sincronização (X-YouLink-Sync-Key) inválida ou ausente." },
+            statusCode: StatusCodes.Status401Unauthorized);
+    }
+
+    var result = await CloudPlatformPlanSyncHelper.VerifyAndRepairClientVipAsync(
+        request,
+        repository,
+        gateway,
+        accountRegistry,
+        GetPublicOrigin(httpContext),
+        ct);
+
+    if (result.AutoRepaired)
+    {
+        await TryFlushCloudMirrorAsync(httpContext, ct);
+    }
+
+    return Results.Ok(result);
 }).DisableAntiforgery();
 
 app.MapPost("/api/platform-sync/toggle-user-active/{userId:guid}", async (
@@ -1367,9 +1334,12 @@ app.MapPost("/api/cloud/accounts/upsert", async (
 {
     var hasValidSyncKey = await IsAuthorizedSyncRequestAsync(httpContext, defaultRepository, ct);
     var res = await accountRegistry.UpsertAccountAsync(dto, hasValidSyncKey, ct);
-    return res.Success
-        ? Results.Ok(new { success = true, message = res.Message })
-        : Results.Json(new { error = res.Message }, statusCode: res.StatusCode);
+    if (res.Success)
+    {
+        await TryFlushCloudMirrorAsync(httpContext, ct);
+        return Results.Ok(new { success = true, message = res.Message });
+    }
+    return Results.Json(new { error = res.Message }, statusCode: res.StatusCode);
 });
 
 app.MapPost("/api/cloud/accounts/verify-login", async (
@@ -1386,88 +1356,45 @@ app.MapGet("/api/cloud/plan-status", async (
     string? username,
     string? storeSlug,
     string? storeName,
+    string? clientPlanTier,
+    DateTimeOffset? clientPlanExpiresAt,
+    string? clientAppVersion,
+    IClothingStoreRepository rootRepository,
     CloudAccountRegistryService accountRegistry,
     MultiTenantGatewayService gateway,
     CancellationToken ct) =>
 {
-    var now = DateTimeOffset.UtcNow;
-    var fromCloud = await accountRegistry.GetPlanStatusAsync(email, username, storeSlug, storeName, ct);
-
-    var candidateSlug = !string.IsNullOrWhiteSpace(storeSlug)
-        ? storeSlug
-        : !string.IsNullOrWhiteSpace(fromCloud?.StoreSlug)
-            ? fromCloud.StoreSlug
-            : storeName;
-
-    if (!string.IsNullOrWhiteSpace(candidateSlug))
-    {
-        var tenantRepo = await gateway.ResolveReadRepositoryAsync(candidateSlug, ct);
-        if (tenantRepo is not null && !ReferenceEquals(tenantRepo, gateway.StoreResolver.DefaultRepository))
-        {
-            var tenantSettings = await tenantRepo.GetStoreSettingsAsync(ct);
-            if (tenantSettings.EvaluateRecurringBillingStatus(now))
-                await tenantRepo.UpdateStoreSettingsAsync(tenantSettings, ct);
-
-            var tenantTier = tenantSettings.GetEffectivePlanTier(now);
-            var cloudTier = fromCloud is not null
-                ? CloudAccountRegistryService.ResolveEffectivePlan(fromCloud.PlanTier, fromCloud.PlanExpiresAt, now)
-                : StoreSettings.PlanTierBasic;
-
-            if (fromCloud?.PlanRevokedAt is { } revokedAt &&
-                (!tenantSettings.PlanActivatedAt.HasValue || revokedAt >= tenantSettings.PlanActivatedAt.Value) &&
-                string.Equals(cloudTier, StoreSettings.PlanTierBasic, StringComparison.OrdinalIgnoreCase))
-            {
-                return Results.Ok(fromCloud);
-            }
-
-            if (!string.Equals(tenantTier, StoreSettings.PlanTierBasic, StringComparison.OrdinalIgnoreCase))
-            {
-                return Results.Ok(new CloudPlanStatusDto(
-                    PlanTier: tenantTier,
-                    PlanExpiresAt: tenantSettings.PlanExpiresAt,
-                    IsSiteActive: tenantSettings.IsSiteActive,
-                    StoreName: tenantSettings.StoreName,
-                    StoreSlug: tenantSettings.StoreSlug,
-                    IsCourtesyVip: ResolveTenantIsCourtesyVip(tenantSettings, fromCloud?.IsCourtesyVip),
-                    PlanRevokedAt: null,
-                    IsRecurringSubscription: tenantSettings.IsRecurringSubscription,
-                    BillingGraceEndsAt: tenantSettings.BillingGraceEndsAt,
-                    IsBillingSuspended: tenantSettings.IsBillingSuspended,
-                    BillingWarningMessage: tenantSettings.LastPaymentFailureMessage));
-            }
-
-            if (!string.Equals(cloudTier, StoreSettings.PlanTierBasic, StringComparison.OrdinalIgnoreCase) ||
-                fromCloud?.IsBillingSuspended == true ||
-                fromCloud?.BillingGraceEndsAt is not null)
-            {
-                return Results.Ok(fromCloud);
-            }
-
-            return Results.Ok(new CloudPlanStatusDto(
-                PlanTier: tenantTier,
-                PlanExpiresAt: tenantSettings.PlanExpiresAt,
-                IsSiteActive: tenantSettings.IsSiteActive,
-                StoreName: tenantSettings.StoreName,
-                StoreSlug: tenantSettings.StoreSlug,
-                IsCourtesyVip: ResolveTenantIsCourtesyVip(tenantSettings, fromCloud?.IsCourtesyVip),
-                PlanRevokedAt: null,
-                IsRecurringSubscription: tenantSettings.IsRecurringSubscription,
-                BillingGraceEndsAt: tenantSettings.BillingGraceEndsAt,
-                IsBillingSuspended: tenantSettings.IsBillingSuspended,
-                BillingWarningMessage: tenantSettings.LastPaymentFailureMessage));
-        }
-    }
-
-    if (fromCloud is not null)
-        return Results.Ok(fromCloud);
-
-    return Results.Ok(new CloudPlanStatusDto(
-        PlanTier: StoreSettings.PlanTierBasic,
-        PlanExpiresAt: null,
-        IsSiteActive: true,
-        StoreName: null,
-        StoreSlug: null));
+    var status = await CloudPlatformPlanSyncHelper.ResolveCloudPlanStatusAsync(
+        email,
+        username,
+        storeSlug,
+        storeName,
+        clientPlanTier,
+        clientPlanExpiresAt,
+        clientAppVersion,
+        rootRepository,
+        gateway,
+        accountRegistry,
+        ct);
+    return Results.Ok(status);
 });
+
+app.MapPost("/api/cloud/client-vip-ack", async (
+    CloudClientVipAckRequest request,
+    CloudAccountRegistryService accountRegistry,
+    CancellationToken ct) =>
+{
+    var recorded = await accountRegistry.RecordClientCheckInAsync(
+        request.Email,
+        request.Username,
+        request.StoreSlug,
+        request.StoreName,
+        request.AppliedPlanTier,
+        request.AppliedExpiresAt,
+        request.ClientAppVersion,
+        ct);
+    return Results.Ok(new { recorded });
+}).DisableAntiforgery();
 
 app.MapPost("/api/cloud/accounts/purge-all", async (
     HttpContext httpContext,
@@ -1874,7 +1801,10 @@ static async Task<PlatformAccountsSyncEnvelopeDto> BuildPlatformAccountsSyncEnve
             IsRecurringSubscription: isRecurring,
             BillingGraceEndsAt: graceEndsAt,
             IsBillingSuspended: isBillingSuspended,
-            BillingWarningMessage: warningMsg));
+            BillingWarningMessage: warningMsg,
+            LastClientCheckInAt: acc.LastClientCheckInAt,
+            LastReportedClientPlanTier: acc.LastReportedClientPlanTier,
+            LastClientAppVersion: acc.LastClientAppVersion));
     }
 
     // Inclui lojas publicadas cujo dono tenha publicado sem registro prévio no CloudAccountRegistry
@@ -1917,6 +1847,37 @@ static async Task<PlatformAccountsSyncEnvelopeDto> BuildPlatformAccountsSyncEnve
             BillingGraceEndsAt: info.Settings.BillingGraceEndsAt,
             IsBillingSuspended: info.Settings.IsBillingSuspended,
             BillingWarningMessage: info.Settings.LastPaymentFailureMessage));
+    }
+
+    // Enriquece linhas de repositório/tenant com telemetria de check-in do client e status mais recente do registro na nuvem.
+    var cloudCheckInNow = DateTimeOffset.UtcNow;
+    for (var i = 0; i < accounts.Count; i++)
+    {
+        var item = accounts[i];
+        var matchedCloud = cloudAccounts.FirstOrDefault(ca =>
+            (!string.IsNullOrWhiteSpace(item.Email) && !string.IsNullOrWhiteSpace(ca.Email) &&
+             string.Equals(item.Email.Trim(), ca.Email.Trim(), StringComparison.OrdinalIgnoreCase)) ||
+            (!string.IsNullOrWhiteSpace(item.Username) && !string.IsNullOrWhiteSpace(ca.Username) &&
+             string.Equals(item.Username.Trim(), ca.Username.Trim(), StringComparison.OrdinalIgnoreCase)) ||
+            (!string.IsNullOrWhiteSpace(item.StoreSlug) && !string.IsNullOrWhiteSpace(ca.StoreSlug) &&
+             string.Equals(item.StoreSlug.Trim(), ca.StoreSlug.Trim(), StringComparison.OrdinalIgnoreCase)));
+        if (matchedCloud is null)
+            continue;
+
+        var caTier = CloudAccountRegistryService.ResolveEffectivePlan(matchedCloud.PlanTier, matchedCloud.PlanExpiresAt, cloudCheckInNow);
+        var useCloudPlan = !string.Equals(caTier, StoreSettings.PlanTierBasic, StringComparison.OrdinalIgnoreCase) &&
+                           string.Equals(item.PlanTier, StoreSettings.PlanTierBasic, StringComparison.OrdinalIgnoreCase);
+
+        accounts[i] = item with
+        {
+            PlanTier = useCloudPlan ? caTier : item.PlanTier,
+            PlanExpiresAt = useCloudPlan ? matchedCloud.PlanExpiresAt : item.PlanExpiresAt,
+            IsCourtesyVip = useCloudPlan ? matchedCloud.IsCourtesyVip : item.IsCourtesyVip,
+            PlanRevokedAt = item.PlanRevokedAt ?? matchedCloud.PlanRevokedAt,
+            LastClientCheckInAt = item.LastClientCheckInAt ?? matchedCloud.LastClientCheckInAt,
+            LastReportedClientPlanTier = item.LastReportedClientPlanTier ?? matchedCloud.LastReportedClientPlanTier,
+            LastClientAppVersion = item.LastClientAppVersion ?? matchedCloud.LastClientAppVersion
+        };
     }
 
     return new PlatformAccountsSyncEnvelopeDto(
@@ -1984,24 +1945,8 @@ static async Task AppendRepositoryAccountsAsync(
     }
 }
 
-static bool ResolveTenantIsCourtesyVip(StoreSettings settings, bool? cloudIsCourtesy = null)
-{
-    var tier = settings.GetEffectivePlanTier();
-    if (string.Equals(tier, StoreSettings.PlanTierBasic, StringComparison.OrdinalIgnoreCase))
-        return false;
-
-    if (cloudIsCourtesy == true)
-        return true;
-
-    if (string.Equals(settings.ActivePlanBillingKind, PlanActivationCode.BillingKindGiftedUnpaid, StringComparison.OrdinalIgnoreCase))
-        return true;
-
-    // VIP Vitalício (sem vencimento e sem assinatura recorrente) é sempre cortesia concedida pelo Admin.
-    if (!settings.PlanExpiresAt.HasValue && !settings.IsRecurringSubscription)
-        return true;
-
-    return false;
-}
+static bool ResolveTenantIsCourtesyVip(StoreSettings settings, bool? cloudIsCourtesy = null) =>
+    CloudPlatformPlanSyncHelper.ResolveTenantIsCourtesyVip(settings, cloudIsCourtesy);
 
 static string? ResolveCentralStorePublicUrl(string? onlineBaseUrl, string? tenantSlug, string publicOrigin)
 {
@@ -2016,97 +1961,6 @@ static string? ResolveCentralStorePublicUrl(string? onlineBaseUrl, string? tenan
         : WhatsAppLinkBuilder.BuildCentralTenantCatalogUrl(publicOrigin, tenantSlug);
 }
 
-static async Task<IClothingStoreRepository?> ResolvePlatformSyncTargetRepositoryAsync(
-    IClothingStoreRepository rootRepository,
-    MultiTenantGatewayService gateway,
-    RemoteApplyVipRequest request,
-    CloudAccountSummary? cloudMatch,
-    CancellationToken ct)
-{
-    var targetStoreName = !string.IsNullOrWhiteSpace(request.StoreName)
-        ? request.StoreName.Trim()
-        : cloudMatch?.StoreName?.Trim();
-    var targetEmail = !string.IsNullOrWhiteSpace(request.TargetEmail)
-        ? request.TargetEmail.Trim()
-        : cloudMatch?.Email?.Trim();
-    var targetUsername = !string.IsNullOrWhiteSpace(request.TargetUsername)
-        ? request.TargetUsername.Trim().TrimStart('@')
-        : cloudMatch?.Username?.Trim();
-    var targetSlug = !string.IsNullOrWhiteSpace(cloudMatch?.StoreSlug)
-        ? gateway.StoreResolver.NormalizeStoreSlug(cloudMatch.StoreSlug)
-        : string.IsNullOrWhiteSpace(targetStoreName)
-            ? null
-            : gateway.StoreResolver.NormalizeStoreSlug(targetStoreName);
-
-    foreach (var slug in await gateway.StoreResolver.ListTenantSlugsAsync(ct))
-    {
-        if (string.IsNullOrWhiteSpace(slug) || string.Equals(slug, "__root__", StringComparison.OrdinalIgnoreCase))
-            continue;
-
-        var repo = await gateway.StoreResolver.ResolveReadRepositoryAsync(slug, ct);
-        if (repo is null || ReferenceEquals(repo, rootRepository))
-            continue;
-
-        var settings = await repo.GetStoreSettingsAsync(ct);
-        var creds = await gateway.StoreResolver.GetTenantCredentialsAsync(slug, ct);
-
-        var nameMatches = !string.IsNullOrWhiteSpace(targetStoreName) &&
-                          (string.Equals(settings.StoreName, targetStoreName, StringComparison.OrdinalIgnoreCase) ||
-                           string.Equals(slug, targetSlug, StringComparison.OrdinalIgnoreCase));
-        var emailMatches = !string.IsNullOrWhiteSpace(targetEmail) &&
-                           !string.IsNullOrWhiteSpace(creds?.OwnerEmail) &&
-                           string.Equals(creds.OwnerEmail.Trim(), targetEmail, StringComparison.OrdinalIgnoreCase);
-
-        if (nameMatches || emailMatches)
-            return repo;
-
-        if (!string.IsNullOrWhiteSpace(targetUsername))
-        {
-            var emps = await repo.GetEmployeesAsync(ct);
-            foreach (var emp in emps)
-            {
-                var u = emp.User ?? await repo.GetUserByIdAsync(emp.UserId, ct);
-                if (u is not null &&
-                    (string.Equals(u.Username, targetUsername, StringComparison.OrdinalIgnoreCase) ||
-                     (!string.IsNullOrWhiteSpace(targetEmail) && u.HasEmailAddress &&
-                      string.Equals(u.Email, targetEmail, StringComparison.OrdinalIgnoreCase))))
-                {
-                    return repo;
-                }
-            }
-        }
-    }
-
-    var hasExplicitNonRootTarget = !string.IsNullOrWhiteSpace(targetStoreName) ||
-                                   !string.IsNullOrWhiteSpace(targetEmail) ||
-                                   !string.IsNullOrWhiteSpace(targetUsername);
-    if (!hasExplicitNonRootTarget)
-        return rootRepository;
-
-    var rootSettings = await rootRepository.GetStoreSettingsAsync(ct);
-    var rootMatchesStore = !string.IsNullOrWhiteSpace(targetStoreName) &&
-                           string.Equals(rootSettings.StoreName, targetStoreName, StringComparison.OrdinalIgnoreCase);
-    if (rootMatchesStore)
-        return rootRepository;
-
-    var rootEmployees = await rootRepository.GetEmployeesAsync(ct);
-    foreach (var emp in rootEmployees)
-    {
-        var u = emp.User ?? await rootRepository.GetUserByIdAsync(emp.UserId, ct);
-        if (u is null)
-            continue;
-        if ((!string.IsNullOrWhiteSpace(targetEmail) && u.HasEmailAddress &&
-             string.Equals(u.Email, targetEmail, StringComparison.OrdinalIgnoreCase)) ||
-            (!string.IsNullOrWhiteSpace(targetUsername) &&
-             string.Equals(u.Username, targetUsername, StringComparison.OrdinalIgnoreCase)))
-        {
-            return rootRepository;
-        }
-    }
-
-    return null;
-}
-
 static async Task ApplyGrantedCloudAccountVipToPublishedTenantAsync(
     MultiTenantGatewayService gateway,
     CloudAccountRegistryService accountRegistry,
@@ -2115,10 +1969,12 @@ static async Task ApplyGrantedCloudAccountVipToPublishedTenantAsync(
     string? storeName,
     CancellationToken ct)
 {
-    var granted = await accountRegistry.GetPlanStatusAsync(ownerEmail, null, publishedSlug, storeName, ct);
-    if (granted is null)
+    var grantedMeta = await accountRegistry.GetPlanStatusWithAccountAsync(ownerEmail, null, publishedSlug, storeName, ct);
+    if (grantedMeta is null)
         return;
 
+    var granted = grantedMeta.Value.Status;
+    var grantedAccount = grantedMeta.Value.Account;
     var now = DateTimeOffset.UtcNow;
     var grantedTier = CloudAccountRegistryService.ResolveEffectivePlan(granted.PlanTier, granted.PlanExpiresAt, now);
     if (string.Equals(grantedTier, StoreSettings.PlanTierBasic, StringComparison.OrdinalIgnoreCase))
@@ -2129,14 +1985,25 @@ static async Task ApplyGrantedCloudAccountVipToPublishedTenantAsync(
         return;
 
     var settings = await tenantRepo.GetStoreSettingsAsync(ct);
-    if (!string.Equals(settings.GetEffectivePlanTier(now), StoreSettings.PlanTierBasic, StringComparison.OrdinalIgnoreCase))
+    var currentTier = settings.GetEffectivePlanTier(now);
+    var shouldApply =
+        string.Equals(currentTier, StoreSettings.PlanTierBasic, StringComparison.OrdinalIgnoreCase) ||
+        PlanCheckoutGuardHelper.GetTierRank(grantedTier) > PlanCheckoutGuardHelper.GetTierRank(currentTier) ||
+        (grantedAccount.PlanUpdatedAt.HasValue &&
+         grantedAccount.PlanUpdatedAt.Value > (settings.PlanActivatedAt ?? settings.UpdatedAt));
+
+    if (!shouldApply)
         return;
 
-    settings.UpdatePlanAndDesign(grantedTier, designConfig: settings.DesignConfig);
-    settings.PlanActivatedAt ??= now;
     settings.PlanExpiresAt = granted.PlanExpiresAt;
+    settings.PlanActivatedAt = now;
+    settings.UpdatePlanAndDesign(grantedTier, designConfig: settings.DesignConfig);
+    settings.ActivePlanBillingKind = granted.IsCourtesyVip
+        ? PlanActivationCode.BillingKindGiftedUnpaid
+        : PlanActivationCode.BillingKindPaid;
+    settings.IsRecurringSubscription = granted.IsRecurringSubscription;
     if (granted.IsSiteActive)
-        settings.ActivateSite();
+        settings.ClearBillingGraceAndActivate(null, now);
     await tenantRepo.UpdateStoreSettingsAsync(settings, ct);
 }
 

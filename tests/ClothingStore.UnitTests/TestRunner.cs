@@ -123,11 +123,13 @@ namespace ClothingStore.UnitTests
                     {
                         failed++;
                         Console.WriteLine($"  [FALHOU] {testClass.Name}.{method.Name} -> {tie.InnerException.Message}");
+                        Console.WriteLine(tie.InnerException.StackTrace);
                     }
                     catch (Exception ex)
                     {
                         failed++;
                         Console.WriteLine($"  [FALHOU] {testClass.Name}.{method.Name} -> {ex.Message}");
+                        Console.WriteLine(ex.StackTrace);
                     }
                 }
             }
