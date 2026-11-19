@@ -5,25 +5,25 @@
     <div class="studio-header">
         <div>
             <span class="studio-eyebrow">
-                @(IsPremium ? "Versão Mais Cara • Design Moldável" : IsIntermediate ? "Meia Versão • 5 Modelos Pré-Prontos" : "Planos de Design do Site")
+                @(IsPremium ? "Versão Mais Cara • 10 Designs + Estúdio Moldável" : IsIntermediate ? "Meia Versão • 3 Modelos Pré-Prontos" : "Planos de Design do Site")
             </span>
             <h2 class="adm-section-title studio-title">
-                @(IsIntermediate ? "5 Versões Pré-Prontas de Vitrine" : "Estúdio Visual Sob Medida")
+                @(IsIntermediate ? "3 Versões Pré-Prontas de Vitrine" : "Estúdio Visual Sob Medida")
             </h2>
             <p class="studio-subtitle">
                 @if (IsIntermediate)
                 {
-                    <span>Escolha entre 5 identidades visuais prontas para o seu público — simples, rápido e sem configuração manual.</span>
+                    <span>Escolha entre 3 identidades visuais profissionais prontas para o seu público — simples, rápido e sem configuração manual.</span>
                 }
                 else
                 {
-                    <span>Molde cada detalhe visual do seu catálogo público e do painel administrativo exatamente como sua marca deseja.</span>
+                    <span>Escolha entre 10 designs de grande marca (incluindo 7 exclusivos Premium e vitrines escuras) ou molde cada detalhe visual da sua loja.</span>
                 }
             </p>
         </div>
 
         <span class="pill-badge @(IsPremium ? "pill-gold" : IsIntermediate ? "pill-green" : "pill-slate")">
-            @(IsPremium ? "✦ Plano Premium Ativo" : IsIntermediate ? "◈ Meia Versão (5 Temas)" : HasActiveBasicPlan ? "🔒 Básico · Tema Fixo" : "🔒 Recursos de Planos")
+            @(IsPremium ? "✦ Plano Premium (10 Temas)" : IsIntermediate ? "◈ Meia Versão (3 Temas)" : HasActiveBasicPlan ? "🔒 Básico · Tema Fixo" : "🔒 Recursos de Planos")
         </span>
     </div>
 
@@ -53,12 +53,12 @@
                              tabindex="0"
                              @onclick='() => GoToPlanCheckout(StoreDesignPresets.PlanIntermediate)'>
                             <div>
-                                <span class="studio-tier-badge" style="color: var(--adm-success);">Meia Versão &bull; 5 Temas</span>
+                                <span class="studio-tier-badge" style="color: var(--adm-success);">Meia Versão &bull; 3 Temas</span>
                                 <div class="studio-tier-price">@IntermediaryPrice.ToString("C")<span>/mês</span></div>
                                 <ul class="studio-feature-list">
-                                    <li>Troque entre <strong>5 versões pré-prontas</strong> para o seu público em 1 clique</li>
+                                    <li>Troque entre <strong>3 designs profissionais pré-prontos</strong> em 1 clique</li>
                                     <li><strong>Servidor 24h + HTTPS + Endereço da loja inclusos</strong> no valor mensal</li>
-                                    <li>Visual não configurável (pronto para vender sem complexidade)</li>
+                                    <li>Visual pronto para vender sem complexidade manual</li>
                                 </ul>
                             </div>
                             <span class="studio-tier-cta" style="color: var(--adm-success);">Contratar Meia Versão →</span>
@@ -69,12 +69,12 @@
                              tabindex="0"
                              @onclick='() => GoToPlanCheckout(StoreDesignPresets.PlanPremium)'>
                             <div>
-                                <span class="studio-tier-badge">Versão Premium &bull; Moldável</span>
+                                <span class="studio-tier-badge">Versão Premium &bull; 10 Temas + Moldável</span>
                                 <div class="studio-tier-price">@PremiumPrice.ToString("C")<span>/mês</span></div>
                                 <ul class="studio-feature-list">
+                                    <li><strong>10 designs flagship</strong> (os 3 do Intermediário + <strong>7 exclusivos Premium</strong> incluindo modos escuros)</li>
                                     <li>Paleta de cores, fontes e cantos 100% personalizáveis</li>
                                     <li><strong>Servidor 24h + HTTPS + Domínio inclusos</strong> + vínculo opcional de domínio próprio</li>
-                                    <li>Inclui todas as 5 curadorias prontas como ponto de partida</li>
                                     <li>Layout de vitrine configurável e capa editorial sob medida</li>
                                 </ul>
                             </div>
@@ -122,12 +122,12 @@
         <div class="studio-grid">
             <div class="studio-controls">
                 <div class="studio-group">
-                    <div class="studio-group-label">Escolha 1 das 5 Versões Pré-Prontas</div>
-                    <p style="margin: 0 0 0.75rem; font-size: 0.84rem; color: var(--adm-muted); line-height: 1.45;">
-                        No plano <strong>Intermediário (Meia Versão)</strong> os temas são pré-prontos e <strong>não configuráveis</strong>, otimizados para leitura simples dos clientes.
+                    <div class="studio-group-label">Escolha 1 dos 3 Designs Pré-Prontos (Meia Versão)</div>
+                    <p style="margin: 0 0 0.75rem; font-size: 0.86rem; color: var(--adm-muted); line-height: 1.45;">
+                        No plano <strong>Intermediário (Meia Versão)</strong> você conta com <strong>3 identidades profissionais</strong> pré-prontas e calibradas para o seu público.
                     </p>
                     <div class="studio-preset-grid">
-                        @foreach (var preset in StoreDesignPresets.All)
+                        @foreach (var preset in StoreDesignPresets.Intermediate)
                         {
                             var active = string.Equals(Design.PresetKey, preset.Key, StringComparison.OrdinalIgnoreCase);
                             <button type="button"
@@ -147,13 +147,35 @@
                     </div>
                 </div>
 
-                <div style="padding: 0.85rem; border-radius: 8px; border: 1px dashed var(--adm-accent); background: var(--adm-surface-subtle); font-size: 0.82rem; color: var(--adm-muted); display: flex; justify-content: space-between; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
-                    <span>🔒 Edição manual de cores, tipografia, bordas e textos da capa é exclusiva do <strong>Plano Premium (@PremiumPrice.ToString("C")/mês)</strong>.</span>
+                <div class="studio-group">
+                    <div class="studio-group-label">🔒 +7 Designs Exclusivos do Plano Premium</div>
+                    <div class="studio-preset-grid" style="opacity: 0.72;">
+                        @foreach (var preset in StoreDesignPresets.PremiumExclusive)
+                        {
+                            <button type="button"
+                                    class="studio-preset-card"
+                                    @onclick='() => GoToPlanCheckout(StoreDesignPresets.PlanPremium)'>
+                                <div class="studio-preset-top">
+                                    <strong>✦ @preset.Name</strong>
+                                    <span class="studio-dots" aria-hidden="true">
+                                        <svg width="12" height="12" viewBox="0 0 12 12"><circle cx="6" cy="6" r="5" fill="@preset.Design.BackgroundColor" stroke="#999" stroke-width="1" /></svg>
+                                        <svg width="12" height="12" viewBox="0 0 12 12"><circle cx="6" cy="6" r="5" fill="@preset.Design.PrimaryColor" /></svg>
+                                        <svg width="12" height="12" viewBox="0 0 12 12"><circle cx="6" cy="6" r="5" fill="@preset.Design.AccentColor" /></svg>
+                                    </span>
+                                </div>
+                                <span class="studio-preset-tag">@preset.Tagline</span>
+                            </button>
+                        }
+                    </div>
+                </div>
+
+                <div style="padding: 0.85rem; border-radius: 10px; border: 1px dashed var(--adm-accent); background: var(--adm-surface-subtle); font-size: 0.84rem; color: var(--adm-muted); display: flex; justify-content: space-between; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
+                    <span>🔒 Os <strong>7 designs flagship exclusivos</strong> + edição livre de cores, fontes e capa são do <strong>Plano Premium (@PremiumPrice.ToString("C")/mês)</strong>.</span>
                     <button type="button"
                             class="adm-btn adm-btn-accent"
-                            style="padding: 0.45rem 0.85rem; font-size: 0.8rem;"
+                            style="padding: 0.45rem 0.85rem; font-size: 0.82rem;"
                             @onclick='() => GoToPlanCheckout(StoreDesignPresets.PlanPremium)'>
-                        Contratar Premium →
+                        Desbloquear no Premium →
                     </button>
                 </div>
 
@@ -169,13 +191,13 @@
             </div>
 
             <div>
-                <div class="studio-mini-stage" style="@StoreDesignCssHelper.BuildInlineStyle(StoreDesignPresets.ResolveByPresetKey(Design.PresetKey))">
+                <div class="studio-mini-stage" style="@StoreDesignCssHelper.BuildInlineStyle(StoreDesignPresets.ResolveByPresetKeyForPlan(StoreDesignPresets.PlanIntermediate, Design.PresetKey))">
                     <div class="mini-header">
                         <span class="mini-brand">@StoreName</span>
                         <span class="mini-pill">WhatsApp</span>
                     </div>
                     <div class="mini-hero">
-                        <span class="mini-eyebrow">@StoreDesignPresets.ResolveByPresetKey(Design.PresetKey).PresetKey</span>
+                        <span class="mini-eyebrow">@StoreDesignPresets.ResolveByPresetKeyForPlan(StoreDesignPresets.PlanIntermediate, Design.PresetKey).PresetKey</span>
                         <div class="mini-headline">@StoreName</div>
                         <p class="mini-copy">@(string.IsNullOrWhiteSpace(StoreDescription) ? "Vitrine pré-pronta calibrada para seus clientes." : StoreDescription)</p>
                         <span class="mini-cta">Explorar Catálogo</span>
@@ -202,9 +224,9 @@
     {
         <div class="studio-grid">
             <div class="studio-controls">
-                <!-- 1. Curadorias Prontas -->
+                <!-- 1. Curadorias Prontas (10 Modelos Flagship) -->
                 <div class="studio-group">
-                    <div class="studio-group-label">1. Curadoria de Base (1 clique)</div>
+                    <div class="studio-group-label">1. Curadoria Profissional de Base — 10 Designs (1 clique)</div>
                     <div class="studio-preset-grid">
                         @foreach (var preset in StoreDesignPresets.All)
                         {
@@ -213,7 +235,7 @@
                                     class="studio-preset-card @(active ? "active" : "")"
                                     @onclick="() => ApplyPresetAsync(preset)">
                                 <div class="studio-preset-top">
-                                    <strong>@preset.Name</strong>
+                                    <strong>@(preset.IsPremiumExclusive ? $"✦ {preset.Name}" : preset.Name)</strong>
                                     <span class="studio-dots" aria-hidden="true">
                                         <svg width="12" height="12" viewBox="0 0 12 12"><circle cx="6" cy="6" r="5" fill="@preset.Design.BackgroundColor" stroke="#999" stroke-width="1" /></svg>
                                         <svg width="12" height="12" viewBox="0 0 12 12"><circle cx="6" cy="6" r="5" fill="@preset.Design.PrimaryColor" /></svg>

@@ -715,7 +715,7 @@ public class DomainAndRepositoryTests
     }
 
     [TestMethod]
-    public void StoreSettings_IntermediatePlan_ShouldAllow5PreReadyVersionsWithoutCustomOverrides()
+    public void StoreSettings_IntermediatePlan_ShouldAllow3PreReadyVersionsWithoutCustomOverrides_AndReservePremiumThemes()
     {
         var settings = new StoreSettings("Atelier Meia Versao", "5511988887777", "Vitrine pronta");
         Assert.AreEqual(StoreSettings.PlanTierBasic, settings.PlanTier);
@@ -740,11 +740,25 @@ public class DomainAndRepositoryTests
         Assert.AreEqual(expectedEditorial.BackgroundColor, effectiveEditorial.BackgroundColor);
         Assert.AreEqual(expectedEditorial.DisplayFont, effectiveEditorial.DisplayFont);
 
+        // O terceiro tema da Meia Versão (urban-sartorial) também deve aplicar normalmente
+        settings.UpdatePlanAndDesign(StoreSettings.PlanTierIntermediate, designConfig: StoreDesignConfig.CreatePresetByKey("urban-sartorial"));
+        var effectiveUrban = settings.GetEffectivePublicDesign();
+        var expectedUrban = StoreDesignConfig.CreatePresetByKey("urban-sartorial");
+        Assert.AreEqual("urban-sartorial", effectiveUrban.PresetKey);
+        Assert.AreEqual(expectedUrban.BackgroundColor, effectiveUrban.BackgroundColor);
+
+        // Temas exclusivos do Premium (ex.: grafite-studio / noir-noturno / esmeralda-imperial) não liberam na Meia Versão
+        settings.UpdatePlanAndDesign(StoreSettings.PlanTierIntermediate, designConfig: StoreDesignConfig.CreatePresetByKey("esmeralda-imperial"));
+        Assert.AreEqual("minimalista-luxo", settings.GetEffectivePublicDesign().PresetKey);
+
         settings.UpdatePlanAndDesign(StoreSettings.PlanTierIntermediate, designConfig: StoreDesignConfig.CreatePresetByKey("noir-noturno"));
-        var effectiveNoir = settings.GetEffectivePublicDesign();
-        var expectedNoir = StoreDesignConfig.CreatePresetByKey("noir-noturno");
-        Assert.AreEqual("noir-noturno", effectiveNoir.PresetKey);
-        Assert.AreEqual(expectedNoir.BackgroundColor, effectiveNoir.BackgroundColor);
+        Assert.AreEqual("minimalista-luxo", settings.GetEffectivePublicDesign().PresetKey);
+
+        // No Plano Premium, todos os 10 temas (incluindo exclusivos flagship e escuros) ficam disponíveis
+        settings.UpdatePlanAndDesign(StoreSettings.PlanTierPremium, designConfig: StoreDesignConfig.CreatePresetByKey("grafite-studio"));
+        var effectiveGrafite = settings.GetEffectivePublicDesign();
+        Assert.AreEqual("grafite-studio", effectiveGrafite.PresetKey);
+        Assert.AreEqual("#111318", effectiveGrafite.BackgroundColor);
 
         // Expiracao da licenca intermediaria volta com seguranca para Basico Minimalista Luxo
         var oldCode = PlanActivationCode.Create(StoreSettings.PlanTierIntermediate, 1);
@@ -752,6 +766,64 @@ public class DomainAndRepositoryTests
         Assert.IsFalse(settings.IsLicenseActive());
         Assert.AreEqual(StoreSettings.PlanTierBasic, settings.GetEffectivePlanTier());
         Assert.AreEqual("minimalista-luxo", settings.GetEffectivePublicDesign().PresetKey);
+    }
+
+    [TestMethod]
+    public void AccessibleRedesign_And_TieredStorefrontCatalog_ShouldHave3IntermediateAnd10TotalThemes()
+    {
+        Assert.AreEqual(3, StoreDesignPresets.Intermediate.Count, "A Meia Versão deve ter exatamente 3 temas pré-prontos.");
+        Assert.AreEqual(7, StoreDesignPresets.PremiumExclusive.Count, "O Plano Premium deve oferecer 7 temas exclusivos flagship além dos 3 da Meia Versão.");
+        Assert.AreEqual(10, StoreDesignPresets.All.Count, "O catálogo completo de designs da loja online deve ter 10 modelos profissionais.");
+
+        Assert.IsTrue(StoreDesignPresets.IsIntermediatePreset("minimalista-luxo"));
+        Assert.IsTrue(StoreDesignPresets.IsIntermediatePreset("editorial-vogue"));
+        Assert.IsTrue(StoreDesignPresets.IsIntermediatePreset("urban-sartorial"));
+        Assert.IsFalse(StoreDesignPresets.IsIntermediatePreset("esmeralda-imperial"));
+        Assert.IsFalse(StoreDesignPresets.IsIntermediatePreset("grafite-studio"));
+        Assert.IsFalse(StoreDesignPresets.IsIntermediatePreset("terracota-solar"));
+        Assert.IsFalse(StoreDesignPresets.IsIntermediatePreset("safira-flagship"));
+        Assert.IsFalse(StoreDesignPresets.IsIntermediatePreset("galeria-marfim"));
+
+        Assert.AreEqual("minimalista-luxo", StoreDesignPresets.ResolveByPresetKeyForPlan(StoreDesignPresets.PlanIntermediate, "esmeralda-imperial").PresetKey);
+        Assert.AreEqual("esmeralda-imperial", StoreDesignPresets.ResolveByPresetKeyForPlan(StoreDesignPresets.PlanPremium, "esmeralda-imperial").PresetKey);
+        Assert.AreEqual("grafite-studio", StoreDesignPresets.ResolveByPresetKeyForPlan(StoreDesignPresets.PlanPremium, "grafite-studio").PresetKey);
+
+        // Verifica que todos os 10 presets sincronizam com o domínio (StoreDesignConfig.CreatePresetByKey)
+        foreach (var preset in StoreDesignPresets.All)
+        {
+            var domainCfg = StoreDesignConfig.CreatePresetByKey(preset.Key);
+            Assert.AreEqual(preset.Key, domainCfg.PresetKey);
+            Assert.AreEqual(preset.Design.BackgroundColor, domainCfg.BackgroundColor, $"BackgroundColor divergente em {preset.Key}");
+            Assert.AreEqual(preset.Design.PrimaryColor, domainCfg.PrimaryColor, $"PrimaryColor divergente em {preset.Key}");
+            Assert.AreEqual(preset.Design.AccentColor, domainCfg.AccentColor, $"AccentColor divergente em {preset.Key}");
+        }
+
+        // Verifica contratos do novo Painel Windows Ultra-Limpo (Claro + Escuro) e Home Acessível
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        string? repoRoot = null;
+        for (var i = 0; i < 8 && dir is not null; i++)
+        {
+            if (File.Exists(Path.Combine(dir.FullName, "appmaui.blazor.csproj")))
+            {
+                repoRoot = dir.FullName;
+                break;
+            }
+            dir = dir.Parent;
+        }
+        Assert.IsNotNull(repoRoot);
+
+        var appCss = File.ReadAllText(Path.Combine(repoRoot!, "wwwroot", "app.css"));
+        var homeRazor = File.ReadAllText(Path.Combine(repoRoot!, "Components", "Pages", "Home.razor"));
+        var navRazor = File.ReadAllText(Path.Combine(repoRoot!, "Components", "Layout", "NavMenu.razor"));
+
+        Assert.IsTrue(appCss.Contains("#F5F6F8", StringComparison.OrdinalIgnoreCase), "Modo claro acessível deve usar fundo suave #F5F6F8.");
+        Assert.IsTrue(appCss.Contains("#0F141E", StringComparison.OrdinalIgnoreCase), "Modo escuro acessível deve usar fundo slate #0F141E.");
+        Assert.IsTrue(appCss.Contains("#1D4ED8", StringComparison.OrdinalIgnoreCase), "Ação primária clara deve usar Azul Royal #1D4ED8.");
+        Assert.IsTrue(homeRazor.Contains("Link da sua loja", StringComparison.Ordinal));
+        Assert.IsTrue(homeRazor.Contains("CopyStoreLinkAsync", StringComparison.Ordinal));
+        Assert.IsTrue(homeRazor.Contains("ShareStoreOnWhatsAppAsync", StringComparison.Ordinal));
+        Assert.IsTrue(navRazor.Contains("Modo Escuro", StringComparison.Ordinal));
+        Assert.IsTrue(navRazor.Contains("ToggleThemeFromSidebar", StringComparison.Ordinal));
     }
 
     [TestMethod]

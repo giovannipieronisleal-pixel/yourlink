@@ -1,6 +1,6 @@
 # Manual Oficial do Lojista — YouLink
 
-> **Versão do Sistema:** YouLink v1.0.50 (Windows x64 e Android) • YouLink Admin v1.1.13  
+> **Versão do Sistema:** YouLink v1.0.51 (Windows x64 e Android) • YouLink Admin v1.1.13  
 > **Portal Central Oficial:** https://youlink-loja.onrender.com
 
 ---

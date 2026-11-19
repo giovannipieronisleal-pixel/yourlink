@@ -62,7 +62,8 @@ public sealed record StoreDesignPresetOption(
     string Name,
     string Tagline,
     StoreDesignDto Design,
-    string AudienceHint = "");
+    string AudienceHint = "",
+    bool IsPremiumExclusive = false);
 
 public static class StoreDesignPresets
 {
@@ -96,6 +97,29 @@ public static class StoreDesignPresets
         return (match ?? All[0]).Design.Clone();
     }
 
+    public static bool IsIntermediatePreset(string? presetKey)
+    {
+        if (string.IsNullOrWhiteSpace(presetKey))
+            return true;
+
+        return Intermediate.Any(p => string.Equals(p.Key, presetKey.Trim(), StringComparison.OrdinalIgnoreCase));
+    }
+
+    public static StoreDesignDto ResolveByPresetKeyForPlan(string? planTier, string? presetKey)
+    {
+        var normalized = NormalizePlanTier(planTier);
+        if (string.Equals(normalized, PlanPremium, StringComparison.OrdinalIgnoreCase))
+            return ResolveByPresetKey(presetKey);
+
+        if (string.Equals(normalized, PlanIntermediate, StringComparison.OrdinalIgnoreCase))
+        {
+            var match = Intermediate.FirstOrDefault(p => string.Equals(p.Key, presetKey?.Trim(), StringComparison.OrdinalIgnoreCase));
+            return (match ?? Intermediate[0]).Design.Clone();
+        }
+
+        return StoreDesignDto.CreateMinimalistaLuxo();
+    }
+
     public static IReadOnlyList<string> DisplayFonts { get; } =
     [
         "Playfair Display",
@@ -116,15 +140,18 @@ public static class StoreDesignPresets
 
     public static IReadOnlyList<StoreDesignPresetOption> All { get; } =
     [
+        // === 3 Temas Curados da Meia Versão (Intermediário) — também inclusos no Premium ===
         new(
             "minimalista-luxo",
             "Minimalista Luxo",
             "Alabastro quente, sépia e ouro champagne editorial.",
-            StoreDesignDto.CreateMinimalistaLuxo()),
+            StoreDesignDto.CreateMinimalistaLuxo(),
+            AudienceHint: "Clássico atemporal para qualquer segmento (padrão desde o Básico)",
+            IsPremiumExclusive: false),
         new(
             "editorial-vogue",
             "Editorial Clássico",
-            "Contraste agudo de passarela com cantos retos.",
+            "Contraste agudo de galeria com cantos retos e leitura impecável.",
             new StoreDesignDto
             {
                 PresetKey = "editorial-vogue",
@@ -145,24 +172,109 @@ public static class StoreDesignPresets
                 HeroLayout = "centered",
                 GridColumns = 3,
                 ShowLookbookBadge = true
-            }),
+            },
+            AudienceHint: "Lojas de presentes, acessórios, cosméticos e catálogo selecionado",
+            IsPremiumExclusive: false),
         new(
-            "boutique-rose",
-            "Rosé Suave",
-            "Curadoria suave em marfim rosado e bordô atemporal.",
+            "urban-sartorial",
+            "Urbano Clean",
+            "Vitrine flagship contemporânea em gelo e grafite com grade de 4 colunas.",
             new StoreDesignDto
             {
-                PresetKey = "boutique-rose",
-                BackgroundColor = "#FDF8F6",
+                PresetKey = "urban-sartorial",
+                BackgroundColor = "#F6F7F8",
                 SurfaceColor = "#FFFFFF",
-                SurfaceSubtleColor = "#F7ECE8",
-                PrimaryColor = "#3D2329",
-                PrimaryTextColor = "#FDF8F6",
-                AccentColor = "#C4847A",
-                TextColor = "#2E1A1E",
-                MutedTextColor = "#7A5B61",
-                BorderColor = "#EBDAD5",
-                SidebarColor = "#2B181C",
+                SurfaceSubtleColor = "#ECEEF0",
+                PrimaryColor = "#111113",
+                PrimaryTextColor = "#FFFFFF",
+                AccentColor = "#3F3F46",
+                TextColor = "#111113",
+                MutedTextColor = "#52525B",
+                BorderColor = "#E4E4E7",
+                SidebarColor = "#111113",
+                DisplayFont = "Space Grotesk",
+                BodyFont = "Inter",
+                CornerRadiusMode = "ROUND_FOUR",
+                DensityMode = "balanced",
+                HeroLayout = "split",
+                GridColumns = 4,
+                ShowLookbookBadge = true
+            },
+            AudienceHint: "Tecnologia, casa moderna, utilidades e marcas minimalistas",
+            IsPremiumExclusive: false),
+
+        // === 7 Temas Exclusivos Flagship do Plano Premium (Versão Mais Cara) ===
+        new(
+            "esmeralda-imperial",
+            "Esmeralda Imperial",
+            "Verde floresta profundo, marfim de museu e ouro acetinado.",
+            new StoreDesignDto
+            {
+                PresetKey = "esmeralda-imperial",
+                BackgroundColor = "#F6F4EF",
+                SurfaceColor = "#FFFFFF",
+                SurfaceSubtleColor = "#ECE7DC",
+                PrimaryColor = "#0F2922",
+                PrimaryTextColor = "#F6F4EF",
+                AccentColor = "#C6A45D",
+                TextColor = "#1A1D1B",
+                MutedTextColor = "#56615B",
+                BorderColor = "#E2DCD0",
+                SidebarColor = "#0F2922",
+                DisplayFont = "Playfair Display",
+                BodyFont = "Plus Jakarta Sans",
+                CornerRadiusMode = "ROUND_FOUR",
+                DensityMode = "airy",
+                HeroLayout = "split",
+                GridColumns = 3,
+                ShowLookbookBadge = true
+            },
+            AudienceHint: "Exclusivo Premium • Perfumaria, casa & aromas, joias e alta curadoria",
+            IsPremiumExclusive: true),
+        new(
+            "grafite-studio",
+            "Grafite Studio",
+            "Vitrine escura flagship em obsidiana grafite, branco puro e azul-gelo.",
+            new StoreDesignDto
+            {
+                PresetKey = "grafite-studio",
+                BackgroundColor = "#111318",
+                SurfaceColor = "#1A1D24",
+                SurfaceSubtleColor = "#232732",
+                PrimaryColor = "#FFFFFF",
+                PrimaryTextColor = "#111318",
+                AccentColor = "#38BDF8",
+                TextColor = "#F8FAFC",
+                MutedTextColor = "#94A3B8",
+                BorderColor = "#2A2F3A",
+                SidebarColor = "#0B0D11",
+                DisplayFont = "Space Grotesk",
+                BodyFont = "Inter",
+                CornerRadiusMode = "ROUND_FOUR",
+                DensityMode = "balanced",
+                HeroLayout = "banner",
+                GridColumns = 3,
+                ShowLookbookBadge = true
+            },
+            AudienceHint: "Exclusivo Premium • Eletrônicos, áudio, relógios e design arquitetônico",
+            IsPremiumExclusive: true),
+        new(
+            "terracota-solar",
+            "Terracota Solar",
+            "Linho areia quente, argila terracota e cacau escuro orgânico.",
+            new StoreDesignDto
+            {
+                PresetKey = "terracota-solar",
+                BackgroundColor = "#FBF6F1",
+                SurfaceColor = "#FFFFFF",
+                SurfaceSubtleColor = "#F4EAE0",
+                PrimaryColor = "#9A422B",
+                PrimaryTextColor = "#FFFFFF",
+                AccentColor = "#C56A48",
+                TextColor = "#2B1B17",
+                MutedTextColor = "#785D53",
+                BorderColor = "#EADCD0",
+                SidebarColor = "#2B1B17",
                 DisplayFont = "Cormorant Garamond",
                 BodyFont = "DM Sans",
                 CornerRadiusMode = "ROUND_TWELVE",
@@ -170,32 +282,9 @@ public static class StoreDesignPresets
                 HeroLayout = "split",
                 GridColumns = 3,
                 ShowLookbookBadge = true
-            }),
-        new(
-            "urban-sartorial",
-            "Urbano Clean",
-            "Linhas contemporâneas com estética clean de vitrine.",
-            new StoreDesignDto
-            {
-                PresetKey = "urban-sartorial",
-                BackgroundColor = "#F4F4F5",
-                SurfaceColor = "#FFFFFF",
-                SurfaceSubtleColor = "#E4E4E7",
-                PrimaryColor = "#09090B",
-                PrimaryTextColor = "#FAFAFA",
-                AccentColor = "#52525B",
-                TextColor = "#09090B",
-                MutedTextColor = "#52525B",
-                BorderColor = "#D4D4D8",
-                SidebarColor = "#09090B",
-                DisplayFont = "Space Grotesk",
-                BodyFont = "Inter",
-                CornerRadiusMode = "ROUND_FOUR",
-                DensityMode = "compact",
-                HeroLayout = "split",
-                GridColumns = 4,
-                ShowLookbookBadge = true
-            }),
+            },
+            AudienceHint: "Exclusivo Premium • Decoração, cerâmica, mesa posta e presentes artesanais",
+            IsPremiumExclusive: true),
         new(
             "noir-noturno",
             "Noir Noturno",
@@ -220,8 +309,103 @@ public static class StoreDesignPresets
                 HeroLayout = "banner",
                 GridColumns = 3,
                 ShowLookbookBadge = true
-            })
+            },
+            AudienceHint: "Exclusivo Premium • Luxo noturno, edição limitada e alto valor",
+            IsPremiumExclusive: true),
+        new(
+            "boutique-rose",
+            "Rosé Suave",
+            "Curadoria suave em marfim rosado e bordô atemporal.",
+            new StoreDesignDto
+            {
+                PresetKey = "boutique-rose",
+                BackgroundColor = "#FDF8F6",
+                SurfaceColor = "#FFFFFF",
+                SurfaceSubtleColor = "#F7ECE8",
+                PrimaryColor = "#3D2329",
+                PrimaryTextColor = "#FDF8F6",
+                AccentColor = "#C4847A",
+                TextColor = "#2E1A1E",
+                MutedTextColor = "#7A5B61",
+                BorderColor = "#EBDAD5",
+                SidebarColor = "#2B181C",
+                DisplayFont = "Cormorant Garamond",
+                BodyFont = "DM Sans",
+                CornerRadiusMode = "ROUND_TWELVE",
+                DensityMode = "airy",
+                HeroLayout = "split",
+                GridColumns = 3,
+                ShowLookbookBadge = true
+            },
+            AudienceHint: "Exclusivo Premium • Beleza, bem-estar, flores e presentes delicados",
+            IsPremiumExclusive: true),
+        new(
+            "safira-flagship",
+            "Safira Flagship",
+            "Azul marinho executivo, branco puro e destaque cobalto de grande marca.",
+            new StoreDesignDto
+            {
+                PresetKey = "safira-flagship",
+                BackgroundColor = "#F4F7FB",
+                SurfaceColor = "#FFFFFF",
+                SurfaceSubtleColor = "#E8EEF7",
+                PrimaryColor = "#0B172A",
+                PrimaryTextColor = "#FFFFFF",
+                AccentColor = "#2563EB",
+                TextColor = "#0F172A",
+                MutedTextColor = "#475569",
+                BorderColor = "#DCE4F0",
+                SidebarColor = "#0B172A",
+                DisplayFont = "Montserrat",
+                BodyFont = "Inter",
+                CornerRadiusMode = "ROUND_FOUR",
+                DensityMode = "balanced",
+                HeroLayout = "split",
+                GridColumns = 4,
+                ShowLookbookBadge = true
+            },
+            AudienceHint: "Exclusivo Premium • Lojas corporativas, eletrônicos, ótica e esportes",
+            IsPremiumExclusive: true),
+        new(
+            "galeria-marfim",
+            "Galeria Marfim",
+            "Branco de exposição, pedra suave e bronze escovado em grade ampla de 2 colunas.",
+            new StoreDesignDto
+            {
+                PresetKey = "galeria-marfim",
+                BackgroundColor = "#FFFFFF",
+                SurfaceColor = "#FAFAF8",
+                SurfaceSubtleColor = "#F3F0EA",
+                PrimaryColor = "#1F2937",
+                PrimaryTextColor = "#FFFFFF",
+                AccentColor = "#8C6A43",
+                TextColor = "#111827",
+                MutedTextColor = "#6B7280",
+                BorderColor = "#E5E1D8",
+                SidebarColor = "#18181B",
+                DisplayFont = "Playfair Display",
+                BodyFont = "Work Sans",
+                CornerRadiusMode = "SHARP",
+                DensityMode = "airy",
+                HeroLayout = "centered",
+                GridColumns = 2,
+                ShowLookbookBadge = true
+            },
+            AudienceHint: "Exclusivo Premium • Destaque máximo por foto, arte, mobiliário e peças autorais",
+            IsPremiumExclusive: true)
     ];
+
+    /// <summary>
+    /// Os 3 modelos pré-prontos disponíveis no Plano Intermediário (Meia Versão).
+    /// </summary>
+    public static IReadOnlyList<StoreDesignPresetOption> Intermediate { get; } =
+        All.Where(p => !p.IsPremiumExclusive).ToArray();
+
+    /// <summary>
+    /// Os 7 modelos exclusivos flagship desbloqueados no Plano Premium (Versão Mais Cara).
+    /// </summary>
+    public static IReadOnlyList<StoreDesignPresetOption> PremiumExclusive { get; } =
+        All.Where(p => p.IsPremiumExclusive).ToArray();
 }
 
 public static class StoreDesignCssHelper

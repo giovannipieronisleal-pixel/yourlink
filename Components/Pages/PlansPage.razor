@@ -278,7 +278,7 @@ else
                 }
                 else
                 {
-                    <span class="pill-badge pill-slate">5 Versões Prontas</span>
+                    <span class="pill-badge pill-slate">3 Designs Prontos</span>
                 }
             </div>
             <h2 style="margin: 0; font-size: 1.2rem; font-weight: 800;">Plano Intermediário</h2>
@@ -290,10 +290,10 @@ else
                 @GetDisplayPlanPrice(_settings.IntermediaryPlanMonthlyPrice).ToString("C") <small>/mês</small>
             </div>
             <p style="margin: 0; font-size: 0.85rem; color: var(--adm-muted);">
-                Troque o visual da sua loja entre <strong>5 versões pré-prontas</strong> para combinar com seu público, sem precisar configurar nada.
+                Troque o visual da sua loja entre <strong>3 designs profissionais pré-prontos</strong> para combinar com seu público, sem precisar configurar nada.
             </p>
             <ul class="plan-feature-list">
-                <li><strong>5 versões de site pré-prontas</strong> (escolha abaixo)</li>
+                <li><strong>3 versões de site pré-prontas:</strong> Minimalista Luxo, Editorial Clássico e Urbano Clean</li>
                 <li><strong>Servidor 24h + HTTPS inclusos</strong> (sem cobrança separada)</li>
                 <li><strong>Domínio / Endereço da loja incluso</strong> sem taxa adicional</li>
                 <li><strong>Painel Vendas &amp; Quanto Vendeu:</strong> faturamento por período, produtos mais vendidos e vendas WhatsApp/balcão</li>
@@ -331,10 +331,10 @@ else
                 @GetDisplayPlanPrice(_settings.PremiumPlanMonthlyPrice).ToString("C") <small>/mês</small>
             </div>
             <p style="margin: 0; font-size: 0.85rem; color: var(--adm-muted);">
-                Liberdade total para moldar cada cor, tipografia, borda, espaçamento e banner no Estúdio Visual.
+                Desbloqueie <strong>10 designs profissionais (7 exclusivos flagship + modos escuros)</strong> e liberdade total no Estúdio Visual.
             </p>
             <ul class="plan-feature-list">
-                <li><strong>Todas as 5 versões pré-prontas</strong> como base inicial</li>
+                <li><strong>10 designs profissionais inclusos:</strong> os 3 da Meia Versão + <strong>7 exclusivos Premium</strong> (Esmeralda Imperial, Grafite Studio Escuro, Terracota Solar, Noir Noturno, Rosé Suave, Safira Flagship e Galeria Marfim)</li>
                 <li><strong>Servidor 24h + HTTPS + Domínio inclusos</strong> no plano (zero taxa à parte)</li>
                 <li><strong>Painel Vendas &amp; Quanto Vendeu:</strong> faturamento por período, produtos mais vendidos e vendas WhatsApp/balcão</li>
                 <li><strong>Vendas no app apenas por Pix</strong> (ativável), limite de distância e cálculo Correios</li>
@@ -363,31 +363,31 @@ else
         </article>
     </section>
 
-    <!-- As 5 Versões Pré-Prontas de Site -->
+    <!-- Catálogo de Designs de Vitrine (3 na Meia Versão + 7 Exclusivos Premium = 10 Modelos Profissionais) -->
     <section class="adm-card" style="margin-bottom: 1.4rem;">
         <div style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 0.75rem; margin-bottom: 1rem;">
             <div>
                 <h2 style="margin: 0 0 0.25rem 0; font-size: 1.15rem; font-weight: 800;">
-                    5 Versões de Site Pré-Prontas (Meia Versão)
+                    Galeria de Designs da Loja Online (3 na Meia Versão &bull; 10 no Premium)
                 </h2>
-                <p style="margin: 0; font-size: 0.87rem; color: var(--adm-muted); max-width: 720px;">
+                <p style="margin: 0; font-size: 0.87rem; color: var(--adm-muted); max-width: 740px;">
                     @if (BrandState.IsIntermediatePlan)
                     {
                         <span>
-                            Seu plano <strong>Intermediário (Meia Versão)</strong> libera todas as 5 versões pré-prontas abaixo.
-                            Escolha uma delas e clique em aplicar — neste plano os temas não são configuráveis manualmente.
+                            Seu plano <strong>Intermediário (Meia Versão)</strong> libera os <strong>3 designs pré-prontos</strong> abaixo.
+                            Os outros <strong>7 designs exclusivos flagship</strong> (incluindo vitrines escuras) são exclusivos do <strong>Plano Premium</strong>.
                         </span>
                     }
                     else if (BrandState.IsPremiumPlan)
                     {
                         <span>
-                            No plano <strong>Premium</strong> você também pode aplicar qualquer uma das 5 versões prontas aqui com 1 clique ou ajustá-la depois no Estúdio Visual.
+                            No plano <strong>Premium</strong> você tem acesso a todos os <strong>10 designs profissionais</strong> abaixo com 1 clique e ainda pode personalizar cores, fontes e capa no Estúdio Visual.
                         </span>
                     }
                     else
                     {
                         <span>
-                            No <strong>Plano Básico</strong> a loja usa a versão fixa <strong>Minimalista Luxo</strong>. Ative um Gift Card do Plano Intermediário ou Premium abaixo para desbloquear todas as 5 versões.
+                            No <strong>Plano Básico</strong> a loja usa o visual fixo <strong>Minimalista Luxo</strong>. Ative a <strong>Meia Versão (3 designs)</strong> ou o <strong>Premium (10 designs + edição livre)</strong> para desbloquear novos visuais.
                         </span>
                     }
                 </p>
@@ -399,7 +399,7 @@ else
                         class="adm-btn adm-btn-primary"
                         disabled="@_savingPreset"
                         @onclick="ApplySelectedVersionAsync">
-                    @(_savingPreset ? "Aplicando versão..." : "✓ Aplicar Versão Escolhida no Site")
+                    @(_savingPreset ? "Aplicando versão..." : "✓ Aplicar Design Escolhido no Site")
                 </button>
             }
         </div>
@@ -407,15 +407,17 @@ else
         <div class="version-showcase-grid">
             @foreach (var preset in StoreDesignPresets.All)
             {
-                var isLockedForBasic = !BrandState.IsIntermediatePlan &&
-                                       !BrandState.IsPremiumPlan &&
-                                       !string.Equals(preset.Key, "minimalista-luxo", StringComparison.OrdinalIgnoreCase);
+                var isLockedForPlan = preset.IsPremiumExclusive
+                    ? !BrandState.IsPremiumPlan
+                    : (!BrandState.IsIntermediatePlan &&
+                       !BrandState.IsPremiumPlan &&
+                       !string.Equals(preset.Key, "minimalista-luxo", StringComparison.OrdinalIgnoreCase));
                 var isSelected = string.Equals(_selectedPresetKey, preset.Key, StringComparison.OrdinalIgnoreCase);
                 var isActiveLive = string.Equals(_activePresetKey, preset.Key, StringComparison.OrdinalIgnoreCase);
 
                 <button type="button"
                         class="version-showcase-card @(isSelected ? "active" : string.Empty)"
-                        disabled="@(!Gateway.IsAdmin || isLockedForBasic || _savingPreset)"
+                        disabled="@(!Gateway.IsAdmin || isLockedForPlan || _savingPreset)"
                         @onclick="() => SelectPreset(preset.Key)">
                     <div class="version-mini-bar" style="background: @preset.Design.BackgroundColor;">
                         <div style="height: 16px; background: @preset.Design.PrimaryColor; display: flex; align-items: center; justify-content: space-between; padding: 0 0.5rem;">
@@ -434,18 +436,28 @@ else
                     </div>
 
                     <div style="display: flex; justify-content: space-between; align-items: center; gap: 0.4rem; flex-wrap: wrap;">
-                        <strong style="font-size: 0.96rem;">@preset.Name</strong>
+                        <strong style="font-size: 0.96rem;">@(preset.IsPremiumExclusive ? $"✦ {preset.Name}" : preset.Name)</strong>
                         @if (isActiveLive)
                         {
                             <span class="pill-badge pill-green">Em uso no site</span>
                         }
-                        else if (isLockedForBasic)
+                        else if (isLockedForPlan)
                         {
-                            <span class="pill-badge pill-slate">🔒 Meia Versão+</span>
+                            <span class="pill-badge @(preset.IsPremiumExclusive ? "pill-gold" : "pill-slate")">
+                                @(preset.IsPremiumExclusive ? "🔒 Exclusivo Premium" : "🔒 Meia Versão+")
+                            </span>
                         }
                         else if (isSelected)
                         {
                             <span class="pill-badge pill-gold">Selecionada</span>
+                        }
+                        else if (preset.IsPremiumExclusive)
+                        {
+                            <span class="pill-badge pill-gold">✦ Premium</span>
+                        }
+                        else
+                        {
+                            <span class="pill-badge pill-slate">Meia Versão+</span>
                         }
                     </div>
 
@@ -628,7 +640,7 @@ else
             BrandState.ApplyFromAdminSettings(_settings);
 
             var currentPreset = _settings.Design?.PresetKey;
-            _activePresetKey = StoreDesignPresets.ResolveByPresetKey(currentPreset).PresetKey;
+            _activePresetKey = StoreDesignPresets.ResolveByPresetKeyForPlan(BrandState.EffectivePlanTier, currentPreset).PresetKey;
             _selectedPresetKey = _activePresetKey;
             if (string.IsNullOrWhiteSpace(_freeDomainQuery))
                 _freeDomainQuery = _settings.StoreName;
@@ -771,14 +783,20 @@ else
                 string.Equals(p.Key, _selectedPresetKey, StringComparison.OrdinalIgnoreCase))
                 ?? StoreDesignPresets.All[0];
 
+            if (chosenPreset.IsPremiumExclusive && !BrandState.IsPremiumPlan)
+            {
+                _error = $"O design '{chosenPreset.Name}' é exclusivo do Plano Premium. Na Meia Versão estão liberados os 3 modelos pré-prontos (Minimalista Luxo, Editorial Clássico e Urbano Clean).";
+                return;
+            }
+
             var req = BuildUpdateRequest(_settings, chosenPreset.Design.Clone());
             var updated = await Gateway.UpdateStoreSettingsAsync(req);
 
             _settings = updated;
             BrandState.ApplyFromAdminSettings(updated);
-            _activePresetKey = StoreDesignPresets.ResolveByPresetKey(updated.Design?.PresetKey).PresetKey;
+            _activePresetKey = StoreDesignPresets.ResolveByPresetKeyForPlan(BrandState.EffectivePlanTier, updated.Design?.PresetKey).PresetKey;
             _selectedPresetKey = _activePresetKey;
-            _successMessage = $"Versão '{chosenPreset.Name}' aplicada! Seus clientes já veem essa identidade no site público.";
+            _successMessage = $"Design '{chosenPreset.Name}' aplicado! Seus clientes já veem essa identidade no site público.";
         }
         catch (Exception ex)
         {
@@ -808,7 +826,7 @@ else
 
             _settings = response.UpdatedSettings;
             BrandState.ApplyFromAdminSettings(response.UpdatedSettings);
-            _activePresetKey = StoreDesignPresets.ResolveByPresetKey(_settings.Design?.PresetKey).PresetKey;
+            _activePresetKey = StoreDesignPresets.ResolveByPresetKeyForPlan(BrandState.EffectivePlanTier, _settings.Design?.PresetKey).PresetKey;
             _selectedPresetKey = _activePresetKey;
             _giftCardCode = string.Empty;
             _successMessage = response.Message;
@@ -860,9 +878,9 @@ else
     private string GetPlanSummaryText()
     {
         if (HasActivePremiumPlan)
-            return "Você tem acesso completo às 5 versões pré-prontas, Estúdio Visual Sob Medida, vendas diretas no app por Pix (ativável) com limite de distância e cálculo dos Correios.";
+            return "Você tem acesso completo aos 10 designs profissionais (7 exclusivos Premium), Estúdio Visual Sob Medida, vendas diretas no app por Pix (ativável) com limite de distância e cálculo dos Correios.";
         if (HasActiveIntermediatePlan)
-            return "Você pode alternar livremente entre 5 versões de site pré-prontas e ativar vendas diretas no app por Pix com limite de distância e estimativa dos Correios.";
+            return "Você pode alternar livremente entre 3 designs de site pré-prontos e ativar vendas diretas no app por Pix com limite de distância e estimativa dos Correios.";
         if (HasActiveBasicPlan)
             return "Sua loja está com o Plano Básico ativo e opera com o layout fixo Minimalista Luxo, pensado para compras rápidas pelo WhatsApp.";
         if (IsCurrentPlanExpired)

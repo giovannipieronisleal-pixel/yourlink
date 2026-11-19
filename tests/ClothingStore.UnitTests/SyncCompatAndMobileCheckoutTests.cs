@@ -482,8 +482,9 @@ public class SyncCompatAndMobileCheckoutTests
         Assert.IsTrue(appCss[..rootBlockEnd].Contains("--adm-card:", StringComparison.Ordinal), ":root deve declarar --adm-card como fallback.");
         Assert.IsTrue(appCss[..rootBlockEnd].Contains("--adm-sidebar:", StringComparison.Ordinal), ":root deve declarar --adm-sidebar como fallback.");
         Assert.IsTrue(appCss.Contains("background-color: var(--adm-card, #FFFFFF);", StringComparison.Ordinal), ".adm-modal-card deve ter fallback explícito.");
-        Assert.IsTrue(appCss.Contains("background-color: var(--adm-sidebar, #141416);", StringComparison.Ordinal), ".adm-sidebar deve ter fundo explícito na versão branca e escura.");
-        Assert.IsTrue(appCss.Contains("color: var(--adm-sidebar-text, #FAF8F5);", StringComparison.Ordinal), ".adm-nav-item.active deve manter contraste.");
+        Assert.IsTrue(appCss.Contains("background-color: var(--adm-sidebar, #FFFFFF);", StringComparison.Ordinal), ".adm-sidebar deve ter fundo explícito na versão branca e escura.");
+        Assert.IsTrue(appCss.Contains("--adm-sidebar: #131926;", StringComparison.Ordinal), ".theme-dark deve definir fundo explícito escuro para .adm-sidebar.");
+        Assert.IsTrue(appCss.Contains("color: var(--adm-sidebar-active-text, #1D4ED8);", StringComparison.Ordinal), ".adm-nav-item.active deve manter contraste explícito.");
         Assert.IsTrue(appCss.Contains(".theme-system .pill-green", StringComparison.Ordinal), "@media dark para theme-system deve ajustar contraste das badges.");
 
         var navCss = File.ReadAllText(Path.Combine(root, "Components", "Layout", "NavMenu.razor.css"), Encoding.UTF8);

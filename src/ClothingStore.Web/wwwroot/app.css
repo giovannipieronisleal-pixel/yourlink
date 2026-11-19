@@ -158,12 +158,13 @@ img {
     align-items: center;
     justify-content: center;
     gap: 0.55rem;
+    min-height: 46px;
     padding: 0.78rem 1.45rem;
     border-radius: var(--brand-radius-btn);
     font-family: var(--brand-font-body);
-    font-size: 0.88rem;
+    font-size: 0.92rem;
     font-weight: 600;
-    letter-spacing: 0.03em;
+    letter-spacing: 0.025em;
     cursor: pointer;
     border: 1px solid transparent;
     transition: transform 0.16s ease, background-color 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
@@ -292,29 +293,30 @@ img {
 }
 
 .lux-hero-banner {
-    background: var(--brand-sidebar);
-    color: #FAF8F5;
+    background: radial-gradient(circle at top right, color-mix(in srgb, var(--brand-accent) 18%, transparent), transparent 58%), var(--brand-sidebar);
+    color: #F8FAFC;
     border-radius: var(--brand-radius-card);
     padding: clamp(2.4rem, 5vw, 4rem) clamp(1.75rem, 4vw, 3.25rem);
-    border: 1px solid rgba(182, 145, 88, 0.35);
+    border: 1px solid color-mix(in srgb, var(--brand-accent) 38%, rgba(255, 255, 255, 0.12));
+    box-shadow: 0 24px 48px -30px rgba(0, 0, 0, 0.55);
 }
 
 .lux-hero-banner .lux-hero-title {
-    color: #FAF8F5;
+    color: #FFFFFF;
 }
 
 .lux-hero-banner .lux-hero-subtitle {
-    color: #D6D0C4;
+    color: #CBD5E1;
 }
 
 .lux-hero-banner .lux-btn-primary {
-    background: var(--brand-accent);
-    color: #141416;
+    background: var(--brand-primary);
+    color: var(--brand-primary-fg);
 }
 
 .lux-hero-banner .lux-btn-outline {
-    color: #FAF8F5;
-    border-color: rgba(250, 248, 245, 0.32);
+    color: #F8FAFC;
+    border-color: rgba(248, 250, 252, 0.32);
 }
 
 /* Concierge Showcase Card */
@@ -465,13 +467,14 @@ img {
     overflow: hidden;
     display: flex;
     flex-direction: column;
+    box-shadow: 0 6px 22px -18px rgba(15, 23, 42, 0.25);
     transition: transform 0.24s ease, border-color 0.24s ease, box-shadow 0.24s ease;
 }
 
 .lux-product-card:hover {
-    transform: translateY(-3px);
+    transform: translateY(-4px);
     border-color: var(--brand-accent);
-    box-shadow: 0 18px 34px -22px rgba(24, 24, 27, 0.25);
+    box-shadow: 0 22px 40px -24px rgba(15, 23, 42, 0.34);
 }
 
 .lux-product-media {
@@ -578,8 +581,10 @@ img {
 }
 
 .lux-product-price {
-    font-size: 1.02rem;
-    font-weight: 700;
+    font-size: 1.18rem;
+    font-weight: 800;
+    letter-spacing: -0.015em;
+    font-variant-numeric: tabular-nums;
     color: var(--brand-text);
 }
 

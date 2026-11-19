@@ -109,15 +109,107 @@
     display: none;
     background: transparent;
     border: none;
-    color: var(--adm-sidebar-muted, #B8B2A8);
+    color: var(--adm-sidebar-muted, #4B5563);
     font-family: inherit;
     cursor: pointer;
 }
 
 .adm-nav-more-btn.active {
-    background-color: rgba(182, 145, 88, 0.22);
-    color: var(--adm-sidebar-text, #FAF8F5);
-    border-top-color: var(--adm-accent, #B69158);
+    background-color: var(--adm-sidebar-active-bg, #EFF6FF);
+    color: var(--adm-sidebar-active-text, #1D4ED8);
+    border-top-color: var(--adm-primary, #1D4ED8);
+}
+
+.adm-nav-desktop-more {
+    justify-content: flex-start;
+    margin-top: 0.2rem;
+    font-size: 0.88rem;
+    opacity: 0.88;
+}
+
+.adm-nav-caret {
+    margin-left: auto;
+    font-size: 0.8rem;
+    opacity: 0.7;
+}
+
+.adm-nav-desktop-sub {
+    display: flex;
+    flex-direction: column;
+    gap: 0.18rem;
+    padding-left: 0.65rem;
+    margin-bottom: 0.25rem;
+    border-left: 2px solid var(--adm-sidebar-border, #E5E7EB);
+    margin-left: 1rem;
+}
+
+.adm-sidebar-quick-tools {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    margin-bottom: 0.35rem;
+}
+
+.adm-sidebar-tool-row {
+    appearance: none;
+    -webkit-appearance: none;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.6rem;
+    width: 100%;
+    min-height: 42px;
+    padding: 0.5rem 0.72rem;
+    border-radius: 10px;
+    border: none;
+    background: transparent;
+    color: var(--adm-sidebar-muted, #4B5563);
+    font-family: inherit;
+    font-size: 0.9rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.adm-sidebar-tool-row:hover {
+    background: var(--adm-sidebar-hover, #F3F4F6);
+    color: var(--adm-sidebar-text, #111827);
+}
+
+.adm-sidebar-tool-left {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.6rem;
+}
+
+.adm-toggle-pill {
+    width: 40px;
+    height: 22px;
+    border-radius: 999px;
+    background: var(--adm-border, #D1D5DB);
+    position: relative;
+    flex-shrink: 0;
+    transition: background-color 0.18s ease;
+}
+
+.adm-toggle-pill.on {
+    background: var(--adm-primary, #3B82F6);
+}
+
+.adm-toggle-knob {
+    position: absolute;
+    top: 3px;
+    left: 3px;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: #FFFFFF;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.22);
+    transition: transform 0.18s ease;
+}
+
+.adm-toggle-pill.on .adm-toggle-knob {
+    transform: translateX(18px);
 }
 
 .adm-mobile-sheet-backdrop {
@@ -125,6 +217,11 @@
 }
 
 @media (max-width: 820px) {
+    .adm-nav-desktop-more,
+    .adm-nav-desktop-sub {
+        display: none !important;
+    }
+
     .adm-nav-more-btn {
         display: flex;
     }
@@ -386,8 +483,8 @@
 }
 
 .adm-sidebar-account-card {
-    background: rgba(255, 255, 255, 0.04);
-    border: 1px solid rgba(182, 145, 88, 0.28);
+    background: var(--adm-surface-subtle, #EEF2F6);
+    border: 1px solid var(--adm-sidebar-border, #E5E7EB);
     border-radius: 12px;
     padding: 0.65rem;
     display: flex;
@@ -404,12 +501,12 @@
 }
 
 .adm-sidebar-avatar {
-    width: 32px;
-    height: 32px;
+    width: 34px;
+    height: 34px;
     border-radius: 50%;
-    background: var(--brand-accent, #B69158);
-    color: #141416;
-    font-size: 0.78rem;
+    background: var(--adm-primary, #1D4ED8);
+    color: #FFFFFF;
+    font-size: 0.8rem;
     font-weight: 800;
     display: inline-flex;
     align-items: center;
@@ -436,7 +533,7 @@
 .adm-sidebar-account-name {
     font-size: 0.84rem;
     font-weight: 700;
-    color: #FAF8F5;
+    color: var(--adm-sidebar-text, #111827);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -449,8 +546,8 @@
 }
 
 .adm-sidebar-account-sub {
-    font-size: 0.71rem;
-    color: var(--adm-sidebar-muted, #B8B2A8);
+    font-size: 0.72rem;
+    color: var(--adm-sidebar-muted, #4B5563);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -472,12 +569,12 @@
     gap: 0.22rem;
     padding: 0.42rem 0.3rem;
     min-width: 0;
-    min-height: 34px;
+    min-height: 36px;
     border-radius: 8px;
-    border: 1px solid rgba(255, 255, 255, 0.14);
-    background: rgba(255, 255, 255, 0.06);
-    color: #FAF8F5;
-    font-size: 0.69rem;
+    border: 1px solid var(--adm-border, #E5E7EB);
+    background: var(--adm-card, #FFFFFF);
+    color: var(--adm-sidebar-text, #111827);
+    font-size: 0.72rem;
     font-weight: 700;
     white-space: nowrap;
     overflow: hidden;
@@ -487,16 +584,16 @@
 }
 
 .adm-sidebar-acc-btn:hover {
-    background: rgba(182, 145, 88, 0.22);
-    border-color: var(--brand-accent, #B69158);
+    background: var(--adm-sidebar-active-bg, #EFF6FF);
+    border-color: var(--adm-primary, #1D4ED8);
 }
 
 .adm-sidebar-acc-btn-logout {
-    border-color: rgba(239, 68, 68, 0.35);
-    color: #FCA5A5;
+    border-color: color-mix(in srgb, var(--adm-danger, #DC2626) 35%, transparent);
+    color: var(--adm-danger, #DC2626);
 }
 
 .adm-sidebar-acc-btn-logout:hover {
-    background: rgba(239, 68, 68, 0.22);
-    border-color: rgba(239, 68, 68, 0.7);
+    background: color-mix(in srgb, var(--adm-danger, #DC2626) 14%, transparent);
+    border-color: var(--adm-danger, #DC2626);
 }

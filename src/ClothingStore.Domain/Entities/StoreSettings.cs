@@ -148,15 +148,15 @@ public sealed class StoreSettings
     /// <summary>
     /// Retorna o design efetivo exibido no catálogo público e no aplicativo:
     /// - Básico (ou licença expirada): Minimalista Luxo fixo (não configurável).
-    /// - Intermediário (Meia Versão): exatamente uma das 5 versões pré-prontas oficiais (não configurável).
-    /// - Premium: design 100% moldável pelo cliente.
+    /// - Intermediário (Meia Versão): exatamente uma das 3 versões pré-prontas oficiais (não configurável).
+    /// - Premium: qualquer um dos 10 temas profissionais + design 100% moldável pelo cliente.
     /// </summary>
     public StoreDesignConfig GetEffectivePublicDesign(DateTimeOffset? now = null)
     {
         return GetEffectivePlanTier(now) switch
         {
             PlanTierPremium => (DesignConfig ?? StoreDesignConfig.CreateMinimalistaLuxo()).CreateNormalizedCopy(),
-            PlanTierIntermediate => StoreDesignConfig.CreatePresetByKey(DesignConfig?.PresetKey),
+            PlanTierIntermediate => StoreDesignConfig.CreateIntermediatePresetByKey(DesignConfig?.PresetKey),
             _ => StoreDesignConfig.CreateMinimalistaLuxo()
         };
     }
@@ -285,9 +285,8 @@ public sealed class StoreSettings
         {
             if (IsEffectiveIntermediatePlan())
             {
-                // Na Meia Versão, preserva eventuais rascunhos Premium anteriores apenas se precisar?
-                // Melhor: aplica diretamente o preset oficial escolhido dentre os 5 (não configurável).
-                DesignConfig = StoreDesignConfig.CreatePresetByKey(designConfig.PresetKey);
+                // Na Meia Versão, aplica diretamente um dos 3 temas pré-prontos permitidos (não configurável).
+                DesignConfig = StoreDesignConfig.CreateIntermediatePresetByKey(designConfig.PresetKey);
             }
             else
             {
@@ -1006,7 +1005,34 @@ public sealed partial class StoreDesignConfig
     public static StoreDesignConfig CreateMinimalistaLuxo() => new();
 
     /// <summary>
-    /// Retorna uma das 5 versões pré-prontas oficiais do sistema (usadas no Plano Intermediário / Meia Versão).
+    /// Os 3 temas pré-prontos liberados no Plano Intermediário (Meia Versão).
+    /// Os demais 7 temas de alto padrão são exclusivos do Plano Premium.
+    /// </summary>
+    public static readonly IReadOnlyList<string> IntermediatePresetKeys =
+    [
+        "minimalista-luxo",
+        "editorial-vogue",
+        "urban-sartorial"
+    ];
+
+    public static bool IsIntermediatePresetKey(string? presetKey)
+    {
+        if (string.IsNullOrWhiteSpace(presetKey))
+            return true;
+
+        var key = presetKey.Trim();
+        return IntermediatePresetKeys.Any(k => string.Equals(k, key, StringComparison.OrdinalIgnoreCase));
+    }
+
+    public static StoreDesignConfig CreateIntermediatePresetByKey(string? presetKey)
+    {
+        return IsIntermediatePresetKey(presetKey)
+            ? CreatePresetByKey(presetKey)
+            : CreateMinimalistaLuxo();
+    }
+
+    /// <summary>
+    /// Retorna um dos 10 temas profissionais oficiais do sistema (3 disponíveis na Meia Versão e todos os 10 no Premium).
     /// </summary>
     public static StoreDesignConfig CreatePresetByKey(string? presetKey)
     {
@@ -1034,6 +1060,90 @@ public sealed partial class StoreDesignConfig
                 GridColumns = 3,
                 ShowLookbookBadge = true
             },
+            "urban-sartorial" => new StoreDesignConfig
+            {
+                PresetKey = "urban-sartorial",
+                BackgroundColor = "#F6F7F8",
+                SurfaceColor = "#FFFFFF",
+                SurfaceSubtleColor = "#ECEEF0",
+                PrimaryColor = "#111113",
+                PrimaryTextColor = "#FFFFFF",
+                AccentColor = "#3F3F46",
+                TextColor = "#111113",
+                MutedTextColor = "#52525B",
+                BorderColor = "#E4E4E7",
+                SidebarColor = "#111113",
+                DisplayFont = "Space Grotesk",
+                BodyFont = "Inter",
+                CornerRadiusMode = "ROUND_FOUR",
+                DensityMode = "balanced",
+                HeroLayout = "split",
+                GridColumns = 4,
+                ShowLookbookBadge = true
+            },
+            "esmeralda-imperial" => new StoreDesignConfig
+            {
+                PresetKey = "esmeralda-imperial",
+                BackgroundColor = "#F6F4EF",
+                SurfaceColor = "#FFFFFF",
+                SurfaceSubtleColor = "#ECE7DC",
+                PrimaryColor = "#0F2922",
+                PrimaryTextColor = "#F6F4EF",
+                AccentColor = "#C6A45D",
+                TextColor = "#1A1D1B",
+                MutedTextColor = "#56615B",
+                BorderColor = "#E2DCD0",
+                SidebarColor = "#0F2922",
+                DisplayFont = "Playfair Display",
+                BodyFont = "Plus Jakarta Sans",
+                CornerRadiusMode = "ROUND_FOUR",
+                DensityMode = "airy",
+                HeroLayout = "split",
+                GridColumns = 3,
+                ShowLookbookBadge = true
+            },
+            "grafite-studio" => new StoreDesignConfig
+            {
+                PresetKey = "grafite-studio",
+                BackgroundColor = "#111318",
+                SurfaceColor = "#1A1D24",
+                SurfaceSubtleColor = "#232732",
+                PrimaryColor = "#FFFFFF",
+                PrimaryTextColor = "#111318",
+                AccentColor = "#38BDF8",
+                TextColor = "#F8FAFC",
+                MutedTextColor = "#94A3B8",
+                BorderColor = "#2A2F3A",
+                SidebarColor = "#0B0D11",
+                DisplayFont = "Space Grotesk",
+                BodyFont = "Inter",
+                CornerRadiusMode = "ROUND_FOUR",
+                DensityMode = "balanced",
+                HeroLayout = "banner",
+                GridColumns = 3,
+                ShowLookbookBadge = true
+            },
+            "terracota-solar" => new StoreDesignConfig
+            {
+                PresetKey = "terracota-solar",
+                BackgroundColor = "#FBF6F1",
+                SurfaceColor = "#FFFFFF",
+                SurfaceSubtleColor = "#F4EAE0",
+                PrimaryColor = "#9A422B",
+                PrimaryTextColor = "#FFFFFF",
+                AccentColor = "#C56A48",
+                TextColor = "#2B1B17",
+                MutedTextColor = "#785D53",
+                BorderColor = "#EADCD0",
+                SidebarColor = "#2B1B17",
+                DisplayFont = "Cormorant Garamond",
+                BodyFont = "DM Sans",
+                CornerRadiusMode = "ROUND_TWELVE",
+                DensityMode = "airy",
+                HeroLayout = "split",
+                GridColumns = 3,
+                ShowLookbookBadge = true
+            },
             "boutique-rose" => new StoreDesignConfig
             {
                 PresetKey = "boutique-rose",
@@ -1055,27 +1165,6 @@ public sealed partial class StoreDesignConfig
                 GridColumns = 3,
                 ShowLookbookBadge = true
             },
-            "urban-sartorial" => new StoreDesignConfig
-            {
-                PresetKey = "urban-sartorial",
-                BackgroundColor = "#F4F4F5",
-                SurfaceColor = "#FFFFFF",
-                SurfaceSubtleColor = "#E4E4E7",
-                PrimaryColor = "#09090B",
-                PrimaryTextColor = "#FAFAFA",
-                AccentColor = "#52525B",
-                TextColor = "#09090B",
-                MutedTextColor = "#52525B",
-                BorderColor = "#D4D4D8",
-                SidebarColor = "#09090B",
-                DisplayFont = "Space Grotesk",
-                BodyFont = "Inter",
-                CornerRadiusMode = "ROUND_FOUR",
-                DensityMode = "compact",
-                HeroLayout = "split",
-                GridColumns = 4,
-                ShowLookbookBadge = true
-            },
             "noir-noturno" => new StoreDesignConfig
             {
                 PresetKey = "noir-noturno",
@@ -1095,6 +1184,48 @@ public sealed partial class StoreDesignConfig
                 DensityMode = "balanced",
                 HeroLayout = "banner",
                 GridColumns = 3,
+                ShowLookbookBadge = true
+            },
+            "safira-flagship" => new StoreDesignConfig
+            {
+                PresetKey = "safira-flagship",
+                BackgroundColor = "#F4F7FB",
+                SurfaceColor = "#FFFFFF",
+                SurfaceSubtleColor = "#E8EEF7",
+                PrimaryColor = "#0B172A",
+                PrimaryTextColor = "#FFFFFF",
+                AccentColor = "#2563EB",
+                TextColor = "#0F172A",
+                MutedTextColor = "#475569",
+                BorderColor = "#DCE4F0",
+                SidebarColor = "#0B172A",
+                DisplayFont = "Montserrat",
+                BodyFont = "Inter",
+                CornerRadiusMode = "ROUND_FOUR",
+                DensityMode = "balanced",
+                HeroLayout = "split",
+                GridColumns = 4,
+                ShowLookbookBadge = true
+            },
+            "galeria-marfim" => new StoreDesignConfig
+            {
+                PresetKey = "galeria-marfim",
+                BackgroundColor = "#FFFFFF",
+                SurfaceColor = "#FAFAF8",
+                SurfaceSubtleColor = "#F3F0EA",
+                PrimaryColor = "#1F2937",
+                PrimaryTextColor = "#FFFFFF",
+                AccentColor = "#8C6A43",
+                TextColor = "#111827",
+                MutedTextColor = "#6B7280",
+                BorderColor = "#E5E1D8",
+                SidebarColor = "#18181B",
+                DisplayFont = "Playfair Display",
+                BodyFont = "Work Sans",
+                CornerRadiusMode = "SHARP",
+                DensityMode = "airy",
+                HeroLayout = "centered",
+                GridColumns = 2,
                 ShowLookbookBadge = true
             },
             _ => CreateMinimalistaLuxo()
