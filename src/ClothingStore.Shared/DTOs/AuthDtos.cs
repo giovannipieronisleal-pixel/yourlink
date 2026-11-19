@@ -34,14 +34,17 @@ public sealed record RegisterUserAccountRequest(
     string Password,
 
     string? Phone = null,
-    string? Username = null);
+    string? Username = null,
+    string? TurnstileToken = null);
 
 public sealed record LoginRequest(
     [Required(ErrorMessage = "O login é obrigatório.")]
     string Email,
 
     [Required(ErrorMessage = "A senha é obrigatória.")]
-    string Password);
+    string Password,
+
+    string? TurnstileToken = null);
 
 public sealed record LoginChallengeResponse(
     bool RequiresTwoFactor,

@@ -4,9 +4,46 @@ namespace appmaui.blazor
 {
     public partial class App : Application
     {
+        private static bool _telemetryHooksRegistered;
+
         public App()
         {
             InitializeComponent();
+            EnsureGlobalErrorTelemetryHooks();
+        }
+
+        private static void EnsureGlobalErrorTelemetryHooks()
+        {
+            if (_telemetryHooksRegistered)
+                return;
+            _telemetryHooksRegistered = true;
+
+            AppDomain.CurrentDomain.UnhandledException += (_, args) =>
+            {
+                if (args.ExceptionObject is Exception ex)
+                    ReportTelemetryBestEffort("AppDomain.UnhandledException", ex);
+            };
+
+            TaskScheduler.UnobservedTaskException += (_, args) =>
+            {
+                ReportTelemetryBestEffort("TaskScheduler.UnobservedTaskException", args.Exception);
+                args.SetObserved();
+            };
+        }
+
+        private static void ReportTelemetryBestEffort(string context, Exception ex)
+        {
+            try
+            {
+                var services = Current?.Handler?.MauiContext?.Services
+                    ?? IPlatformApplication.Current?.Services;
+                var gateway = services?.GetService<MauiAdminGateway>();
+                if (gateway is not null)
+                    _ = gateway.ReportClientErrorBestEffortAsync(context, ex);
+            }
+            catch
+            {
+            }
         }
 
         protected override Window CreateWindow(IActivationState? activationState)

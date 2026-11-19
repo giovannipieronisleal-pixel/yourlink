@@ -128,6 +128,11 @@ builder.Services.AddSingleton<IClothingStoreRepository>(sp =>
     new ClothingStoreRepository(sp.GetRequiredService<IPasswordHasher>(), sharedDbPath));
 builder.Services.AddSingleton(sp =>
     new CloudAccountRegistryService(appDataRoot, sp.GetRequiredService<IPasswordHasher>()));
+builder.Services.AddSingleton(_ => new RemoteConfigAndTelemetryStore(appDataRoot));
+builder.Services.AddSingleton(sp =>
+    new CloudflareTurnstileService(sp.GetRequiredService<IHttpClientFactory>().CreateClient("CloudflareTurnstile")));
+builder.Services.AddSingleton(sp =>
+    new GeminiProductAssistantService(sp.GetRequiredService<IHttpClientFactory>().CreateClient("GeminiAi")));
 
 builder.Services.AddHttpClient();
 
@@ -635,17 +640,48 @@ authGroup.MapGet("/setup-status", async (AuthService authService, CancellationTo
 authGroup.MapPost("/register-initial-admin", async (RegisterInitialAdminRequest request, AuthService authService, CancellationToken ct) =>
     Results.Ok(await authService.RegisterInitialAdminByEmailAsync(request, ct))).AllowAnonymous().RequireRateLimiting("auth-strict");
 
-authGroup.MapPost("/register", async (RegisterUserAccountRequest request, AuthService authService, CancellationToken ct) =>
+authGroup.MapPost("/register", async (
+    HttpContext ctx,
+    RegisterUserAccountRequest request,
+    AuthService authService,
+    CloudflareTurnstileService turnstile,
+    CancellationToken ct) =>
 {
+    var (ok, err) = await turnstile.VerifyTokenAsync(request.TurnstileToken, "signup", ctx.Connection.RemoteIpAddress?.ToString(), ct);
+    if (!ok)
+        return Results.Json(new { error = err ?? "Verificação anti-bot inválida." }, statusCode: StatusCodes.Status403Forbidden);
+
     var created = await authService.RegisterUserAccountAsync(request, ct);
     return Results.Created($"/api/employees/{created.Employee.EmployeeId}", created);
 }).AllowAnonymous().RequireRateLimiting("auth-strict");
 
-authGroup.MapPost("/login", async (LoginRequest request, AuthService authService, CancellationToken ct) =>
-    Results.Ok(await authService.LoginAsync(request, ct))).AllowAnonymous().RequireRateLimiting("auth-strict");
+authGroup.MapPost("/login", async (
+    HttpContext ctx,
+    LoginRequest request,
+    AuthService authService,
+    CloudflareTurnstileService turnstile,
+    CancellationToken ct) =>
+{
+    var (ok, err) = await turnstile.VerifyTokenAsync(request.TurnstileToken, "login", ctx.Connection.RemoteIpAddress?.ToString(), ct);
+    if (!ok)
+        return Results.Json(new { error = err ?? "Verificação anti-bot inválida." }, statusCode: StatusCodes.Status403Forbidden);
 
-authGroup.MapPost("/login-challenge", async (LoginRequest request, AuthService authService, CancellationToken ct) =>
-    Results.Ok(await authService.LoginWithChallengeAsync(request, ct))).AllowAnonymous().RequireRateLimiting("auth-strict");
+    return Results.Ok(await authService.LoginAsync(request, ct));
+}).AllowAnonymous().RequireRateLimiting("auth-strict");
+
+authGroup.MapPost("/login-challenge", async (
+    HttpContext ctx,
+    LoginRequest request,
+    AuthService authService,
+    CloudflareTurnstileService turnstile,
+    CancellationToken ct) =>
+{
+    var (ok, err) = await turnstile.VerifyTokenAsync(request.TurnstileToken, "login", ctx.Connection.RemoteIpAddress?.ToString(), ct);
+    if (!ok)
+        return Results.Json(new { error = err ?? "Verificação anti-bot inválida." }, statusCode: StatusCodes.Status403Forbidden);
+
+    return Results.Ok(await authService.LoginWithChallengeAsync(request, ct));
+}).AllowAnonymous().RequireRateLimiting("auth-strict");
 
 authGroup.MapPost("/verify-2fa", async (VerifyTwoFactorLoginRequest request, AuthService authService, CancellationToken ct) =>
 {
@@ -800,6 +836,60 @@ app.MapPost("/api/cloud/client-vip-ack", async (
         ct);
     return Results.Ok(new { recorded });
 }).AllowAnonymous();
+
+app.MapGet("/api/public/security-config", (CloudflareTurnstileService turnstile) =>
+    Results.Ok(turnstile.GetPublicConfig())).AllowAnonymous();
+
+app.MapGet("/api/cloud/remote-config", async (RemoteConfigAndTelemetryStore store, CancellationToken ct) =>
+    Results.Ok(await store.GetRemoteConfigAsync(ct))).AllowAnonymous();
+
+app.MapPost("/api/platform-sync/remote-config", async (
+    HttpContext httpContext,
+    RemoteFeatureConfigDto config,
+    IClothingStoreRepository repository,
+    RemoteConfigAndTelemetryStore store,
+    CancellationToken ct) =>
+{
+    var settings = await repository.GetStoreSettingsAsync(ct);
+    if (!IsAuthorizedPlatformSyncRequest(httpContext, settings))
+        return Results.Unauthorized();
+
+    return Results.Ok(await store.SaveRemoteConfigAsync(config, ct));
+}).AllowAnonymous();
+
+app.MapPost("/api/cloud/telemetry/error", async (
+    ClientCrashReportRequest report,
+    RemoteConfigAndTelemetryStore store,
+    CancellationToken ct) =>
+{
+    var recorded = await store.RecordClientErrorAsync(report, ct);
+    return Results.Ok(new { recorded = true, id = recorded.Id });
+}).AllowAnonymous().RequireRateLimiting("auth-strict");
+
+app.MapGet("/api/platform-sync/telemetry/errors", async (
+    int? limit,
+    HttpContext httpContext,
+    IClothingStoreRepository repository,
+    RemoteConfigAndTelemetryStore store,
+    CancellationToken ct) =>
+{
+    var settings = await repository.GetStoreSettingsAsync(ct);
+    if (!IsAuthorizedPlatformSyncRequest(httpContext, settings))
+        return Results.Unauthorized();
+
+    return Results.Ok(await store.GetRecentErrorsAsync(limit ?? 50, ct));
+}).AllowAnonymous();
+
+app.MapPost("/api/ai/product-copy", async (
+    GenerateProductCopyRequest request,
+    GeminiProductAssistantService aiService,
+    CancellationToken ct) =>
+{
+    if (string.IsNullOrWhiteSpace(request.ProductName))
+        return Results.BadRequest(new { error = "Informe o nome do produto." });
+
+    return Results.Ok(await aiService.GenerateProductCopyAsync(request, ct));
+}).AllowAnonymous().RequireRateLimiting("auth-strict");
 
 app.MapPost("/api/platform-sync/toggle-user-active/{userId:guid}", async (
     Guid userId,

@@ -3,8 +3,10 @@
 @implements IDisposable
 @using System.Globalization
 @using System.Text.Json
+@using ClothingStore.Application.Services
 @inject CatalogDataGateway CatalogDataGateway
 @inject StoreCartService CartService
+@inject CloudflareTurnstileService TurnstileService
 @inject NavigationManager Navigation
 @inject IJSRuntime JS
 
@@ -67,7 +69,11 @@ else
             <div class="lux-detail-stage">
                 @if (WhatsAppLinkBuilder.IsSafeMediaUrl(CurrentImageUrl))
                 {
-                    <img src="@WhatsAppLinkBuilder.SanitizeMediaUrl(CurrentImageUrl)" alt="@_product.Name" referrerpolicy="no-referrer" />
+                    <img src="@WhatsAppLinkBuilder.SanitizeMediaUrl(CurrentImageUrl)"
+                         alt="@_product.Name"
+                         referrerpolicy="no-referrer"
+                         fetchpriority="high"
+                         decoding="sync" />
                 }
                 else
                 {
@@ -85,8 +91,9 @@ else
                         var safeThumbUrl = WhatsAppLinkBuilder.SanitizeMediaUrl(img.PublicUrl);
                         <button type="button"
                                 class="lux-thumb-btn @(CurrentImageUrl == img.PublicUrl ? "active" : "")"
+                                aria-label="Ver imagem @(img.AltText ?? _product.Name)"
                                 @onclick="() => _selectedImageUrl = safeThumbUrl">
-                            <img src="@safeThumbUrl" alt="@(img.AltText ?? _product.Name)" referrerpolicy="no-referrer" />
+                            <img src="@safeThumbUrl" alt="@(img.AltText ?? _product.Name)" referrerpolicy="no-referrer" loading="lazy" decoding="async" />
                         </button>
                     }
                 </div>
@@ -327,6 +334,16 @@ else
 
                                 <input type="text" @bind="_buyerNotes" placeholder="Observações de entrega (opcional)"
                                        style="width:100%; margin-bottom:0.75rem; padding:0.5rem 0.65rem; border:1px solid var(--brand-border,#D6D3D1); border-radius:6px;" />
+
+                                @if (TurnstileService.IsConfigured)
+                                {
+                                    <div style="margin-bottom: 0.75rem; padding: 0.55rem 0.7rem; border: 1px solid var(--brand-border, #E7E2DA); border-radius: 8px; background: var(--brand-surface, #FFFFFF);">
+                                        <div style="font-size: 0.72rem; font-weight: 700; color: var(--brand-text-muted, #57534E); margin-bottom: 0.35rem;">
+                                            🛡️ YouLink Protect • Verificação Cloudflare Turnstile
+                                        </div>
+                                        <div id="ylk-turnstile-checkout"></div>
+                                    </div>
+                                }
 
                                 <button type="button"
                                         class="lux-btn lux-btn-primary"
@@ -569,6 +586,8 @@ else
         {
             await CartService.EnsureLoadedAsync(JS, EffectiveStoreSlug);
         }
+
+        await EnsureTurnstileRenderedAsync();
     }
 
     private void AdjustDetailQuantity(int delta)
@@ -760,6 +779,33 @@ else
     private StoreOrderDto? _createdPixOrder;
     private PublicOrderStatusDto? _pixStatus;
     private CancellationTokenSource? _pollingCts;
+    private bool _turnstileRendered;
+
+    private async Task EnsureTurnstileRenderedAsync()
+    {
+        if (!_turnstileRendered &&
+            TurnstileService.IsConfigured &&
+            _store?.DirectPixSalesReady == true &&
+            _createdPixOrder is null &&
+            SelectedVariant is { StockQuantity: > 0 })
+        {
+            var cfg = TurnstileService.GetPublicConfig();
+            if (!string.IsNullOrWhiteSpace(cfg.TurnstileSiteKey))
+            {
+                try
+                {
+                    _turnstileRendered = await JS.InvokeAsync<bool>(
+                        "youlinkStore.renderTurnstile",
+                        "ylk-turnstile-checkout",
+                        cfg.TurnstileSiteKey,
+                        "checkout_pix");
+                }
+                catch
+                {
+                }
+            }
+        }
+    }
 
     private async Task CheckShippingQuoteAsync()
     {
@@ -808,6 +854,26 @@ else
         _submittingOrder = true;
         try
         {
+            string? turnstileToken = null;
+            if (TurnstileService.IsConfigured)
+            {
+                try
+                {
+                    turnstileToken = await JS.InvokeAsync<string>("youlinkStore.getTurnstileToken", "ylk-turnstile-checkout");
+                }
+                catch
+                {
+                }
+
+                var (isHuman, turnstileErr) = await TurnstileService.VerifyTokenAsync(turnstileToken, "checkout_pix");
+                if (!isHuman)
+                {
+                    _checkoutError = turnstileErr ?? "Complete a verificação de segurança anti-bot antes de finalizar.";
+                    try { await JS.InvokeVoidAsync("youlinkStore.resetTurnstile", "ylk-turnstile-checkout"); } catch { }
+                    return;
+                }
+            }
+
             var order = await CatalogDataGateway.PlacePixOrderAsync(new CreatePixOrderRequest
             {
                 ProductId = _product.Id,
@@ -822,8 +888,11 @@ else
                 Neighborhood = _buyerNeighborhood,
                 City = _buyerCity,
                 State = _buyerState,
-                CustomerNotes = _buyerNotes
+                CustomerNotes = _buyerNotes,
+                TurnstileToken = turnstileToken
             }, StoreSlug);
+
+            _turnstileRendered = false;
 
             _createdPixOrder = order;
             _pixStatus = null;

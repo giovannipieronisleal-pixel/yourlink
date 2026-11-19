@@ -1,0 +1,22 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "youlink-edge-accelerator",
+  "main": "src/index.js",
+  "compatibility_date": "2026-11-19",
+  "observability": {
+    "enabled": true,
+    "traces": {
+      "enabled": true
+    }
+  },
+  "vars": {
+    "ORIGIN_URL": "https://youlink-loja.onrender.com",
+    "PUBLIC_CACHE_SECONDS": "60",
+    "MEDIA_CACHE_SECONDS": "86400"
+  },
+  "triggers": {
+    "crons": [
+      "*/10 * * * *"
+    ]
+  }
+}

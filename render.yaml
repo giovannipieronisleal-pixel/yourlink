@@ -37,3 +37,18 @@ services:
         sync: false
       - key: YOULINK_SUPPORT_WHATSAPP
         sync: false
+      # Opcional: Proteção anti-bot Cloudflare Turnstile (login/cadastro/checkout Pix)
+      - key: CLOUDFLARE_TURNSTILE_SITE_KEY
+        sync: false
+      - key: CLOUDFLARE_TURNSTILE_SECRET_KEY
+        sync: false
+      - key: CLOUDFLARE_TURNSTILE_HOSTNAMES
+        value: "youlink-loja.onrender.com,youlink-edge-accelerator.youlink-edge.workers.dev"
+      # Opcional: IA Google Gemini (modelo gemini-4-hydrogen) para Estúdio IA de Produtos
+      - key: GEMINI_API_KEY
+        sync: false
+      # Opcional: URL do Worker Cloudflare Edge e Banner Remoto
+      - key: YOULINK_EDGE_PROXY_URL
+        value: "https://youlink-edge-accelerator.youlink-edge.workers.dev"
+      - key: YOULINK_GLOBAL_BANNER
+        sync: false

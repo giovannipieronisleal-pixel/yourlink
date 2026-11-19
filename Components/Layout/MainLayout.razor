@@ -135,6 +135,22 @@
                     </div>
                 </header>
 
+                @if (!string.IsNullOrWhiteSpace(Gateway.LatestRemoteConfig?.GlobalAnnouncementBanner) && !_dismissedRemoteBanner)
+                {
+                    var remoteKind = Gateway.LatestRemoteConfig!.GlobalAnnouncementKind;
+                    var bgTint = remoteKind == "warning"
+                        ? "rgba(217, 119, 6, 0.14)"
+                        : remoteKind == "success"
+                            ? "rgba(22, 163, 74, 0.14)"
+                            : "color-mix(in srgb, var(--adm-primary) 10%, var(--adm-surface))";
+                    <div class="adm-compat-banner" role="status" aria-live="polite" style="display: flex; align-items: center; justify-content: space-between; gap: 0.65rem; flex-wrap: wrap; padding: 0.55rem 1rem; background: @bgTint; border-bottom: 1px solid var(--adm-border); font-size: 0.82rem;">
+                        <span>📢 @Gateway.LatestRemoteConfig.GlobalAnnouncementBanner</span>
+                        <button type="button" class="adm-btn adm-btn-outline" style="padding: 0.25rem 0.55rem; font-size: 0.74rem;" @onclick="() => _dismissedRemoteBanner = true">
+                            Fechar
+                        </button>
+                    </div>
+                }
+
                 @if ((UpdateService.AvailableRelease?.IsUpdateAvailable == true || _compatibilityStatus?.UpdateRecommended == true) && !_dismissedUpdateBanner)
                 {
                     var latestVersionLabel = UpdateService.AvailableRelease?.IsUpdateAvailable == true
@@ -174,6 +190,7 @@
     private bool _showUserProfileModal;
     private ApiCompatibilityStatusDto? _compatibilityStatus;
     private bool _dismissedUpdateBanner;
+    private bool _dismissedRemoteBanner;
     private CancellationTokenSource? _pendingPlanMonitorCts;
     private CancellationTokenSource? _cloudPlanMonitorCts;
 
@@ -193,6 +210,7 @@
     {
         Gateway.AuthStateChanged += OnAuthStateChanged;
         Gateway.PlanEntitlementActivated += OnPlanEntitlementActivated;
+        Gateway.RemoteConfigChanged += OnRemoteConfigChanged;
         Navigation.LocationChanged += OnLocationChanged;
         Theme.OnThemeChanged += OnThemeChanged;
         BrandState.OnBrandChanged += OnBrandChanged;
@@ -229,6 +247,7 @@
         await RefreshCloudPlanStatusQuietlyAsync(forceRefresh: true);
         EnsurePendingPlanBackgroundMonitor();
         EnsureCloudPlanBackgroundMonitor();
+        _ = Gateway.FetchRemoteFeatureConfigBestEffortAsync();
         await RefreshUpdatesInBackgroundAsync();
 
         try
@@ -466,6 +485,11 @@
         InvokeAsync(StateHasChanged);
     }
 
+    private void OnRemoteConfigChanged()
+    {
+        _ = InvokeAsync(StateHasChanged);
+    }
+
     private void OnBrandChanged()
     {
         InvokeAsync(StateHasChanged);
@@ -517,6 +541,7 @@
         StopCloudPlanBackgroundMonitor();
         Gateway.AuthStateChanged -= OnAuthStateChanged;
         Gateway.PlanEntitlementActivated -= OnPlanEntitlementActivated;
+        Gateway.RemoteConfigChanged -= OnRemoteConfigChanged;
         Navigation.LocationChanged -= OnLocationChanged;
         Theme.OnThemeChanged -= OnThemeChanged;
         BrandState.OnBrandChanged -= OnBrandChanged;

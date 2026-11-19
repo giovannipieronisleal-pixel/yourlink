@@ -65,6 +65,53 @@
             } catch {
                 return false;
             }
+        },
+
+        _turnstileWidgets: {},
+
+        renderTurnstile(containerId, siteKey, action) {
+            try {
+                if (!containerId || !siteKey) return false;
+                const el = document.getElementById(containerId);
+                if (!el || !window.turnstile || typeof window.turnstile.render !== "function") {
+                    return false;
+                }
+                if (this._turnstileWidgets[containerId] !== undefined) {
+                    try { window.turnstile.remove(this._turnstileWidgets[containerId]); } catch {}
+                }
+                el.innerHTML = "";
+                const widgetId = window.turnstile.render(el, {
+                    sitekey: siteKey,
+                    action: action || "checkout_pix",
+                    theme: "auto"
+                });
+                this._turnstileWidgets[containerId] = widgetId;
+                return true;
+            } catch {
+                return false;
+            }
+        },
+
+        getTurnstileToken(containerId) {
+            try {
+                const widgetId = this._turnstileWidgets[containerId];
+                if (widgetId === undefined || !window.turnstile || typeof window.turnstile.getResponse !== "function") {
+                    return "";
+                }
+                return window.turnstile.getResponse(widgetId) || "";
+            } catch {
+                return "";
+            }
+        },
+
+        resetTurnstile(containerId) {
+            try {
+                const widgetId = this._turnstileWidgets[containerId];
+                if (widgetId !== undefined && window.turnstile && typeof window.turnstile.reset === "function") {
+                    window.turnstile.reset(widgetId);
+                }
+            } catch {
+            }
         }
     };
 })();
