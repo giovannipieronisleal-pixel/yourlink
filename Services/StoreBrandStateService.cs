@@ -132,7 +132,7 @@ public sealed class StoreBrandStateService
     public void PreviewDraft(StoreDesignDto draft)
     {
         EffectiveDesign = IsIntermediatePlan
-            ? StoreDesignPresets.ResolveByPresetKey(draft?.PresetKey)
+            ? StoreDesignPresets.ResolveByPresetKeyForPlan(StoreDesignPresets.PlanIntermediate, draft?.PresetKey)
             : StoreDesignCssHelper.Sanitize(draft);
         OnBrandChanged?.Invoke();
     }
@@ -140,7 +140,7 @@ public sealed class StoreBrandStateService
     private StoreDesignDto ResolveDesignForCurrentPlan(StoreDesignDto? design) => EffectivePlanTier switch
     {
         StoreDesignPresets.PlanPremium => StoreDesignCssHelper.Sanitize(design),
-        StoreDesignPresets.PlanIntermediate => StoreDesignPresets.ResolveByPresetKey(design?.PresetKey),
+        StoreDesignPresets.PlanIntermediate => StoreDesignPresets.ResolveByPresetKeyForPlan(StoreDesignPresets.PlanIntermediate, design?.PresetKey),
         _ => StoreDesignDto.CreateMinimalistaLuxo()
     };
 

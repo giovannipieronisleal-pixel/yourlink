@@ -2,12 +2,13 @@
 @inject MauiAdminGateway Gateway
 @inject CatalogService CatalogService
 @inject StoreBrandStateService BrandState
+@inject ThemeService Theme
 @inject NavigationManager Navigation
 @implements IDisposable
 
-<nav class="adm-nav">
+<nav class="adm-nav" aria-label="Menu principal">
     <NavLink class="adm-nav-item" href="/" Match="NavLinkMatch.All">
-        <span class="adm-nav-icon">📊</span>
+        <span class="adm-nav-icon">🏠</span>
         <span>Início</span>
     </NavLink>
 
@@ -16,34 +17,16 @@
         <span>Produtos</span>
     </NavLink>
 
-    <NavLink class="@($"adm-nav-item {(Gateway.IsAdmin ? "adm-nav-secondary" : string.Empty)}")" href="/estoque">
-        <span class="adm-nav-icon">📦</span>
-        <span>Estoque</span>
-    </NavLink>
-
-    @if (Gateway.IsAdmin || Gateway.CanManageStock)
-    {
-        var hasPaidSales = BrandState.IsIntermediatePlan || BrandState.IsPremiumPlan;
-        <NavLink class="adm-nav-item" href="/vendas">
-            <span class="adm-nav-icon">💰</span>
-            <span>Vendas@(hasPaidSales ? string.Empty : " 🔒")</span>
-        </NavLink>
-    }
-
     @if (Gateway.IsAdmin)
     {
-        <div class="adm-nav-section-label">
-            Administração
-        </div>
-
-        <NavLink class="adm-nav-item adm-nav-secondary" href="/configuracoes-loja">
-            <span class="adm-nav-icon">🎨</span>
-            <span>Loja &amp; Visual</span>
-        </NavLink>
-
         <NavLink class="adm-nav-item" href="/pedidos">
             <span class="adm-nav-icon">🧾</span>
             <span>Pedidos</span>
+        </NavLink>
+
+        <NavLink class="adm-nav-item adm-nav-secondary" href="/configuracoes-loja">
+            <span class="adm-nav-icon">🏪</span>
+            <span>Minha Loja</span>
         </NavLink>
 
         <NavLink class="adm-nav-item adm-nav-secondary" href="/planos">
@@ -51,22 +34,47 @@
             <span>Planos</span>
         </NavLink>
     }
+    else
+    {
+        <NavLink class="adm-nav-item" href="/estoque">
+            <span class="adm-nav-icon">📦</span>
+            <span>Estoque</span>
+        </NavLink>
+    }
 
-    <div class="adm-nav-section-label">
-        Catálogo Público
-    </div>
+    @if (Gateway.IsAdmin || Gateway.CanManageStock)
+    {
+        <button type="button"
+                class="adm-nav-item adm-nav-desktop-more @(_desktopMoreOpen || IsDesktopExtraRouteActive() ? "active" : string.Empty)"
+                @onclick="ToggleDesktopMore"
+                aria-expanded="@_desktopMoreOpen">
+            <span class="adm-nav-icon">⋯</span>
+            <span>Mais opções</span>
+            <span class="adm-nav-caret" aria-hidden="true">@(_desktopMoreOpen ? "▴" : "▾")</span>
+        </button>
 
-    <NavLink class="adm-nav-item adm-nav-secondary" href="@($"/loja/{_storeSlug}")">
-        <span class="adm-nav-icon">🌐</span>
-        <span>Site</span>
-    </NavLink>
-
-    <button type="button"
-            class="adm-nav-item adm-nav-secondary"
-            @onclick="OpenHelpModal">
-        <span class="adm-nav-icon">💬</span>
-        <span>Suporte</span>
-    </button>
+        @if (_desktopMoreOpen || IsDesktopExtraRouteActive())
+        {
+            var hasPaidSales = BrandState.IsIntermediatePlan || BrandState.IsPremiumPlan;
+            <div class="adm-nav-desktop-sub">
+                <NavLink class="adm-nav-item adm-nav-secondary" href="/vendas">
+                    <span class="adm-nav-icon">💰</span>
+                    <span>Vendas@(hasPaidSales ? string.Empty : " 🔒")</span>
+                </NavLink>
+                @if (Gateway.IsAdmin)
+                {
+                    <NavLink class="adm-nav-item adm-nav-secondary" href="/estoque">
+                        <span class="adm-nav-icon">📦</span>
+                        <span>Estoque</span>
+                    </NavLink>
+                }
+                <NavLink class="adm-nav-item adm-nav-secondary" href="@($"/loja/{_storeSlug}")">
+                    <span class="adm-nav-icon">🌐</span>
+                    <span>Ver Site</span>
+                </NavLink>
+            </div>
+        }
+    }
 
     <button type="button"
             class="adm-nav-item adm-nav-more-btn @(IsSecondaryRouteActive() || _mobileMoreOpen ? "active" : string.Empty)"
@@ -78,12 +86,37 @@
     </button>
 </nav>
 
-@if (Gateway.IsAuthenticated && Gateway.CurrentEmployee is not null)
-{
-    var accountSubText = !string.IsNullOrWhiteSpace(Gateway.CurrentEmployee.Email)
-        ? Gateway.CurrentEmployee.Email
-        : Gateway.CurrentEmployee.EffectiveUsername;
-    <div class="adm-sidebar-footer">
+<div class="adm-sidebar-footer">
+    <div class="adm-sidebar-quick-tools">
+        <button type="button"
+                class="adm-sidebar-tool-row"
+                role="switch"
+                aria-checked="@Theme.IsDarkMode"
+                @onclick="ToggleThemeFromSidebar">
+            <span class="adm-sidebar-tool-left">
+                <span>@(Theme.IsDarkMode ? "🌙" : "☀️")</span>
+                <span>Modo Escuro</span>
+            </span>
+            <span class="adm-toggle-pill @(Theme.IsDarkMode ? "on" : string.Empty)" aria-hidden="true">
+                <span class="adm-toggle-knob"></span>
+            </span>
+        </button>
+
+        <button type="button"
+                class="adm-sidebar-tool-row"
+                @onclick="OpenHelpModal">
+            <span class="adm-sidebar-tool-left">
+                <span>❓</span>
+                <span>Ajuda</span>
+            </span>
+        </button>
+    </div>
+
+    @if (Gateway.IsAuthenticated && Gateway.CurrentEmployee is not null)
+    {
+        var accountSubText = !string.IsNullOrWhiteSpace(Gateway.CurrentEmployee.Email)
+            ? Gateway.CurrentEmployee.Email
+            : Gateway.CurrentEmployee.EffectiveUsername;
         <div class="adm-sidebar-account-card">
             <div class="adm-sidebar-account-row">
                 <span class="adm-sidebar-avatar">@GetUserInitials(Gateway.CurrentEmployee.FullName)</span>
@@ -106,8 +139,8 @@
                 </button>
             </div>
         </div>
-    </div>
-}
+    }
+</div>
 
 @if (_mobileMoreOpen)
 {
@@ -266,6 +299,7 @@
 
     private string _storeSlug = "minha-loja";
     private bool _mobileMoreOpen;
+    private bool _desktopMoreOpen;
     private bool _helpModalOpen;
 
     private string? SupportWhatsappUrl =>
@@ -275,11 +309,14 @@
     {
         Navigation.LocationChanged += OnLocationChanged;
         Gateway.AuthStateChanged += OnAuthStateChanged;
+        Theme.OnThemeChanged += OnThemeChanged;
         await RefreshSlugAsync();
         _ = LoadSupportCatalogAsync();
     }
 
     private void ToggleMobileMore() => _mobileMoreOpen = !_mobileMoreOpen;
+    private void ToggleDesktopMore() => _desktopMoreOpen = !_desktopMoreOpen;
+    private void ToggleThemeFromSidebar() => Theme.ToggleTheme();
     private void CloseMobileMore() => _mobileMoreOpen = false;
     private void OpenHelpModal()
     {
@@ -337,13 +374,27 @@
         return $"{parts[0][..1]}{parts[^1][..1]}".ToUpperInvariant();
     }
 
+    private bool IsDesktopExtraRouteActive()
+    {
+        var path = Navigation.ToBaseRelativePath(Navigation.Uri).Trim('/').ToLowerInvariant();
+        return path.StartsWith("vendas")
+            || (Gateway.IsAdmin && path.StartsWith("estoque"))
+            || path.StartsWith("loja");
+    }
+
     private bool IsSecondaryRouteActive()
     {
         var path = Navigation.ToBaseRelativePath(Navigation.Uri).Trim('/').ToLowerInvariant();
         return path.StartsWith("estoque")
+            || path.StartsWith("vendas")
             || path.StartsWith("configuracoes")
             || path.StartsWith("planos")
             || path.StartsWith("loja");
+    }
+
+    private void OnThemeChanged()
+    {
+        _ = InvokeAsync(StateHasChanged);
     }
 
     private async void OnAuthStateChanged()
@@ -375,5 +426,6 @@
     {
         Navigation.LocationChanged -= OnLocationChanged;
         Gateway.AuthStateChanged -= OnAuthStateChanged;
+        Theme.OnThemeChanged -= OnThemeChanged;
     }
 }

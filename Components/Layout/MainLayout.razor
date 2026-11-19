@@ -43,32 +43,25 @@
 
             <div class="adm-main">
                 <header class="adm-topbar">
-                    <div class="adm-topbar-meta" style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
-                        <strong class="adm-topbar-title">@_storeName</strong>
+                    <div class="adm-topbar-meta" style="display: flex; align-items: center; gap: 0.55rem; flex-wrap: wrap;">
+                        <span class="pill-badge @(BrandState.IsSiteActive ? "pill-green" : "pill-red")">
+                            @(BrandState.IsSiteActive ? "● Loja Aberta" : "● Loja Pausada")
+                        </span>
                         <a href="/planos"
                            style="text-decoration: none;"
                            title="Ver planos e versões do site"
                            class="pill-badge @(BrandState.IsPremiumPlan ? "pill-gold" : BrandState.IsIntermediatePlan ? "pill-green" : "pill-slate")">
-                            @(BrandState.IsPremiumPlan ? "✦ Premium Sob Medida" : BrandState.IsIntermediatePlan ? "◈ Meia Versão (5 Temas)" : BrandState.IsBasicPlan ? "● Plano Básico" : BrandState.IsPlanExpired ? "⚠ Plano Expirado" : "Sem Plano Ativo")
+                            @(BrandState.IsPremiumPlan ? "✦ Premium" : BrandState.IsIntermediatePlan ? "◈ Meia Versão (3 Temas)" : BrandState.IsBasicPlan ? "● Plano Básico" : BrandState.IsPlanExpired ? "⚠ Plano Expirado" : "Sem Plano Ativo")
                         </a>
-                        <span class="adm-topbar-hide-sm pill-badge @(Gateway.IsAdmin ? "pill-green" : "pill-slate")">
-                            @(Gateway.IsAdmin ? "Admin" : "Lojista")
-                        </span>
-
-                        @if (!string.IsNullOrWhiteSpace(_onlineBaseUrl))
-                        {
-                            <span class="adm-topbar-hide-sm pill-badge pill-blue" title="Catálogo 24h Online no Google Cloud">
-                                ☁️ 24h Online
-                            </span>
-                        }
+                        <strong class="adm-topbar-title adm-topbar-mobile-only">@_storeName</strong>
                     </div>
 
-                    <div class="adm-topbar-actions" style="display: flex; align-items: center; gap: 0.45rem; flex-wrap: wrap;">
+                    <div class="adm-topbar-actions" style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
                         @if (UpdateService.AvailableRelease?.IsUpdateAvailable == true)
                         {
                             <button type="button"
                                     class="adm-btn adm-btn-accent"
-                                    style="padding: 0.4rem 0.68rem; min-height: 36px; font-size: 0.8rem; font-weight: 800;"
+                                    style="padding: 0.42rem 0.78rem; min-height: 38px; font-size: 0.84rem;"
                                     title="Há uma atualização pronta para baixar e instalar pelo app"
                                     @onclick="UpdateService.OpenPopup">
                                 ⬆️ Atualizar v@(UpdateService.AvailableRelease.LatestVersion)
@@ -78,59 +71,41 @@
                         {
                             <button type="button"
                                     class="adm-btn adm-btn-outline adm-topbar-hide-sm"
-                                    style="padding: 0.4rem 0.6rem; min-height: 36px; font-size: 0.78rem;"
+                                    style="padding: 0.38rem 0.65rem; min-height: 38px; font-size: 0.8rem; color: var(--adm-muted);"
                                     title="Verificar atualizações do aplicativo"
                                     disabled="@UpdateService.IsChecking"
                                     @onclick="CheckUpdatesManuallyFromTopbarAsync">
-                                @(UpdateService.IsChecking ? "⏳" : "🔄") v@(UpdateService.CurrentVersion)
+                                @(UpdateService.IsChecking ? "⏳" : "v" + UpdateService.CurrentVersion)
                             </button>
                         }
 
-                        <!-- Botão Alternador Rápido de Tema Claro / Escuro -->
+                        <!-- Botão Alternador Rápido de Tema Claro / Escuro (visível no mobile; no Windows também fica no menu lateral) -->
                         <button type="button"
-                                class="adm-btn adm-btn-outline"
-                                style="padding: 0.4rem 0.65rem; min-height: 36px; font-size: 0.82rem;"
+                                class="adm-btn adm-btn-outline adm-topbar-mobile-only"
+                                style="padding: 0.4rem 0.68rem; min-height: 38px; font-size: 0.84rem;"
                                 title="@($"Tema atual: {Theme.ThemeDisplayName}. Toque para alternar.")"
                                 @onclick="Theme.ToggleTheme">
                             @(Theme.IsDarkMode ? "☀️" : "🌙")<span class="adm-topbar-hide-xs"> @(Theme.IsDarkMode ? "Claro" : "Escuro")</span>
                         </button>
 
                         <a href="/loja/@_storeSlug"
-                           class="adm-btn adm-btn-success"
-                           style="padding: 0.4rem 0.7rem; min-height: 36px; font-size: 0.8rem;">
-                            🌐 <span class="adm-topbar-hide-xs">Ver </span>Catálogo
+                           class="adm-btn adm-btn-outline"
+                           style="padding: 0.42rem 0.85rem; min-height: 38px; font-size: 0.86rem;">
+                            🌐 <span class="adm-topbar-hide-xs">Ver </span>Loja
                         </a>
-
-                        <button type="button"
-                                class="adm-btn adm-btn-outline adm-topbar-hide-sm"
-                                style="padding: 0.4rem 0.7rem; min-height: 36px; font-size: 0.8rem;"
-                                @onclick="OpenBrowserAsync">
-                            Abrir no Navegador &nearr;
-                        </button>
 
                         <!-- Botão de Perfil do Usuário & Segurança (2FA) -->
                         <button type="button"
                                 class="adm-btn adm-btn-outline"
-                                style="padding: 0.35rem 0.65rem; min-height: 36px; font-size: 0.8rem; display: flex; align-items: center; gap: 0.45rem; border-color: var(--adm-accent);"
-                                title="Configurações do Usuário: E-mail, Senha e 2FA"
+                                style="padding: 0.36rem 0.7rem; min-height: 38px; font-size: 0.84rem; display: flex; align-items: center; gap: 0.45rem;"
+                                title="Minha Conta: E-mail, Senha, 2FA e Sair"
                                 @onclick="() => _showUserProfileModal = true">
-                            <span style="display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 50%; background: var(--adm-accent); color: #fff; font-size: 0.72rem; font-weight: 800;">
+                            <span style="display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; border-radius: 50%; background: var(--adm-primary); color: #fff; font-size: 0.74rem; font-weight: 800;">
                                 @GetUserInitials(Gateway.CurrentEmployee?.FullName)
                             </span>
                             <span class="adm-topbar-hide-xs" style="max-width: 130px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
-                                @(Gateway.CurrentEmployee?.FullName ?? "Meu Perfil")
+                                @(Gateway.CurrentEmployee?.FullName ?? "Minha Conta")
                             </span>
-                            <span class="adm-topbar-hide-xs pill-badge @(Gateway.CurrentEmployee?.HasTwoFactorEnabled == true ? "pill-green" : "pill-slate")" style="font-size: 0.68rem; padding: 0.1rem 0.35rem;">
-                                @(Gateway.CurrentEmployee?.HasTwoFactorEnabled == true ? "🛡️ 2FA Ativo" : "⚙️ Perfil")
-                            </span>
-                        </button>
-
-                        <button type="button"
-                                class="adm-btn adm-btn-outline"
-                                style="padding: 0.4rem 0.65rem; min-height: 36px; font-size: 0.8rem;"
-                                title="Sair ou trocar de conta"
-                                @onclick="HandleLogout">
-                            🚪 <span class="adm-topbar-hide-xs">Trocar Conta / </span>Sair
                         </button>
                     </div>
                 </header>
@@ -186,7 +161,6 @@
 @code {
     private string _storeName = "Minha Loja";
     private string _storeSlug = "minha-loja";
-    private string? _onlineBaseUrl;
     private bool _showUserProfileModal;
     private ApiCompatibilityStatusDto? _compatibilityStatus;
     private bool _dismissedUpdateBanner;
@@ -421,7 +395,6 @@
             var store = await CatalogService.GetPublicStoreSettingsAsync();
             _storeName = store.StoreName;
             _storeSlug = store.StoreSlug;
-            _onlineBaseUrl = store.OnlineBaseUrl;
             BrandState.ApplyFromPublicSettings(store);
         }
         catch
@@ -473,7 +446,6 @@
         {
             _storeName = updated.StoreName;
             _storeSlug = updated.StoreSlug;
-            _onlineBaseUrl = updated.OnlineBaseUrl;
             BrandState.ApplyFromAdminSettings(updated);
             Gateway.EnsurePlanPopupFromSettings(updated);
             StateHasChanged();
@@ -506,21 +478,6 @@
         try
         {
             _ = InvokeAsync(StateHasChanged);
-        }
-        catch
-        {
-        }
-    }
-
-    private async Task OpenBrowserAsync()
-    {
-        // Se houver URL do Google Cloud configurada, abre diretamente a URL online 24h!
-        var targetBase = !string.IsNullOrWhiteSpace(_onlineBaseUrl) ? _onlineBaseUrl : "http://localhost:5190";
-        var url = WhatsAppLinkBuilder.BuildStoreCatalogUrl(targetBase, _storeSlug);
-        try
-        {
-            LocalWebServerLauncher.Initialize(CatalogService);
-            await LocalWebServerLauncher.OpenCatalogInBrowserAsync(url, _storeSlug);
         }
         catch
         {

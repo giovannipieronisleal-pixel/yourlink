@@ -1,244 +1,144 @@
 @page "/"
 @using System.Globalization
+@using ClothingStore.Shared.Helpers
 @inject MauiAdminGateway Gateway
 @inject NavigationManager Navigation
 @inject ClothingStore.Application.Services.CatalogService CatalogService
 @inject StoreBrandStateService BrandState
 @implements IDisposable
 
-<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; flex-wrap: wrap; gap: 1rem;">
-    <div>
-        <h1 style="font-size: 1.65rem; font-weight: 700; margin: 0;">Dashboard Operacional</h1>
-        <p style="color: var(--adm-muted); font-size: 0.92rem; margin: 0.25rem 0 0;">
-            Visão geral em tempo real dos produtos, estoque e últimas vendas.
-        </p>
-    </div>
-
-    <div style="display: flex; gap: 0.65rem; flex-wrap: wrap;">
-        <button type="button" class="adm-btn adm-btn-outline" @onclick="LoadDashboardAsync">
-            Atualizar Dados
-        </button>
-        @if (Gateway.CanManageStock)
-        {
-            <a href="/estoque" class="adm-btn adm-btn-primary">
-                + Registrar Movimentação
-            </a>
-        }
-        @if (Gateway.CanManageProducts)
-        {
-            <a href="/produtos" class="adm-btn adm-btn-success">
-                + Gerenciar Produtos
-            </a>
-        }
-    </div>
-</div>
-
-@if (!string.IsNullOrWhiteSpace(_error))
-{
-    <div class="alert-banner alert-error">@_error</div>
-}
-
-@if (_summary is not null)
-{
-    <!-- Indicadores Principais (KPIs) -->
-    <div class="kpi-grid">
-        <div class="kpi-card">
-            <div class="kpi-label">Produtos Cadastrados</div>
-            <div class="kpi-value">@_summary.TotalRegisteredProducts</div>
-            <div style="font-size: 0.8rem; color: var(--adm-muted); margin-top: 0.25rem;">
-                @_summary.TotalVisibleProducts visíveis no catálogo público
-            </div>
-        </div>
-
-        <div class="kpi-card">
-            <div class="kpi-label">Unidades em Estoque</div>
-            <div class="kpi-value" style="color: var(--adm-success);">@_summary.TotalUnitsInStock</div>
-            <div style="font-size: 0.8rem; color: var(--adm-muted); margin-top: 0.25rem;">
-                Soma de todas as variantes ativas
-            </div>
-        </div>
-
-        <div class="kpi-card">
-            <div class="kpi-label">Estoque Baixo</div>
-            <div class="kpi-value" style="color: var(--adm-warning);">@_summary.LowStockVariantsCount</div>
-            <div style="font-size: 0.8rem; color: var(--adm-muted); margin-top: 0.25rem;">
-                Variantes próximas de esgotar
-            </div>
-        </div>
-
-        <div class="kpi-card">
-            <div class="kpi-label">Sem Estoque (Esgotados)</div>
-            <div class="kpi-value" style="color: var(--adm-danger);">@_summary.OutOfStockVariantsCount</div>
-            <div style="font-size: 0.8rem; color: var(--adm-muted); margin-top: 0.25rem;">
-                Variantes com saldo zero
-            </div>
-        </div>
-    </div>
-
-    <div class="adm-dash-status-grid">
-        <!-- Visibilidade do Site Público & Plano -->
-        @if (_publicStore is not null)
-        {
-            <section class="adm-card" style="border-left: 4px solid @(_publicStore.IsSiteActive ? "var(--adm-success)" : "var(--adm-danger)");">
-                <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.85rem;">
-                    <div style="display: flex; flex-direction: column; gap: 0.25rem;">
-                        <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
-                            <span class="pill-badge @(_publicStore.IsSiteActive ? "pill-green" : "pill-red")">
-                                @(_publicStore.IsSiteActive ? "🟢 Site Público Visível" : "🔴 Site Público Oculto / Pausado")
-                            </span>
-                            <span class="pill-badge @(BrandState.IsPremiumPlan ? "pill-gold" : BrandState.IsIntermediatePlan ? "pill-green" : "pill-slate")">
-                                @BrandState.EffectivePlanTier
-                            </span>
-                        </div>
-                        <p style="margin: 0; font-size: 0.86rem; color: var(--adm-muted);">
-                            @if (_publicStore.IsSiteActive)
-                            {
-                                <span>A vitrine <strong>@_publicStore.StoreName</strong> está aberta para clientes navegarem e pedirem no WhatsApp.</span>
-                            }
-                            else
-                            {
-                                <span>Os clientes veem uma página de loja temporariamente pausada. Reative quando quiser liberar o catálogo.</span>
-                            }
-                        </p>
-                    </div>
-                    <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
-                        <a href="/loja/@_publicStore.StoreSlug" class="adm-btn adm-btn-outline">
-                            🌐 Ver como Cliente
-                        </a>
-                        @if (Gateway.IsAdmin)
-                        {
-                            <a href="/planos" class="adm-btn adm-btn-outline">
-                                💎 Planos
-                            </a>
-                            <a href="/configuracoes-loja" class="adm-btn adm-btn-primary">
-                                🌍 Gerenciar Visibilidade
-                            </a>
-                        }
-                    </div>
-                </div>
-            </section>
-        }
-
-        @if (_salesReport is not null)
-        {
-            <section class="adm-card" style="border-left: 4px solid @(_salesReport.IsUnlocked ? "var(--adm-success)" : "var(--brand-accent, #B69158)");">
-                <div style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 0.75rem;">
-                    <div style="display: flex; flex-direction: column; gap: 0.3rem;">
-                        <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
-                            <span class="pill-badge @(_salesReport.IsUnlocked ? "pill-green" : "pill-gold")">
-                                @(_salesReport.IsUnlocked ? "💰 Vendas & Faturamento" : "🔒 Vendas nas Versões Pagas")
-                            </span>
-                        </div>
-                        @if (_salesReport.IsUnlocked)
-                        {
-                            <div style="font-size: 1.35rem; font-weight: 800; color: var(--adm-success);">
-                                @_salesReport.Last30DaysConfirmedRevenue.ToString("C", PtBr)
-                                <span style="font-size: 0.78rem; color: var(--adm-muted); font-weight: 600;">nos últimos 30 dias</span>
-                            </div>
-                            <p style="margin: 0; font-size: 0.84rem; color: var(--adm-muted);">
-                                Hoje: <strong>@_salesReport.TodayConfirmedRevenue.ToString("C", PtBr)</strong> &bull;
-                                Histórico total: <strong>@_salesReport.TotalConfirmedRevenue.ToString("C", PtBr)</strong> (@_salesReport.ConfirmedOrdersCount venda(s))
-                            </p>
-                        }
-                        else
-                        {
-                            <p style="margin: 0; font-size: 0.85rem; color: var(--adm-muted);">
-                                @_salesReport.LockMessage
-                            </p>
-                        }
-                    </div>
-
-                    <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
-                        <a href="/vendas" class="adm-btn @(_salesReport.IsUnlocked ? "adm-btn-success" : "adm-btn-primary")">
-                            @(_salesReport.IsUnlocked ? "💰 Ver Quanto Vendeu" : "🔒 Desbloquear Vendas")
-                        </a>
-                        @if (!_salesReport.IsUnlocked && Gateway.IsAdmin)
-                        {
-                            <a href="/planos" class="adm-btn adm-btn-outline">💎 Ver Planos</a>
-                        }
-                    </div>
-                </div>
-            </section>
-        }
-
-    </div>
-
-    <div class="adm-dash-ops-grid">
-        <!-- Alertas de Estoque Baixo e Sem Estoque -->
-        <section class="adm-card">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; flex-wrap: wrap; gap: 0.5rem;">
-                <h2 style="font-size: 1.1rem; font-weight: 700; margin: 0;">Alertas de Reposição (@_summary.StockAlerts.Count)</h2>
-                <a href="/estoque" style="font-size: 0.85rem; color: var(--adm-accent); font-weight: 600; text-decoration: none;">Ir para Estoque &rarr;</a>
-            </div>
-
-            @if (_summary.StockAlerts.Count == 0)
+<div class="yl-home-wrap">
+    <!-- Cabeçalho Calmo & Direto -->
+    <header class="yl-home-header">
+        <div class="yl-home-greeting">
+            <h1 class="yl-home-title">@GreetingText</h1>
+            @if (_publicStore is not null)
             {
-                <p style="color: var(--adm-muted); font-size: 0.92rem; margin: 0;">
-                    Todas as variantes estão com nível de estoque saudável!
-                </p>
-            }
-            else
-            {
-                <div class="adm-table-wrap">
-                    <table class="adm-table">
-                        <thead>
-                            <tr>
-                                <th>Produto / Variante</th>
-                                <th>SKU</th>
-                                <th>Saldo</th>
-                                <th>Status</th>
-                                <th>Ação</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            @foreach (var alert in _summary.StockAlerts)
-                            {
-                                <tr>
-                                    <td data-label="Produto">
-                                        <div>
-                                            <div style="font-weight: 700;">@alert.ProductName</div>
-                                            <div style="font-size: 0.82rem; color: var(--adm-muted);">
-                                                @alert.Color &bull; Opção: <strong>@alert.Size</strong>
-                                            </div>
-                                        </div>
-                                    </td>
-                                    <td data-label="SKU" style="font-size: 0.82rem; color: var(--adm-muted);">@alert.Sku</td>
-                                    <td data-label="Saldo" style="font-weight: 800;">@alert.StockQuantity un.</td>
-                                    <td data-label="Status">
-                                        @if (alert.IsOutOfStock)
-                                        {
-                                            <span class="pill-badge pill-red">Sem estoque</span>
-                                        }
-                                        else
-                                        {
-                                            <span class="pill-badge pill-amber">Estoque baixo (&le; @alert.LowStockThreshold)</span>
-                                        }
-                                    </td>
-                                    <td data-label="Ação">
-                                        <a href="/produtos/@alert.ProductId" class="adm-btn adm-btn-outline" style="padding: 0.35rem 0.75rem; font-size: 0.82rem;">
-                                            Editar / Repor
-                                        </a>
-                                    </td>
-                                </tr>
-                            }
-                        </tbody>
-                    </table>
+                <div class="yl-home-status-line">
+                    <span class="yl-status-dot @(_publicStore.IsSiteActive ? "online" : "offline")" aria-hidden="true"></span>
+                    <span>@_publicStore.StoreName</span>
+                    <span class="yl-status-sep" aria-hidden="true">&bull;</span>
+                    <span>@(_publicStore.IsSiteActive ? "No ar" : "Pausada")</span>
                 </div>
             }
+        </div>
+
+        <div class="yl-home-header-actions">
+            @if (Gateway.CanManageProducts)
+            {
+                <a href="/produtos" class="adm-btn adm-btn-primary yl-home-cta">
+                    + Novo Produto
+                </a>
+            }
+            else if (Gateway.CanManageStock)
+            {
+                <a href="/estoque" class="adm-btn adm-btn-primary yl-home-cta">
+                    📦 Abrir Estoque
+                </a>
+            }
+        </div>
+    </header>
+
+    @if (!string.IsNullOrWhiteSpace(_error))
+    {
+        <div class="alert-banner alert-error">@_error</div>
+    }
+
+    @if (_publicStore is not null)
+    {
+        <!-- Cartão Único e Limpo: Link da Sua Loja -->
+        <section class="adm-card yl-share-card" aria-label="Compartilhar sua loja">
+            <div class="yl-share-meta">
+                <span class="yl-share-label">Link da sua loja</span>
+                <div class="yl-share-url" title="@PublicStoreUrl">@DisplayStoreUrl</div>
+            </div>
+
+            <div class="yl-share-actions">
+                <button type="button"
+                        class="adm-btn adm-btn-primary yl-share-btn"
+                        @onclick="CopyStoreLinkAsync">
+                    @(_copiedLink ? "✓ Link Copiado!" : "📋 Copiar Link")
+                </button>
+                <button type="button"
+                        class="adm-btn adm-btn-success yl-share-btn"
+                        @onclick="ShareStoreOnWhatsAppAsync">
+                    💬 WhatsApp
+                </button>
+            </div>
+        </section>
+    }
+
+    @if (_summary is not null)
+    {
+        <!-- 3 Cartões Calmos de Resumo (Windows & Mobile) -->
+        <section class="yl-summary-grid" aria-label="Resumo rápido da loja">
+            <a href="/vendas" class="yl-summary-card">
+                <span class="yl-summary-label">Vendas hoje</span>
+                @if (_salesReport?.IsUnlocked == true)
+                {
+                    <strong class="yl-summary-value">@_salesReport.TodayConfirmedRevenue.ToString("C", PtBr)</strong>
+                }
+                else
+                {
+                    <strong class="yl-summary-value yl-summary-value-muted">Ver vendas</strong>
+                }
+                <span class="yl-summary-link">Abrir &rarr;</span>
+            </a>
+
+            <a href="@(Gateway.IsAdmin ? "/pedidos" : "/estoque")" class="yl-summary-card">
+                <span class="yl-summary-label">@(Gateway.IsAdmin ? "Pedidos novos" : "Estoque baixo")</span>
+                <strong class="yl-summary-value @(PendingOrdersOrAlertsCount > 0 ? "yl-summary-value-amber" : string.Empty)">
+                    @PendingOrdersOrAlertsCount
+                </strong>
+                <span class="yl-summary-link">Abrir &rarr;</span>
+            </a>
+
+            <a href="/produtos" class="yl-summary-card">
+                <span class="yl-summary-label">Produtos ativos</span>
+                <strong class="yl-summary-value">@_summary.TotalVisibleProducts</strong>
+                <span class="yl-summary-link">Abrir &rarr;</span>
+            </a>
         </section>
 
-        <!-- Últimas Vendas (compacto: o que vendeu e quem foi) -->
+        <!-- Grade 2x2 de Ações Rápidas (Exclusiva para Celular — mantém o Windows ultra-limpo) -->
+        <section class="yl-mobile-quick-section" aria-label="Ações rápidas no celular">
+            <h2 class="yl-mobile-quick-heading">O que você quer fazer agora?</h2>
+            <div class="yl-mobile-quick-grid">
+                <a href="/produtos" class="yl-mobile-quick-tile">
+                    <span class="yl-mobile-quick-icon yl-icon-blue">➕</span>
+                    <strong>Cadastrar Produto</strong>
+                    <span>Foto, nome e preço</span>
+                </a>
+                <a href="/produtos" class="yl-mobile-quick-tile">
+                    <span class="yl-mobile-quick-icon yl-icon-slate">🛍️</span>
+                    <strong>Meus Produtos</strong>
+                    <span>@_summary.TotalRegisteredProducts no catálogo</span>
+                </a>
+                <a href="@(Gateway.IsAdmin ? "/pedidos" : "/estoque")" class="yl-mobile-quick-tile">
+                    <span class="yl-mobile-quick-icon yl-icon-amber">🧾</span>
+                    <strong>@(Gateway.IsAdmin ? "Ver Pedidos" : "Ver Estoque")</strong>
+                    <span>@(PendingOrdersOrAlertsCount > 0 ? $"{PendingOrdersOrAlertsCount} pendente(s)" : "Tudo em dia")</span>
+                </a>
+                <a href="/vendas" class="yl-mobile-quick-tile">
+                    <span class="yl-mobile-quick-icon yl-icon-green">💰</span>
+                    <strong>Minhas Vendas</strong>
+                    <span>Resumo e Pix</span>
+                </a>
+            </div>
+        </section>
+
+        <!-- Cartão Único e Calmo: Últimas Vendas -->
         <section class="adm-card adm-sales-mini-card">
             <div class="adm-sales-mini-header">
                 <h2 class="adm-sales-mini-title">Últimas Vendas</h2>
-                <a href="@(_salesReport?.IsUnlocked == true ? "/vendas" : "/estoque")" class="adm-sales-mini-link">
-                    Ver mais &rarr;
+                <a href="@(_salesReport?.IsUnlocked == true ? "/vendas" : "/pedidos")" class="adm-sales-mini-link">
+                    Ver todas &rarr;
                 </a>
             </div>
 
             @if (_recentSalesFeed.Count == 0)
             {
-                <p class="adm-sales-mini-empty">Nenhuma venda registrada ainda.</p>
+                <p class="adm-sales-mini-empty">Nenhuma venda registrada ainda. Compartilhe o link da sua loja acima para começar.</p>
             }
             else
             {
@@ -253,16 +153,120 @@
                 </ul>
             }
         </section>
-    </div>
-}
+
+        <!-- Faixa Discreta de Reposição (só aparece se houver alerta e expande sob demanda) -->
+        @if (_summary.StockAlerts.Count > 0)
+        {
+            <section class="adm-card yl-alerts-drawer">
+                <button type="button"
+                        class="yl-alerts-toggle"
+                        aria-expanded="@_showStockAlerts"
+                        @onclick="() => _showStockAlerts = !_showStockAlerts">
+                    <span class="yl-alerts-toggle-text">
+                        <span class="pill-badge pill-amber">⚠ @_summary.StockAlerts.Count</span>
+                        <span>Produto(s) precisando de reposição no estoque</span>
+                    </span>
+                    <span class="yl-alerts-toggle-action">@(_showStockAlerts ? "Ocultar ▴" : "Ver lista ▾")</span>
+                </button>
+
+                @if (_showStockAlerts)
+                {
+                    <div class="adm-table-wrap" style="margin-top: 1rem;">
+                        <table class="adm-table">
+                            <thead>
+                                <tr>
+                                    <th>Produto</th>
+                                    <th>Saldo</th>
+                                    <th>Status</th>
+                                    <th>Ação</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var alert in _summary.StockAlerts)
+                                {
+                                    <tr>
+                                        <td data-label="Produto">
+                                            <div style="font-weight: 700;">@alert.ProductName</div>
+                                            <div style="font-size: 0.84rem; color: var(--adm-muted);">
+                                                @alert.Color &bull; @alert.Size
+                                            </div>
+                                        </td>
+                                        <td data-label="Saldo" style="font-weight: 800;">@alert.StockQuantity un.</td>
+                                        <td data-label="Status">
+                                            @if (alert.IsOutOfStock)
+                                            {
+                                                <span class="pill-badge pill-red">Sem estoque</span>
+                                            }
+                                            else
+                                            {
+                                                <span class="pill-badge pill-amber">Estoque baixo</span>
+                                            }
+                                        </td>
+                                        <td data-label="Ação">
+                                            <a href="/produtos/@alert.ProductId" class="adm-btn adm-btn-outline" style="min-height: 36px; padding: 0.35rem 0.75rem; font-size: 0.84rem;">
+                                                Repor
+                                            </a>
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                }
+            </section>
+        }
+    }
+</div>
 
 @code {
     private static readonly CultureInfo PtBr = new("pt-BR");
     private DashboardSummaryDto? _summary;
     private PublicStoreSettingsDto? _publicStore;
     private SalesReportDto? _salesReport;
-    private IReadOnlyList<ClothingStore.Shared.Helpers.DashboardCompactSaleItem> _recentSalesFeed = [];
+    private IReadOnlyList<DashboardCompactSaleItem> _recentSalesFeed = [];
+    private int _pendingOrdersCount;
+    private bool _showStockAlerts;
+    private bool _copiedLink;
     private string? _error;
+
+    private string GreetingText
+    {
+        get
+        {
+            var fullName = Gateway.CurrentEmployee?.FullName?.Trim();
+            if (string.IsNullOrWhiteSpace(fullName) ||
+                string.Equals(fullName, "Admin", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(fullName, "Administrador", StringComparison.OrdinalIgnoreCase))
+            {
+                return "Olá, Lojista!";
+            }
+
+            var firstName = fullName.Split(' ', StringSplitOptions.RemoveEmptyEntries)[0];
+            return $"Olá, {firstName}!";
+        }
+    }
+
+    private string PublicStoreUrl
+    {
+        get
+        {
+            var slug = _publicStore?.StoreSlug ?? "minha-loja";
+            var targetBase = !string.IsNullOrWhiteSpace(_publicStore?.OnlineBaseUrl)
+                ? _publicStore.OnlineBaseUrl
+                : Gateway.GetPublicPortalBaseUrl();
+            return WhatsAppLinkBuilder.BuildStoreCatalogUrl(targetBase, slug);
+        }
+    }
+
+    private string DisplayStoreUrl =>
+        PublicStoreUrl
+            .Replace("https://", string.Empty, StringComparison.OrdinalIgnoreCase)
+            .Replace("http://", string.Empty, StringComparison.OrdinalIgnoreCase);
+
+    private int PendingOrdersOrAlertsCount =>
+        Gateway.IsAdmin
+            ? _pendingOrdersCount
+            : (_summary?.LowStockVariantsCount ?? 0) + (_summary?.OutOfStockVariantsCount ?? 0);
 
     protected override async Task OnInitializedAsync()
     {
@@ -286,6 +290,8 @@
             _publicStore = null;
             _salesReport = null;
             _recentSalesFeed = [];
+            _pendingOrdersCount = 0;
+            _showStockAlerts = false;
             _error = null;
         }
         await InvokeAsync(StateHasChanged);
@@ -319,13 +325,53 @@
             {
                 BrandState.ApplyFromPublicSettings(_publicStore);
             }
+
             _salesReport = await Gateway.GetSalesReportAsync("30d");
-            _recentSalesFeed = ClothingStore.Shared.Helpers.DashboardRecentSalesHelper.BuildCompactSalesFeed(_summary, _salesReport);
+            _recentSalesFeed = DashboardRecentSalesHelper.BuildCompactSalesFeed(_summary, _salesReport, maxItems: 3);
+
+            if (Gateway.IsAdmin)
+            {
+                try
+                {
+                    var orders = await Gateway.GetOrdersAsync();
+                    _pendingOrdersCount = orders.Count(o =>
+                        string.Equals(o.Status, BrazilShippingCalculator.OrderStatuses.AwaitingPix, StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(o.Status, BrazilShippingCalculator.OrderStatuses.PaidPreparing, StringComparison.OrdinalIgnoreCase));
+                }
+                catch
+                {
+                    _pendingOrdersCount = 0;
+                }
+            }
         }
         catch (Exception ex)
         {
             _error = ex.Message;
         }
+    }
+
+    private async Task CopyStoreLinkAsync()
+    {
+        try
+        {
+            await Clipboard.Default.SetTextAsync(PublicStoreUrl);
+            _copiedLink = true;
+            StateHasChanged();
+            await Task.Delay(2600);
+            _copiedLink = false;
+            await InvokeAsync(StateHasChanged);
+        }
+        catch
+        {
+        }
+    }
+
+    private async Task ShareStoreOnWhatsAppAsync()
+    {
+        var storeName = _publicStore?.StoreName ?? "nossa loja";
+        var text = $"Olá! Confira os produtos da {storeName} no nosso catálogo online: {PublicStoreUrl}";
+        var waUrl = $"https://wa.me/?text={Uri.EscapeDataString(text)}";
+        await Gateway.OpenExternalUrlSafeAsync(waUrl);
     }
 
     public void Dispose()

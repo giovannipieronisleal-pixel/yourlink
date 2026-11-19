@@ -12,14 +12,16 @@ This project serves **three public storefront plan tiers** selectable from `/pla
    - Delivers the curated **Minimalista Luxo** design system out of the box (Alabaster Silk `#FAF8F5`, Obsidian Ink `#18181B`, Champagne Gold `#B69158`, `Playfair Display` + `Plus Jakarta Sans`).
    - Ensures effortless visual polish with locked design controls on `/configuracoes-loja` (showing an upgrade preview).
 2. **Plano Intermediário — Meia Versão (`Intermediario`)**:
-   - Unlocks **5 pre-ready, non-configurable storefront versions** (`minimalista-luxo`, `editorial-vogue`, `boutique-rose`, `urban-sartorial`, `noir-noturno`) switchable directly on `/planos` or `/configuracoes-loja`.
+   - Unlocks **3 curated, flagship-grade pre-ready storefront versions** (`minimalista-luxo`, `editorial-vogue`, `urban-sartorial`) switchable directly on `/planos` or `/configuracoes-loja`.
 3. **Plano Premium — Estúdio Visual Sob Medida (`Premium`)**:
-   - Unlocks live, store-specific design molding in `/configuracoes-loja` (`DesignStudioPanel.razor`).
-   - Store owners can customize **presets**, **7 semantic colors**, **headline & body typography**, **corner radius**, **layout density**, **hero composition**, **grid columns (2/3/4)**, and **custom editorial copy** (`HeroEyebrow`, `HeroHeadline`).
+   - Unlocks **all 10 flagship storefront presets** (the 3 Intermediate themes + **7 exclusive Premium themes**: `esmeralda-imperial`, `grafite-studio`, `terracota-solar`, `noir-noturno`, `boutique-rose`, `safira-flagship`, `galeria-marfim`) AND live, store-specific design molding in `/configuracoes-loja` (`DesignStudioPanel.razor`).
+   - Store owners can customize **presets**, **semantic colors**, **headline & body typography**, **corner radius**, **layout density**, **hero composition**, **grid columns (2/3/4)**, and **custom editorial copy** (`HeroEyebrow`, `HeroHeadline`).
    - Persists in `StoreSettings.DesignConfig` and propagates simultaneously to:
      - Public Blazor Web storefront (`ClothingStore.Web`)
      - MAUI Blazor Hybrid admin app (`appmaui.blazor`) and in-app preview (`PublicCatalogPreview.razor`)
      - Embedded local HTTP catalog (`LocalWebServerLauncher.cs`)
+4. **Painel do Lojista Acessível (`appmaui.blazor` — Claro & Escuro)**:
+   - Uses a calm, ultra-accessible big-company visual language (Royal Blue `#1D4ED8` / `#3B82F6`, Emerald `#16A34A` / `#22C55E`, high-contrast `#111827` on `#F5F6F8` Light or `#F8FAFC` on `#0F141E` Dark) with a minimalist low-information Windows desktop shell (5 primary sidebar items + Modo Escuro toggle) and 52px+ elder-friendly mobile controls.
 
 ---
 
@@ -39,12 +41,19 @@ This project serves **three public storefront plan tiers** selectable from `/pla
 | Admin Sidebar Surface | `--brand-sidebar` | `#141416` | Deep Obsidian navigation rail |
 | WhatsApp Action | `--brand-whatsapp` | `#16A34A` | Direct boutique concierge CTA (`#15803D` hover) |
 
-### Curated Premium Presets
-- **Minimalista Luxo** (`minimalista-luxo`): `#FAF8F5` / `#FFFFFF` / `#18181B` / `#B69158` (`Playfair Display` + `Plus Jakarta Sans`, `ROUND_FOUR`)
-- **Editorial Clássico** (`editorial-vogue`): `#F7F5F2` / `#FFFFFF` / `#0F0F10` / `#9A7B4F` (`Bodoni Moda` + `Inter`, square `SHARP`)
-- **Rosé Suave** (`boutique-rose`): `#FDF8F6` / `#FFFFFF` / `#3D2329` / `#C4847A` (`Cormorant Garamond` + `DM Sans`, `ROUND_TWELVE`)
-- **Urbano Clean** (`urban-sartorial`): `#F4F4F5` / `#FFFFFF` / `#09090B` / `#52525B` (`Space Grotesk` + `Inter`, `ROUND_FOUR`)
-- **Noir Noturno** (`noir-noturno`): `#0E0E10` / `#18181B` / `#E5C99B` / `#C8A267` (`Playfair Display` + `Plus Jakarta Sans`, dark luxury canvas)
+### Curated Storefront Presets (3 Intermediário + 7 Exclusivos Premium = 10 Total)
+- **Intermediário (Meia Versão — 3 modelos)**:
+  - **Minimalista Luxo** (`minimalista-luxo`): `#FAF8F5` / `#FFFFFF` / `#18181B` / `#B69158` (`Playfair Display` + `Plus Jakarta Sans`, `ROUND_FOUR`)
+  - **Editorial Clássico** (`editorial-vogue`): `#F7F5F2` / `#FFFFFF` / `#0F0F10` / `#9A7B4F` (`Bodoni Moda` + `Inter`, square `SHARP`)
+  - **Urbano Clean** (`urban-sartorial`): `#F6F7F8` / `#FFFFFF` / `#111113` / `#3F3F46` (`Space Grotesk` + `Inter`, `ROUND_FOUR`, 4 cols)
+- **Exclusivos Premium (Versão Mais Cara — +7 modelos flagship)**:
+  - **Esmeralda Imperial** (`esmeralda-imperial`): `#F6F4EF` / `#FFFFFF` / `#0F2922` / `#C6A45D` (`Playfair Display` + `Plus Jakarta Sans`)
+  - **Grafite Studio** (`grafite-studio`): `#111318` / `#1A1D24` / `#FFFFFF` / `#38BDF8` (`Space Grotesk` + `Inter`, dark flagship canvas)
+  - **Terracota Solar** (`terracota-solar`): `#FBF6F1` / `#FFFFFF` / `#9A422B` / `#C56A48` (`Cormorant Garamond` + `DM Sans`, `ROUND_TWELVE`)
+  - **Noir Noturno** (`noir-noturno`): `#0E0E10` / `#18181B` / `#E5C99B` / `#C8A267` (`Playfair Display` + `Plus Jakarta Sans`, dark luxury canvas)
+  - **Rosé Suave** (`boutique-rose`): `#FDF8F6` / `#FFFFFF` / `#3D2329` / `#C4847A` (`Cormorant Garamond` + `DM Sans`, `ROUND_TWELVE`)
+  - **Safira Flagship** (`safira-flagship`): `#F4F7FB` / `#FFFFFF` / `#0B172A` / `#2563EB` (`Montserrat` + `Inter`, 4 cols)
+  - **Galeria Marfim** (`galeria-marfim`): `#FFFFFF` / `#FAFAF8` / `#1F2937` / `#8C6A43` (`Playfair Display` + `Work Sans`, `SHARP`, 2 cols)
 
 ---
 
