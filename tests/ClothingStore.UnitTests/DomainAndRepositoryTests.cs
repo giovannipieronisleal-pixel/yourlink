@@ -824,6 +824,19 @@ public class DomainAndRepositoryTests
         Assert.IsTrue(homeRazor.Contains("ShareStoreOnWhatsAppAsync", StringComparison.Ordinal));
         Assert.IsTrue(navRazor.Contains("Modo Escuro", StringComparison.Ordinal));
         Assert.IsTrue(navRazor.Contains("ToggleThemeFromSidebar", StringComparison.Ordinal));
+
+        // Verifica vitrines mais limpas no PC (sem painel tutorial nem barra lateral fixa de filtros)
+        var webHome = File.ReadAllText(Path.Combine(repoRoot!, "src", "ClothingStore.Web", "Components", "Pages", "Home.razor"));
+        var webCatalog = File.ReadAllText(Path.Combine(repoRoot!, "src", "ClothingStore.Web", "Components", "Pages", "Catalog.razor"));
+        var webCard = File.ReadAllText(Path.Combine(repoRoot!, "src", "ClothingStore.Web", "Components", "Shared", "ProductCard.razor"));
+        var previewRazor = File.ReadAllText(Path.Combine(repoRoot!, "Components", "Pages", "PublicCatalogPreview.razor"));
+
+        Assert.IsFalse(webHome.Contains("lux-concierge-panel", StringComparison.Ordinal), "A capa da vitrine no PC não deve exibir bloco tutorial pesado.");
+        Assert.IsFalse(webHome.Contains("lux-trust-strip", StringComparison.Ordinal), "A vitrine no PC não deve repetir faixa de confiança extensa no rodapé.");
+        Assert.IsTrue(webCatalog.Contains("lux-catalog-toolbar", StringComparison.Ordinal), "O catálogo no PC deve usar barra limpa única com filtros sob demanda.");
+        Assert.IsFalse(webCatalog.Contains("lux-filter-panel", StringComparison.Ordinal), "O catálogo no PC não deve exibir barra lateral fixa de filtros.");
+        Assert.IsFalse(webCard.Contains("lux-stock-ok", StringComparison.Ordinal), "Os cartões de produto não devem poluir toda foto com selo Disponível.");
+        Assert.IsTrue(previewRazor.Contains("_showAdvancedFilters", StringComparison.Ordinal), "A prévia da vitrine no app deve manter filtros avançados recolhidos por padrão.");
     }
 
     [TestMethod]

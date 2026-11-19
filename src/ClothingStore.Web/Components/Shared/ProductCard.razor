@@ -26,28 +26,18 @@
         {
             <span class="lux-stock-pill lux-stock-low">Últimas unidades</span>
         }
-        else
-        {
-            <span class="lux-stock-pill lux-stock-ok">Disponível</span>
-        }
     </a>
 
     <div class="lux-product-body">
         @{
-            var meaningfulSizes = Product.AvailableSizes
-                .Where(s => !WhatsAppLinkBuilder.IsPlaceholderSize(s))
-                .ToList();
             var meaningfulColors = Product.AvailableColors
                 .Where(c => !WhatsAppLinkBuilder.IsPlaceholderColor(c.Color))
                 .ToList();
         }
-        <div class="lux-product-meta">
+        @if (!string.IsNullOrWhiteSpace(Product.CategoryName))
+        {
             <span class="lux-product-category">@Product.CategoryName</span>
-            @if (meaningfulSizes.Count > 0)
-            {
-                <span class="lux-product-sizes">Opções: @string.Join(" · ", meaningfulSizes.Take(4))</span>
-            }
-        </div>
+        }
 
         <h3 class="lux-product-title">
             <a href="@DetailHref">@Product.Name</a>
@@ -76,7 +66,7 @@
         </div>
 
         <a href="@DetailHref" class="lux-card-cta">
-            @(Product.HasAvailableStock ? "Ver Fotos & Opções →" : "Consultar Reposição →")
+            @(Product.HasAvailableStock ? "Ver produto →" : "Indisponível")
         </a>
     </div>
 </article>

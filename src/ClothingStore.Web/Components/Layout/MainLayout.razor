@@ -62,17 +62,14 @@
                         <span class="lux-brand-mark">@BrandInitial</span>
                     }
 
-                    <span>
-                        <span class="lux-brand-title">@(_store?.StoreName ?? "YouLink Loja")</span>
-                        <span class="lux-brand-sub">@BrandSubtitle</span>
-                    </span>
+                    <span class="lux-brand-title">@(_store?.StoreName ?? "YouLink Loja")</span>
                 </a>
 
                 <nav class="lux-nav" aria-label="Navegação principal">
                     <NavLink href="@HomeHref" Match="NavLinkMatch.All" class="lux-nav-link">Início</NavLink>
                     <NavLink href="@CatalogHref" class="lux-nav-link">Ver Produtos</NavLink>
                     <button type="button" class="lux-btn lux-btn-outline lux-btn-sm lux-pwa-install-btn" data-pwa-install>
-                        📲 Instalar App
+                        📲 Instalar
                     </button>
 
                     @if (_store is { IsSiteActive: true })
@@ -95,7 +92,7 @@
                            target="_blank"
                            rel="noopener noreferrer"
                            class="lux-btn lux-btn-whatsapp lux-btn-sm">
-                            💬 Comprar no WhatsApp
+                            💬 WhatsApp
                         </a>
                     }
                 </nav>
@@ -321,13 +318,6 @@
         string.IsNullOrWhiteSpace(_store?.StoreName)
             ? "L"
             : _store.StoreName.Trim()[..1].ToUpperInvariant();
-
-    private string BrandSubtitle => _store?.PlanTier switch
-    {
-        StoreDesignPresets.PlanPremium => "Loja Oficial • Sob Medida",
-        StoreDesignPresets.PlanIntermediate => "Loja Oficial • Catálogo Selecionado",
-        _ => "Catálogo Online Oficial"
-    };
 
     protected override async Task OnInitializedAsync()
     {

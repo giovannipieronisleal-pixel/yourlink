@@ -80,101 +80,67 @@ else
 {
     <section class="lux-hero @HeroVariantClass">
         <div class="lux-hero-copy">
-            @if (_design.ShowLookbookBadge)
+            @if (_design.ShowLookbookBadge && !string.IsNullOrWhiteSpace(_design.HeroEyebrow))
             {
                 <span class="lux-hero-eyebrow">@HeroEyebrowText</span>
             }
 
             <h1 class="lux-hero-title">@HeroHeadlineText</h1>
-            <p class="lux-hero-subtitle">@(_store?.StoreDescription ?? "Escolha seus produtos favoritos, confira variações disponíveis e faça seu pedido direto pelo WhatsApp.")</p>
+
+            @if (!string.IsNullOrWhiteSpace(_store?.StoreDescription))
+            {
+                <p class="lux-hero-subtitle">@_store.StoreDescription</p>
+            }
+        </div>
+
+        <div class="lux-hero-side">
+            <form class="lux-quick-search" @onsubmit="GoSearch" @onsubmit:preventDefault="true">
+                <input type="text"
+                       class="lux-input"
+                       placeholder="Buscar produto..."
+                       aria-label="Buscar produto"
+                       @bind="_quickSearch" />
+                <button type="submit" class="lux-btn lux-btn-primary">
+                    Buscar
+                </button>
+            </form>
 
             <div class="lux-hero-actions">
-                <a href="@CatalogHref()" class="lux-btn lux-btn-primary">Ver Todos os Produtos</a>
+                <a href="@CatalogHref()" class="lux-btn lux-btn-outline lux-btn-sm">Ver Catálogo</a>
 
                 @if (_store is not null && !string.IsNullOrWhiteSpace(_store.WhatsappNumber))
                 {
                     <a href="@WhatsAppLinkBuilder.BuildGeneralStoreLink(_store.WhatsappNumber, _store.StoreName)"
                        target="_blank"
                        rel="noopener noreferrer"
-                       class="lux-btn lux-btn-whatsapp">
-                        💬 Tirar Dúvidas no WhatsApp
+                       class="lux-btn lux-btn-whatsapp lux-btn-sm">
+                        💬 WhatsApp
                     </a>
                 }
             </div>
-
-            <form class="lux-quick-search" @onsubmit="GoSearch" @onsubmit:preventDefault="true">
-                <input type="text"
-                       class="lux-input"
-                       placeholder="O que você procura? Pesquise por nome, categoria..."
-                       @bind="_quickSearch" />
-                <button type="submit" class="lux-btn lux-btn-outline">
-                    Buscar
-                </button>
-            </form>
         </div>
-
-        @if (_design.HeroLayout == "split")
-        {
-            <aside class="lux-concierge-panel" aria-label="Como comprar">
-                <h2 class="lux-concierge-heading">Comprar Aqui é Muito Simples</h2>
-                <div class="lux-concierge-step">
-                    <span class="lux-step-num">1</span>
-                    <div>
-                        <strong>Escolha o produto</strong>
-                        <span>Veja as fotos, o preço e toque no item que mais combina com você.</span>
-                    </div>
-                </div>
-                <div class="lux-concierge-step">
-                    <span class="lux-step-num">2</span>
-                    <div>
-                        <strong>Escolha a variação</strong>
-                        <span>Você vê na hora o que temos disponível antes de chamar a loja.</span>
-                    </div>
-                </div>
-                <div class="lux-concierge-step">
-                    <span class="lux-step-num">3</span>
-                    <div>
-                        <strong>Finalize no WhatsApp</strong>
-                        <span>Um toque abre a conversa pronta com nossa equipe para entrega ou retirada.</span>
-                    </div>
-                </div>
-            </aside>
-        }
     </section>
 
     @if (_categories.Count > 0)
     {
-        <section class="lux-section">
-            <div class="lux-section-head">
-                <div>
-                    <span class="lux-section-kicker">Explore por Categoria</span>
-                    <h2 class="lux-section-title">Categorias da Loja</h2>
-                </div>
-                <a href="@CatalogHref()" class="lux-link-arrow">Ver tudo &rarr;</a>
-            </div>
-
-            <div class="lux-category-rail">
-                <a href="@CatalogHref()" class="lux-category-pill active">
-                    <span>Todos os produtos</span>
+        <div class="lux-category-rail lux-home-cat-rail" aria-label="Categorias da loja">
+            <a href="@CatalogHref()" class="lux-category-pill active">
+                <span>Todos</span>
+            </a>
+            @foreach (var cat in _categories)
+            {
+                <a href="@CatalogHref(cat.Slug)" class="lux-category-pill">
+                    <span>@cat.Name</span>
+                    <span class="lux-category-count">@cat.ProductCount</span>
                 </a>
-                @foreach (var cat in _categories)
-                {
-                    <a href="@CatalogHref(cat.Slug)" class="lux-category-pill">
-                        <span>@cat.Name</span>
-                        <span class="lux-category-count">@cat.ProductCount</span>
-                    </a>
-                }
-            </div>
-        </section>
+            }
+        </div>
     }
 
-    <section class="lux-section">
+    <section class="lux-section lux-section-tight">
         <div class="lux-section-head">
-            <div>
-                <span class="lux-section-kicker">Novidades &amp; Destaques</span>
-                <h2 class="lux-section-title">Produtos para Você Escolher</h2>
-            </div>
-            <a href="@CatalogHref()" class="lux-link-arrow">Ver Todas (@_featuredProducts.Count+) &rarr;</a>
+            <h2 class="lux-section-title">Produtos</h2>
+            <a href="@CatalogHref()" class="lux-link-arrow">Ver tudo &rarr;</a>
         </div>
 
         @if (_featuredProducts.Count == 0)
@@ -195,30 +161,6 @@ else
                 }
             </div>
         }
-    </section>
-
-    <section class="lux-trust-strip" aria-label="Facilidades da loja">
-        <div class="lux-trust-card">
-            <span>🛍️</span>
-            <div>
-                <strong>Compra Fácil e Direta</strong>
-                <span>Sem cadastro complicado: gostou do produto, é só pedir no WhatsApp.</span>
-            </div>
-        </div>
-        <div class="lux-trust-card">
-            <span>✨</span>
-            <div>
-                <strong>Tamanhos Reais na Hora</strong>
-                <span>Confira cores e tamanhos disponíveis antes mesmo de enviar mensagem.</span>
-            </div>
-        </div>
-        <div class="lux-trust-card">
-            <span>💬</span>
-            <div>
-                <strong>Atendimento Humano</strong>
-                <span>Tire dúvidas sobre especificações, detalhes e entrega direto com quem atende na loja.</span>
-            </div>
-        </div>
     </section>
 }
 
