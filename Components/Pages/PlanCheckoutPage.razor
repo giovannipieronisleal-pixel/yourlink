@@ -159,12 +159,49 @@ else
 
             <div>
                 <div style="display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 0.25rem;">
-                    <label class="adm-label" style="margin: 0;">Endereço Oficial da Loja Online</label>
+                    <label class="adm-label" style="margin: 0;">Endereço Oficial da Loja Online (Render)</label>
                     <span class="pill-badge pill-green">Incluso no Plano</span>
                 </div>
-                <div style="padding: 0.72rem 0.9rem; border-radius: 10px; background: var(--adm-surface-subtle); border: 1px solid var(--adm-border); font-size: 0.88rem; font-weight: 700; color: var(--adm-text); overflow-wrap: anywhere;">
-                    @WhatsAppLinkBuilder.BuildStoreCatalogUrl(Gateway.GetPublicPortalBaseUrl(), WhatsAppLinkBuilder.GenerateStoreSlug(string.IsNullOrWhiteSpace(_customerStoreName) ? _settings.StoreName : _customerStoreName))
+                @{
+                    var checkoutSlug = string.IsNullOrWhiteSpace(_desiredDomain)
+                        ? WhatsAppLinkBuilder.GenerateStoreSlug(string.IsNullOrWhiteSpace(_customerStoreName) ? _settings.StoreName : _customerStoreName)
+                        : WhatsAppLinkBuilder.GenerateStoreSlug(_desiredDomain);
+                    var checkoutRenderUrl = WhatsAppLinkBuilder.BuildStoreCatalogUrl(Gateway.GetPublicPortalBaseUrl(), checkoutSlug);
+                }
+                <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
+                    <div style="flex: 1 1 220px; padding: 0.72rem 0.9rem; border-radius: 10px; background: var(--adm-surface-subtle); border: 1px solid var(--adm-border); font-size: 0.88rem; font-weight: 700; color: var(--adm-text); overflow-wrap: anywhere;">
+                        @checkoutRenderUrl
+                    </div>
+                    <button type="button"
+                            class="adm-btn adm-btn-outline"
+                            style="white-space: nowrap;"
+                            disabled="@_checkingRenderLink"
+                            @onclick="CheckRenderLinkInCheckoutAsync">
+                        @(_checkingRenderLink ? "⏳ Verificando..." : "🔍 Verificar no Render")
+                    </button>
                 </div>
+
+                @if (_renderCheckoutCheck is not null)
+                {
+                    <div style="margin-top: 0.5rem; padding: 0.6rem 0.85rem; border-radius: 8px; font-size: 0.82rem; @(_renderCheckoutCheck.IsAvailable ? "background: rgba(22,163,74,0.12); border: 1px solid var(--adm-success); color: var(--adm-success);" : !_renderCheckoutCheck.ServerOnline ? "background: rgba(245,158,11,0.12); border: 1px solid var(--adm-warning); color: var(--adm-warning);" : "background: rgba(220,38,38,0.12); border: 1px solid var(--adm-danger); color: var(--adm-danger);")">
+                        <div style="font-weight: 700;">@(!_renderCheckoutCheck.ServerOnline ? "🟡 " : _renderCheckoutCheck.IsAvailable ? "🟢 " : "🔴 ")@_renderCheckoutCheck.Message</div>
+                        @if (!_renderCheckoutCheck.IsAvailable && _renderCheckoutCheck.Suggestions.Count > 0)
+                        {
+                            <div style="display: flex; gap: 0.35rem; flex-wrap: wrap; margin-top: 0.35rem;">
+                                @foreach (var sug in _renderCheckoutCheck.Suggestions)
+                                {
+                                    <button type="button"
+                                            class="pill-badge pill-green"
+                                            style="border: none; cursor: pointer; padding: 0.22rem 0.6rem; font-size: 0.76rem;"
+                                            @onclick="() => SelectRenderCheckoutSuggestionAsync(sug)">
+                                        ✓ /loja/@sug
+                                    </button>
+                                }
+                            </div>
+                        }
+                    </div>
+                }
+
                 <span style="font-size: 0.77rem; color: var(--adm-muted); display: block; margin-top: 0.3rem;">
                     Hospedagem 24h, HTTPS e o endereço da vitrine no servidor oficial YouLink já estão inclusos — você não precisa comprar nem configurar domínio.
                 </span>
@@ -589,6 +626,8 @@ else
     private AdminStoreSettingsDto? _settings;
     private bool _loading = true;
     private bool _redeemingCode;
+    private bool _checkingRenderLink;
+    private RenderStoreLinkAvailabilityDto? _renderCheckoutCheck;
     private bool _useFreeDomainCheaperPlan;
     private bool _useOwnDedicatedServer;
     private string _selectedTier = StoreDesignPresets.PlanIntermediate;
@@ -1139,6 +1178,40 @@ else
         {
             _error = $"Não foi possível abrir o WhatsApp automaticamente ({ex.Message}). Copie a chave Pix acima e envie o comprovante para concluir a ativação.";
         }
+    }
+
+    private async Task CheckRenderLinkInCheckoutAsync()
+    {
+        var candidate = string.IsNullOrWhiteSpace(_desiredDomain)
+            ? (string.IsNullOrWhiteSpace(_customerStoreName) ? _settings?.StoreName : _customerStoreName)
+            : _desiredDomain;
+        if (string.IsNullOrWhiteSpace(candidate))
+            return;
+
+        _checkingRenderLink = true;
+        _error = null;
+        try
+        {
+            _renderCheckoutCheck = await Gateway.CheckRenderStoreLinkAvailabilityAsync(candidate);
+            if (_renderCheckoutCheck.IsAvailable && !string.IsNullOrWhiteSpace(_renderCheckoutCheck.NormalizedSlug))
+            {
+                _desiredDomain = _renderCheckoutCheck.NormalizedSlug;
+            }
+        }
+        catch (Exception ex)
+        {
+            _error = $"Erro ao verificar disponibilidade no Render: {ex.Message}";
+        }
+        finally
+        {
+            _checkingRenderLink = false;
+        }
+    }
+
+    private async Task SelectRenderCheckoutSuggestionAsync(string slug)
+    {
+        _desiredDomain = slug;
+        await CheckRenderLinkInCheckoutAsync();
     }
 
     private async Task RedeemGiftCardAsync()

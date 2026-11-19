@@ -842,6 +842,135 @@ app.MapPost("/api/cloud/client-vip-ack", async (
 app.MapGet("/api/public/security-config", (CloudflareTurnstileService turnstile) =>
     Results.Ok(turnstile.GetPublicConfig())).AllowAnonymous();
 
+app.MapGet("/api/cloud/check-render-store-link", async (
+    string? slug,
+    string? ownerEmail,
+    string? ownerUsername,
+    HttpContext ctx,
+    IMultiTenantStoreResolver storeResolver,
+    CloudAccountRegistryService accountRegistry,
+    CancellationToken ct) =>
+{
+    var publicOrigin = $"{ctx.Request.Scheme}://{ctx.Request.Host}".TrimEnd('/');
+    var normalizedSlug = WhatsAppLinkBuilder.GenerateStoreSlug(slug);
+    var storeUrl = WhatsAppLinkBuilder.BuildStoreCatalogUrl(publicOrigin, normalizedSlug);
+
+    var reservedSlugs = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+    {
+        "admin", "api", "login", "planos", "site", "loja", "catalogo",
+        "produto", "privacidade", "termos", "health", "como-instalar", "swagger"
+    };
+
+    var cleanEmail = string.IsNullOrWhiteSpace(ownerEmail) ? null : ownerEmail.Trim();
+    var cleanUser = string.IsNullOrWhiteSpace(ownerUsername) ? null : ownerUsername.Trim();
+
+    var takenSlugs = new HashSet<string>(reservedSlugs, StringComparer.OrdinalIgnoreCase);
+    var ownedByCaller = false;
+    var takenByOther = reservedSlugs.Contains(normalizedSlug);
+
+    var tenantSlugs = await storeResolver.ListTenantSlugsAsync(ct);
+    foreach (var tSlug in tenantSlugs)
+    {
+        if (string.IsNullOrWhiteSpace(tSlug) || string.Equals(tSlug, "__root__", StringComparison.OrdinalIgnoreCase))
+            continue;
+
+        var normTenant = WhatsAppLinkBuilder.GenerateStoreSlug(tSlug);
+        takenSlugs.Add(normTenant);
+
+        if (string.Equals(normTenant, normalizedSlug, StringComparison.OrdinalIgnoreCase))
+        {
+            var creds = await storeResolver.GetTenantCredentialsAsync(tSlug, ct);
+            if (!string.IsNullOrWhiteSpace(cleanEmail) &&
+                !string.IsNullOrWhiteSpace(creds?.OwnerEmail) &&
+                string.Equals(creds.OwnerEmail.Trim(), cleanEmail, StringComparison.OrdinalIgnoreCase))
+            {
+                ownedByCaller = true;
+            }
+            else
+            {
+                takenByOther = true;
+            }
+        }
+    }
+
+    var accounts = await accountRegistry.GetAllAccountsAsync(ct);
+    foreach (var acc in accounts)
+    {
+        if (string.IsNullOrWhiteSpace(acc.StoreSlug) ||
+            string.Equals(acc.StoreSlug.Trim(), "minha-loja", StringComparison.OrdinalIgnoreCase))
+        {
+            continue;
+        }
+
+        var normAccSlug = WhatsAppLinkBuilder.GenerateStoreSlug(acc.StoreSlug);
+        takenSlugs.Add(normAccSlug);
+
+        if (string.Equals(normAccSlug, normalizedSlug, StringComparison.OrdinalIgnoreCase))
+        {
+            var matchesOwner =
+                (!string.IsNullOrWhiteSpace(cleanEmail) &&
+                 !string.IsNullOrWhiteSpace(acc.Email) &&
+                 string.Equals(acc.Email.Trim(), cleanEmail, StringComparison.OrdinalIgnoreCase)) ||
+                (!string.IsNullOrWhiteSpace(cleanUser) &&
+                 !string.IsNullOrWhiteSpace(acc.Username) &&
+                 string.Equals(acc.Username.Trim(), cleanUser, StringComparison.OrdinalIgnoreCase));
+
+            if (matchesOwner)
+                ownedByCaller = true;
+            else
+                takenByOther = true;
+        }
+    }
+
+    if (ownedByCaller && !reservedSlugs.Contains(normalizedSlug))
+    {
+        return Results.Ok(new RenderStoreLinkAvailabilityDto(
+            NormalizedSlug: normalizedSlug,
+            StoreUrl: storeUrl,
+            ServerOnline: true,
+            IsAvailable: true,
+            OwnedByCurrentAccount: true,
+            Message: "Este endereço no servidor Render já pertence à sua loja!",
+            Suggestions: []));
+    }
+
+    if (!takenByOther)
+    {
+        return Results.Ok(new RenderStoreLinkAvailabilityDto(
+            NormalizedSlug: normalizedSlug,
+            StoreUrl: storeUrl,
+            ServerOnline: true,
+            IsAvailable: true,
+            OwnedByCurrentAccount: false,
+            Message: "Endereço disponível no servidor Render!",
+            Suggestions: []));
+    }
+
+    var suggestions = new List<string>(4);
+    string[] suffixes = ["-oficial", "-loja", "-2", "-br", "-3", "-shop", "-online"];
+    foreach (var suffix in suffixes)
+    {
+        var candidate = WhatsAppLinkBuilder.GenerateStoreSlug($"{normalizedSlug}{suffix}");
+        if (!takenSlugs.Contains(candidate) && !suggestions.Contains(candidate, StringComparer.OrdinalIgnoreCase))
+        {
+            suggestions.Add(candidate);
+            if (suggestions.Count >= 4)
+                break;
+        }
+    }
+
+    return Results.Ok(new RenderStoreLinkAvailabilityDto(
+        NormalizedSlug: normalizedSlug,
+        StoreUrl: storeUrl,
+        ServerOnline: true,
+        IsAvailable: false,
+        OwnedByCurrentAccount: false,
+        Message: reservedSlugs.Contains(normalizedSlug)
+            ? "Este endereço é reservado pelo sistema. Escolha uma das sugestões livres no Render."
+            : "Este endereço já está em uso por outra loja no servidor Render.",
+        Suggestions: suggestions));
+}).AllowAnonymous();
+
 app.MapGet("/api/cloud/remote-config", async (RemoteConfigAndTelemetryStore store, CancellationToken ct) =>
     Results.Ok(await store.GetRemoteConfigAsync(ct))).AllowAnonymous();
 

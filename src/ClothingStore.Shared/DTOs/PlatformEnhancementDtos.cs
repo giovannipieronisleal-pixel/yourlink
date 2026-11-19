@@ -87,3 +87,15 @@ public sealed record ServerAiKeyStatusDto(
     bool Configured,
     string Source,
     DateTimeOffset? UpdatedAt = null);
+
+/// <summary>
+/// Resultado da verificação de disponibilidade do endereço da loja no servidor oficial (Render).
+/// </summary>
+public sealed record RenderStoreLinkAvailabilityDto(
+    string NormalizedSlug,
+    string StoreUrl,
+    bool ServerOnline,
+    bool IsAvailable,
+    bool OwnedByCurrentAccount,
+    string Message,
+    IReadOnlyList<string> Suggestions);
