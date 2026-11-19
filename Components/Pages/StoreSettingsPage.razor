@@ -111,17 +111,76 @@
                 </div>
 
                 <div>
-                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.35rem;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.35rem; gap: 0.5rem; flex-wrap: wrap;">
                         <label class="adm-label" style="margin: 0;">Endereço do Link da Loja (Final da URL) *</label>
                         <label style="font-size: 0.76rem; color: var(--adm-muted); display: flex; align-items: center; gap: 0.35rem; cursor: pointer;">
                             <input type="checkbox" @bind="_autoSyncSlugWithName" />
                             <span>Sincronizar com o nome</span>
                         </label>
                     </div>
-                    <input type="text" class="adm-input" @bind="_form.StoreSlug" placeholder="minha-loja" />
-                    <span style="font-size: 0.78rem; color: var(--adm-muted);">
+                    <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+                        <input type="text"
+                               class="adm-input"
+                               style="flex: 1 1 200px; min-width: 0;"
+                               @bind="_form.StoreSlug"
+                               @bind:after="ClearRenderCheckResult"
+                               placeholder="minha-loja" />
+                        <button type="button"
+                                class="adm-btn adm-btn-outline"
+                                style="white-space: nowrap;"
+                                disabled="@_isCheckingRenderLink"
+                                @onclick="CheckRenderStoreLinkAsync">
+                            @(_isCheckingRenderLink ? "⏳ Verificando..." : "🔍 Verificar no Render")
+                        </button>
+                    </div>
+                    <span style="font-size: 0.78rem; color: var(--adm-muted); display: block; margin-top: 0.3rem;">
                         Link oficial do catálogo: <strong style="color: var(--adm-accent);">@storeCatalogUrl</strong>
                     </span>
+
+                    @if (_renderLinkCheck is not null)
+                    {
+                        var checkBg = !_renderLinkCheck.ServerOnline
+                            ? "rgba(245,158,11,0.12)"
+                            : _renderLinkCheck.IsAvailable
+                                ? "rgba(22,163,74,0.12)"
+                                : "rgba(220,38,38,0.12)";
+                        var checkBorder = !_renderLinkCheck.ServerOnline
+                            ? "var(--adm-warning)"
+                            : _renderLinkCheck.IsAvailable
+                                ? "var(--adm-success)"
+                                : "var(--adm-danger)";
+                        var checkColor = !_renderLinkCheck.ServerOnline
+                            ? "var(--adm-warning)"
+                            : _renderLinkCheck.IsAvailable
+                                ? "var(--adm-success)"
+                                : "var(--adm-danger)";
+                        <div style="margin-top: 0.5rem; padding: 0.65rem 0.85rem; border-radius: 10px; font-size: 0.84rem; background: @checkBg; border: 1px solid @checkBorder; color: @checkColor;">
+                            <div style="font-weight: 700;">
+                                @(!_renderLinkCheck.ServerOnline ? "🟡 " : _renderLinkCheck.IsAvailable ? "🟢 " : "🔴 ")@_renderLinkCheck.Message
+                            </div>
+                            @if (_renderLinkCheck.IsAvailable)
+                            {
+                                <div style="font-size: 0.78rem; margin-top: 0.2rem; color: var(--adm-text);">
+                                    Endereço confirmado: <strong>@_renderLinkCheck.StoreUrl</strong>
+                                </div>
+                            }
+                            else if (_renderLinkCheck.Suggestions.Count > 0)
+                            {
+                                <div style="font-size: 0.78rem; margin-top: 0.35rem; color: var(--adm-text);">Opções disponíveis no Render (toque para escolher):</div>
+                                <div style="display: flex; gap: 0.4rem; flex-wrap: wrap; margin-top: 0.35rem;">
+                                    @foreach (var sug in _renderLinkCheck.Suggestions)
+                                    {
+                                        <button type="button"
+                                                class="pill-badge pill-green"
+                                                style="border: none; cursor: pointer; padding: 0.26rem 0.65rem; font-size: 0.78rem;"
+                                                @onclick="() => ApplyRenderSlugSuggestionAsync(sug)">
+                                            ✓ /loja/@sug
+                                        </button>
+                                    }
+                                </div>
+                            }
+                        </div>
+                    }
                 </div>
 
                 <div>
@@ -244,7 +303,7 @@
                 }
                 else
                 {
-                    <span>🌐 <em>Endereço externo configurável em Opções Avançadas de Domínio / Nuvem.</em></span>
+                    <span>🌐 <em>Endereço oficial da loja hospedado automaticamente no servidor YouLink (Render).</em></span>
                 }
             </div>
 
@@ -840,6 +899,8 @@
 
     private bool _autoSyncSlugWithName = true;
     private bool _copiedUrl;
+    private bool _isCheckingRenderLink;
+    private RenderStoreLinkAvailabilityDto? _renderLinkCheck;
     private string? _error;
     private string? _success;
 
@@ -1005,11 +1066,44 @@
         BrandState.ApplyFromAdminSettings(updated);
     }
 
+    private void ClearRenderCheckResult() => _renderLinkCheck = null;
+
+    private async Task CheckRenderStoreLinkAsync()
+    {
+        _isCheckingRenderLink = true;
+        _error = null;
+        try
+        {
+            var candidate = string.IsNullOrWhiteSpace(_form.StoreSlug) ? _form.StoreName : _form.StoreSlug;
+            _renderLinkCheck = await Gateway.CheckRenderStoreLinkAvailabilityAsync(candidate);
+            if (_renderLinkCheck.IsAvailable && !string.IsNullOrWhiteSpace(_renderLinkCheck.NormalizedSlug))
+            {
+                _form.StoreSlug = _renderLinkCheck.NormalizedSlug;
+            }
+        }
+        catch (Exception ex)
+        {
+            _error = $"Erro ao verificar disponibilidade no Render: {ex.Message}";
+        }
+        finally
+        {
+            _isCheckingRenderLink = false;
+        }
+    }
+
+    private async Task ApplyRenderSlugSuggestionAsync(string suggestedSlug)
+    {
+        _autoSyncSlugWithName = false;
+        _form.StoreSlug = suggestedSlug;
+        await CheckRenderStoreLinkAsync();
+    }
+
     private void SyncSlugFromStoreNameIfUnlocked()
     {
         if (_autoSyncSlugWithName)
         {
             _form.StoreSlug = WhatsAppLinkBuilder.GenerateStoreSlug(_form.StoreName);
+            _renderLinkCheck = null;
         }
     }
 

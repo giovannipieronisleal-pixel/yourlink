@@ -1697,6 +1697,120 @@ public sealed class MauiAdminGateway
                 [])));
     }
 
+    /// <summary>
+    /// Verifica diretamente no servidor central (Render) se o servidor está online e se o endereço
+    /// <c>/loja/{slug}</c> está livre (ou já pertence à conta logada), sugerindo alternativas livres em caso de conflito.
+    /// </summary>
+    public async Task<RenderStoreLinkAvailabilityDto> CheckRenderStoreLinkAvailabilityAsync(
+        string? slugOrStoreName,
+        CancellationToken ct = default)
+    {
+        var normalizedSlug = WhatsAppLinkBuilder.GenerateStoreSlug(slugOrStoreName);
+        var renderBaseUrl = GetPublicPortalBaseUrl().TrimEnd('/');
+        var fullUrl = WhatsAppLinkBuilder.BuildStoreCatalogUrl(renderBaseUrl, normalizedSlug);
+        var email = CurrentEmployee?.Email;
+        var username = CurrentEmployee?.EffectiveUsername;
+
+        using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        timeoutCts.CancelAfter(TimeSpan.FromSeconds(18));
+
+        try
+        {
+            var client = new AdminApiClient(RemotePlatformBillingHttpClient);
+            client.UpdateBaseAddress(renderBaseUrl);
+            return await client.CheckRenderStoreLinkAvailabilityAsync(normalizedSlug, email, username, timeoutCts.Token);
+        }
+        catch (Exception ex) when (AdminApiClient.IsEndpointUnavailableError(ex))
+        {
+            // Fallback compatível enquanto o Render ainda finaliza o deploy do novo endpoint:
+            // testa /health e /api/public/stores/{slug}/settings diretamente no Render.
+            try
+            {
+                using var healthResp = await RemotePlatformBillingHttpClient.GetAsync($"{renderBaseUrl}/health", timeoutCts.Token);
+                if (!healthResp.IsSuccessStatusCode)
+                {
+                    return new RenderStoreLinkAvailabilityDto(
+                        normalizedSlug,
+                        fullUrl,
+                        ServerOnline: false,
+                        IsAvailable: false,
+                        OwnedByCurrentAccount: false,
+                        Message: $"Servidor Render respondeu HTTP {(int)healthResp.StatusCode}. Tente novamente em alguns segundos.",
+                        Suggestions: []);
+                }
+
+                using var storeResp = await RemotePlatformBillingHttpClient.GetAsync(
+                    $"{renderBaseUrl}/api/public/stores/{Uri.EscapeDataString(normalizedSlug)}/settings",
+                    timeoutCts.Token);
+
+                if (storeResp.StatusCode == System.Net.HttpStatusCode.NotFound)
+                {
+                    return new RenderStoreLinkAvailabilityDto(
+                        normalizedSlug,
+                        fullUrl,
+                        ServerOnline: true,
+                        IsAvailable: true,
+                        OwnedByCurrentAccount: false,
+                        Message: "Endereço disponível no servidor Render!",
+                        Suggestions: []);
+                }
+
+                if (storeResp.IsSuccessStatusCode)
+                {
+                    if (IsAuthenticated)
+                    {
+                        var currentStore = await _employeeAndSettingsService.GetAdminStoreSettingsAsync();
+                        if (!string.IsNullOrWhiteSpace(currentStore.StoreSlug) &&
+                            !string.Equals(currentStore.StoreSlug, "minha-loja", StringComparison.OrdinalIgnoreCase) &&
+                            string.Equals(WhatsAppLinkBuilder.GenerateStoreSlug(currentStore.StoreSlug), normalizedSlug, StringComparison.OrdinalIgnoreCase))
+                        {
+                            return new RenderStoreLinkAvailabilityDto(
+                                normalizedSlug,
+                                fullUrl,
+                                ServerOnline: true,
+                                IsAvailable: true,
+                                OwnedByCurrentAccount: true,
+                                Message: "Este endereço no servidor Render já pertence à sua loja!",
+                                Suggestions: []);
+                        }
+                    }
+
+                    return new RenderStoreLinkAvailabilityDto(
+                        normalizedSlug,
+                        fullUrl,
+                        ServerOnline: true,
+                        IsAvailable: false,
+                        OwnedByCurrentAccount: false,
+                        Message: "Este endereço já está em uso por outra loja no servidor Render.",
+                        Suggestions: [$"{normalizedSlug}-oficial", $"{normalizedSlug}-loja", $"{normalizedSlug}-2"]);
+                }
+            }
+            catch
+            {
+            }
+
+            return new RenderStoreLinkAvailabilityDto(
+                normalizedSlug,
+                fullUrl,
+                ServerOnline: false,
+                IsAvailable: false,
+                OwnedByCurrentAccount: false,
+                Message: "Servidor Render indisponível ou acordando no momento. Tente novamente em alguns segundos.",
+                Suggestions: []);
+        }
+        catch
+        {
+            return new RenderStoreLinkAvailabilityDto(
+                normalizedSlug,
+                fullUrl,
+                ServerOnline: false,
+                IsAvailable: false,
+                OwnedByCurrentAccount: false,
+                Message: "Servidor Render indisponível ou acordando no momento. Tente novamente em alguns segundos.",
+                Suggestions: []);
+        }
+    }
+
     public Task<FreeDomainSearchResponse> SearchFreeDomainsAsync(string? storeNameOrKeyword, CancellationToken ct = default)
     {
         if (_cloudSyncService is not null)

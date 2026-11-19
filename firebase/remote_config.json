@@ -38,7 +38,7 @@
     },
     "min_recommended_app_version": {
       "defaultValue": {
-        "value": "1.0.54"
+        "value": "1.0.55"
       },
       "description": "Versão mínima recomendada para sincronização VIP e telemetria."
     },

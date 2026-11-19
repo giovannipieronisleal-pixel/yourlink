@@ -495,7 +495,46 @@
                            class="adm-input"
                            @bind="_initStoreName"
                            @bind:event="oninput"
+                           @bind:after="OnInitStoreNameChanged"
                            placeholder="Ex.: Minha Loja" />
+                    @{
+                        var previewSlug = string.IsNullOrWhiteSpace(_initStoreSlug)
+                            ? WhatsAppLinkBuilder.GenerateStoreSlug(_initStoreName)
+                            : WhatsAppLinkBuilder.GenerateStoreSlug(_initStoreSlug);
+                        var previewRenderUrl = WhatsAppLinkBuilder.BuildStoreCatalogUrl(Gateway.GetPublicPortalBaseUrl(), previewSlug);
+                    }
+                    <div style="margin-top: 0.45rem; display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; flex-wrap: wrap; padding: 0.55rem 0.75rem; border-radius: 10px; background: var(--adm-surface-subtle); border: 1px solid var(--adm-border);">
+                        <span style="font-size: 0.78rem; color: var(--adm-muted); overflow-wrap: anywhere;">
+                            Link no Render: <strong style="color: var(--adm-text);">@previewRenderUrl</strong>
+                        </span>
+                        <button type="button"
+                                class="adm-btn adm-btn-outline"
+                                style="min-height: 34px; padding: 0.25rem 0.65rem; font-size: 0.78rem;"
+                                disabled="@(_isCheckingRenderLink || string.IsNullOrWhiteSpace(_initStoreName))"
+                                @onclick="CheckRenderLinkInSetupAsync">
+                            @(_isCheckingRenderLink ? "⏳..." : "🔍 Verificar")
+                        </button>
+                    </div>
+                    @if (_renderSetupCheck is not null)
+                    {
+                        <div style="margin-top: 0.45rem; padding: 0.55rem 0.75rem; border-radius: 8px; font-size: 0.8rem; @(_renderSetupCheck.IsAvailable ? "background: rgba(22,163,74,0.12); border: 1px solid var(--adm-success); color: var(--adm-success);" : !_renderSetupCheck.ServerOnline ? "background: rgba(245,158,11,0.12); border: 1px solid var(--adm-warning); color: var(--adm-warning);" : "background: rgba(220,38,38,0.12); border: 1px solid var(--adm-danger); color: var(--adm-danger);")">
+                            <div style="font-weight: 700;">@(!_renderSetupCheck.ServerOnline ? "🟡 " : _renderSetupCheck.IsAvailable ? "🟢 " : "🔴 ")@_renderSetupCheck.Message</div>
+                            @if (!_renderSetupCheck.IsAvailable && _renderSetupCheck.Suggestions.Count > 0)
+                            {
+                                <div style="display: flex; gap: 0.35rem; flex-wrap: wrap; margin-top: 0.35rem;">
+                                    @foreach (var sug in _renderSetupCheck.Suggestions)
+                                    {
+                                        <button type="button"
+                                                class="pill-badge pill-green"
+                                                style="border: none; cursor: pointer; padding: 0.2rem 0.55rem; font-size: 0.76rem;"
+                                                @onclick="() => SelectRenderSuggestionInSetupAsync(sug)">
+                                            ✓ /loja/@sug
+                                        </button>
+                                    }
+                                </div>
+                            }
+                        </div>
+                    }
                 </div>
 
                 <div>
@@ -580,8 +619,11 @@
     // Pop-up Inicial da Loja (Onboarding)
     private bool _showInitialSetupModal;
     private string _initStoreName = string.Empty;
+    private string _initStoreSlug = string.Empty;
     private string _initStoreBio = "Catálogo oficial com nossos produtos e novidades.";
     private string _initStoreWhatsapp = string.Empty;
+    private bool _isCheckingRenderLink;
+    private RenderStoreLinkAvailabilityDto? _renderSetupCheck;
     private string? _setupErrorMessage;
 
     protected override async Task OnInitializedAsync()
@@ -790,8 +832,10 @@
 
             // Garante que o assistente da nova loja comece 100% em branco, sem herdar dados de outra conta.
             _initStoreName = string.Empty;
+            _initStoreSlug = string.Empty;
             _initStoreBio = "Catálogo oficial com nossos produtos e novidades.";
             _initStoreWhatsapp = string.Empty;
+            _renderSetupCheck = null;
             _setupErrorMessage = null;
 
             await BrandState.ReloadAsync();
@@ -893,6 +937,44 @@
         }
     }
 
+    private void OnInitStoreNameChanged()
+    {
+        _initStoreSlug = WhatsAppLinkBuilder.GenerateStoreSlug(_initStoreName);
+        _renderSetupCheck = null;
+    }
+
+    private async Task CheckRenderLinkInSetupAsync()
+    {
+        var candidate = string.IsNullOrWhiteSpace(_initStoreSlug) ? _initStoreName : _initStoreSlug;
+        if (string.IsNullOrWhiteSpace(candidate))
+            return;
+
+        _isCheckingRenderLink = true;
+        _setupErrorMessage = null;
+        try
+        {
+            _renderSetupCheck = await Gateway.CheckRenderStoreLinkAvailabilityAsync(candidate);
+            if (_renderSetupCheck.IsAvailable && !string.IsNullOrWhiteSpace(_renderSetupCheck.NormalizedSlug))
+            {
+                _initStoreSlug = _renderSetupCheck.NormalizedSlug;
+            }
+        }
+        catch (Exception ex)
+        {
+            _setupErrorMessage = $"Erro ao verificar no servidor Render: {ex.Message}";
+        }
+        finally
+        {
+            _isCheckingRenderLink = false;
+        }
+    }
+
+    private async Task SelectRenderSuggestionInSetupAsync(string suggestion)
+    {
+        _initStoreSlug = suggestion;
+        await CheckRenderLinkInSetupAsync();
+    }
+
     private async Task CompleteInitialStoreSetupAsync()
     {
         _setupErrorMessage = null;
@@ -916,12 +998,25 @@
         _isBusy = true;
         try
         {
+            var chosenSlug = string.IsNullOrWhiteSpace(_initStoreSlug)
+                ? WhatsAppLinkBuilder.GenerateStoreSlug(_initStoreName)
+                : WhatsAppLinkBuilder.GenerateStoreSlug(_initStoreSlug);
+
+            // Verifica automaticamente no Render se o link está livre antes de salvar
+            var renderCheck = await Gateway.CheckRenderStoreLinkAvailabilityAsync(chosenSlug);
+            _renderSetupCheck = renderCheck;
+            if (renderCheck.ServerOnline && !renderCheck.IsAvailable)
+            {
+                _setupErrorMessage = "Este link já está em uso no servidor Render. Toque em uma das opções livres sugeridas acima.";
+                return;
+            }
+
             var targetDomainUrl = Gateway.GetPublicPortalBaseUrl();
 
             var updateRequest = new UpdateStoreSettingsRequest
             {
                 StoreName = _initStoreName.Trim(),
-                StoreSlug = WhatsAppLinkBuilder.GenerateStoreSlug(_initStoreName),
+                StoreSlug = chosenSlug,
                 WhatsappNumber = _initStoreWhatsapp.Trim(),
                 StoreDescription = _initStoreBio.Trim(),
                 OnlineBaseUrl = targetDomainUrl,

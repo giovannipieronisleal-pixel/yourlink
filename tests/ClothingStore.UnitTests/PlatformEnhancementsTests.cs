@@ -266,6 +266,16 @@ public sealed class PlatformEnhancementsTests
         var checkoutPage = File.ReadAllText(Path.Combine(root, "Components", "Pages", "PlanCheckoutPage.razor"));
         Assert.IsFalse(checkoutPage.Contains("CheckCheckoutDomainAsync", StringComparison.Ordinal),
             "O checkout de planos não deve exibir verificador de domínio externo.");
+        Assert.IsTrue(checkoutPage.Contains("CheckRenderLinkInCheckoutAsync", StringComparison.Ordinal),
+            "O checkout deve permitir verificar a disponibilidade do endereço no servidor Render.");
+        Assert.IsTrue(storeSettings.Contains("CheckRenderStoreLinkAsync", StringComparison.Ordinal),
+            "As configurações da loja devem permitir verificar a disponibilidade do link no servidor Render.");
+        Assert.IsTrue(loginPage.Contains("CheckRenderLinkInSetupAsync", StringComparison.Ordinal),
+            "O cadastro inicial da loja deve verificar se o link no servidor Render está disponível.");
+
+        var webProgram = File.ReadAllText(Path.Combine(root, "src", "ClothingStore.Web", "Program.cs"));
+        Assert.IsTrue(webProgram.Contains("/api/cloud/check-render-store-link", StringComparison.Ordinal),
+            "O servidor Render (ClothingStore.Web) deve expor /api/cloud/check-render-store-link.");
 
         var ownerSettings = File.ReadAllText(Path.Combine(root, "src", "ClothingStore.AdminApp", "Components", "Pages", "OwnerSettingsPage.razor"));
         Assert.IsTrue(ownerSettings.Contains("SaveServerGeminiKeyAsync", StringComparison.Ordinal),

@@ -817,6 +817,26 @@ public sealed class AdminApiClient
         return (await response.Content.ReadFromJsonAsync<RemoteFeatureConfigDto>(cancellationToken: ct))!;
     }
 
+    public async Task<RenderStoreLinkAvailabilityDto> CheckRenderStoreLinkAvailabilityAsync(
+        string slugOrStoreName,
+        string? ownerEmail = null,
+        string? ownerUsername = null,
+        CancellationToken ct = default)
+    {
+        var query = new List<string>
+        {
+            $"slug={Uri.EscapeDataString(slugOrStoreName ?? string.Empty)}"
+        };
+        if (!string.IsNullOrWhiteSpace(ownerEmail))
+            query.Add($"ownerEmail={Uri.EscapeDataString(ownerEmail.Trim())}");
+        if (!string.IsNullOrWhiteSpace(ownerUsername))
+            query.Add($"ownerUsername={Uri.EscapeDataString(ownerUsername.Trim())}");
+
+        var response = await _httpClient.GetAsync(Endpoint($"/api/cloud/check-render-store-link?{string.Join("&", query)}"), ct);
+        await EnsureSuccessOrThrowAsync(response, ct);
+        return (await response.Content.ReadFromJsonAsync<RenderStoreLinkAvailabilityDto>(cancellationToken: ct))!;
+    }
+
     public Task<RemoteFeatureConfigDto> SaveRemoteFeatureConfigAsync(
         RemoteFeatureConfigDto config,
         string? syncSecret,
