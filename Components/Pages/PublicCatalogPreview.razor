@@ -19,54 +19,45 @@
 
 @if (Gateway.IsAuthenticated)
 {
-    <!-- Barra Superior de Controle (Exibida apenas para usuários autenticados no App) -->
-    <div class="adm-public-preview-bar" style="background: #18181B; color: #FFFFFF; border-color: rgba(255,255,255,0.12);">
-        <div style="display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; flex: 1 1 220px; min-width: 0;">
-            @if (_store.IsSiteActive)
-            {
-                <span style="background: #16A34A; color: #FFFFFF; font-size: 0.72rem; font-weight: 700; padding: 0.25rem 0.6rem; border-radius: 999px; text-transform: uppercase;">
-                    🟢 Site Visível para o Público
-                </span>
-            }
-            else
-            {
-                <span style="background: #DC2626; color: #FFFFFF; font-size: 0.72rem; font-weight: 700; padding: 0.25rem 0.6rem; border-radius: 999px; text-transform: uppercase;">
-                    🔴 Site Oculto / Pausado para Clientes
-                </span>
-            }
+    <!-- Barra Superior Compacta de Controle -->
+    <div class="adm-public-preview-bar" style="background: #131926; color: #F8FAFC; border-color: #283247;">
+        <div style="display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; flex: 1 1 200px; min-width: 0;">
+            <span style="background: @(_store.IsSiteActive ? "#16A34A" : "#DC2626"); color: #FFFFFF; font-size: 0.72rem; font-weight: 700; padding: 0.25rem 0.65rem; border-radius: 999px;">
+                @(_store.IsSiteActive ? "● Site no Ar" : "● Site Pausado")
+            </span>
 
-            <span class="adm-public-preview-url" style="font-size: 0.84rem; color: #D4D4D8;">
-                Como seus clientes veem: <strong style="color: #FFFFFF; font-family: monospace;">@fullStoreUrl</strong>
+            <span class="adm-public-preview-url" style="font-size: 0.84rem; color: #CBD5E1; font-family: monospace;">
+                @fullStoreUrl
             </span>
         </div>
 
-        <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+        <div style="display: flex; gap: 0.45rem; flex-wrap: wrap;">
             @if (Gateway.IsAdmin)
             {
                 <button type="button"
                         class="adm-btn"
-                        style="background: @(_store.IsSiteActive ? "#991B1B" : "#15803D"); color: #FFFFFF; padding: 0.35rem 0.75rem; font-size: 0.8rem;"
+                        style="background: @(_store.IsSiteActive ? "#991B1B" : "#15803D"); color: #FFFFFF; min-height: 36px; padding: 0.35rem 0.75rem; font-size: 0.8rem;"
                         @onclick="TogglePublicVisibilityAsync">
-                    @(_store.IsSiteActive ? "Ocultar do Público" : "Publicar Site Agora")
+                    @(_store.IsSiteActive ? "Pausar Site" : "Publicar Agora")
                 </button>
             }
 
             <button type="button"
                     class="adm-btn"
-                    style="background: #27272A; color: #FFFFFF; border: 1px solid #3F3F46; padding: 0.35rem 0.75rem; font-size: 0.8rem;"
+                    style="background: #1E293B; color: #FFFFFF; border: 1px solid #334155; min-height: 36px; padding: 0.35rem 0.75rem; font-size: 0.8rem;"
                     @onclick="() => CopyLinkAsync(fullStoreUrl)">
-                @(_copied ? "Link Copiado!" : "Copiar Link")
+                @(_copied ? "✓ Copiado!" : "Copiar Link")
             </button>
 
             <button type="button"
                     class="adm-btn"
-                    style="background: #27272A; color: #FFFFFF; border: 1px solid #3F3F46; padding: 0.35rem 0.75rem; font-size: 0.8rem;"
+                    style="background: #1E293B; color: #FFFFFF; border: 1px solid #334155; min-height: 36px; padding: 0.35rem 0.75rem; font-size: 0.8rem;"
                     @onclick="() => OpenExternalWebsiteAsync(fullStoreUrl)">
                 Abrir no Navegador &nearr;
             </button>
 
-            <a href="/" class="adm-btn" style="background: #FFFFFF; color: #18181B; padding: 0.35rem 0.75rem; font-size: 0.8rem; font-weight: 700;">
-                Voltar ao Painel
+            <a href="/" class="adm-btn" style="background: #FFFFFF; color: #111827; min-height: 36px; padding: 0.35rem 0.8rem; font-size: 0.8rem; font-weight: 700;">
+                &larr; Painel
             </a>
         </div>
     </div>
@@ -74,7 +65,7 @@
     @if (!_store.IsSiteActive)
     {
         <div class="alert-banner alert-error" style="margin-bottom: 1rem;">
-            <strong>Atenção:</strong> Seu site está pausado. Seus clientes que abrirem o link verão apenas o aviso de loja em atualização até você clicar em <strong>"Publicar Site Agora"</strong>.
+            <strong>Site pausado:</strong> seus clientes veem apenas o aviso de loja em atualização até você clicar em <strong>"Publicar Agora"</strong>.
         </div>
     }
 }
@@ -145,87 +136,94 @@
     }
     else if (string.IsNullOrWhiteSpace(Slug))
     {
-        <!-- Hero de Apresentação da Loja -->
-        <section class="lux-preview-hero @previewHeroModifier">
-            <div style="max-width: 760px; @(activeDesign.HeroLayout == "centered" ? "margin: 0 auto;" : "")">
-                @if (activeDesign.ShowLookbookBadge)
-                {
-                    <span style="font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.2em; color: var(--brand-accent);">
-                        @previewEyebrow
-                    </span>
-                }
-                <h1 style="font-family: var(--brand-font-display); font-size: clamp(1.85rem, 3.6vw, 2.75rem); font-weight: 500; margin: 0.45rem 0 0.75rem; letter-spacing: -0.02em;">
-                    @previewHeadline
-                </h1>
-                <p style="font-size: 0.98rem; color: @(activeDesign.HeroLayout == "banner" ? "#D6D0C4" : "var(--brand-text-muted)"); margin: 0 0 1.25rem; line-height: 1.6;">
-                    @_store.StoreDescription
-                </p>
-            </div>
+        <!-- Hero Compacto e Limpo da Loja -->
+        <section class="lux-preview-hero @previewHeroModifier" style="padding: 1.45rem 1.75rem;">
+            <div style="display: flex; justify-content: space-between; align-items: center; gap: 1.25rem; flex-wrap: wrap;">
+                <div style="flex: 1 1 320px; min-width: 0; @(activeDesign.HeroLayout == "centered" ? "margin: 0 auto;" : "")">
+                    @if (activeDesign.ShowLookbookBadge && !string.IsNullOrWhiteSpace(activeDesign.HeroEyebrow))
+                    {
+                        <span style="font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.2em; color: var(--brand-accent);">
+                            @previewEyebrow
+                        </span>
+                    }
+                    <h1 style="font-family: var(--brand-font-display); font-size: clamp(1.65rem, 3vw, 2.3rem); font-weight: 500; margin: 0.25rem 0 0.35rem; letter-spacing: -0.02em;">
+                        @previewHeadline
+                    </h1>
+                    @if (!string.IsNullOrWhiteSpace(_store.StoreDescription))
+                    {
+                        <p style="font-size: 0.94rem; color: @(activeDesign.HeroLayout == "banner" ? "#D6D0C4" : "var(--brand-text-muted)"); margin: 0; line-height: 1.5; max-width: 56ch;">
+                            @_store.StoreDescription
+                        </p>
+                    }
+                </div>
 
-            <!-- Filtros do Catálogo (Busca, Categoria, Tamanho, Cor) -->
-            <div style="background: var(--brand-surface); color: var(--brand-text); border: 1px solid var(--brand-border); border-radius: var(--brand-radius-card); padding: 1.1rem; margin-top: 1rem; display: grid; grid-template-columns: repeat(auto-fit, minmax(175px, 1fr)); gap: 0.85rem; align-items: end; text-align: left;">
-                <div>
-                    <label class="adm-label">Pesquisar produto</label>
+                <!-- Busca Simples em 1 Linha + Filtros Sob Demanda -->
+                <div style="display: flex; align-items: center; gap: 0.55rem; flex: 1 1 300px; max-width: 460px; flex-wrap: wrap;">
                     <input type="text"
                            class="adm-input"
-                           placeholder="Ex.: Produto, marca, modelo..."
+                           style="flex: 1 1 200px;"
+                           placeholder="Buscar produto..."
+                           aria-label="Buscar produto"
                            @bind="_search"
                            @bind:event="oninput"
                            @bind:after="ApplyFiltersAsync" />
-                </div>
 
-                <div>
-                    <label class="adm-label">Categoria</label>
-                    <select class="adm-select" @bind="_selectedCategorySlug" @bind:after="ApplyFiltersAsync">
-                        <option value="">Todas as categorias</option>
-                        @foreach (var cat in _filters.Categories)
-                        {
-                            <option value="@cat.Slug">@cat.Name (@cat.ProductCount)</option>
-                        }
-                    </select>
-                </div>
+                    <button type="button"
+                            class="adm-btn adm-btn-outline"
+                            aria-expanded="@_showAdvancedFilters"
+                            @onclick="() => _showAdvancedFilters = !_showAdvancedFilters">
+                        ⚙️ Filtros
+                    </button>
 
-                <div>
-                    <label class="adm-label">Tamanho / Opção</label>
-                    <select class="adm-select" @bind="_selectedSize" @bind:after="ApplyFiltersAsync">
-                        <option value="">Todas as opções</option>
-                        @foreach (var size in _filters.Sizes)
-                        {
-                            <option value="@size">@size</option>
-                        }
-                    </select>
-                </div>
-
-                <div>
-                    <label class="adm-label">Cor / Modelo</label>
-                    <select class="adm-select" @bind="_selectedColor" @bind:after="ApplyFiltersAsync">
-                        <option value="">Todas</option>
-                        @foreach (var color in _filters.Colors)
-                        {
-                            <option value="@color.Color">@color.Color</option>
-                        }
-                    </select>
-                </div>
-
-                <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.5rem;">
-                    <label style="display: flex; align-items: center; gap: 0.4rem; font-size: 0.85rem; cursor: pointer;">
-                        <input type="checkbox" @bind="_onlyInStock" @bind:after="ApplyFiltersAsync" />
-                        <span>Em estoque</span>
-                    </label>
-                    <button type="button" class="adm-btn adm-btn-outline" @onclick="ClearFiltersAsync">Limpar</button>
+                    @if (!string.IsNullOrWhiteSpace(_search) || !string.IsNullOrWhiteSpace(_selectedCategorySlug) || !string.IsNullOrWhiteSpace(_selectedColor) || !string.IsNullOrWhiteSpace(_selectedSize) || _onlyInStock)
+                    {
+                        <button type="button" class="adm-btn adm-btn-outline" @onclick="ClearFiltersAsync">Limpar</button>
+                    }
                 </div>
             </div>
+
+            @if (_showAdvancedFilters)
+            {
+                <div style="background: var(--brand-surface); color: var(--brand-text); border: 1px solid var(--brand-border); border-radius: var(--brand-radius-card); padding: 1rem; margin-top: 1rem; display: grid; grid-template-columns: repeat(auto-fit, minmax(175px, 1fr)); gap: 0.85rem; align-items: end; text-align: left;">
+                    <div>
+                        <label class="adm-label">Tamanho / Opção</label>
+                        <select class="adm-select" @bind="_selectedSize" @bind:after="ApplyFiltersAsync">
+                            <option value="">Todas as opções</option>
+                            @foreach (var size in _filters.Sizes)
+                            {
+                                <option value="@size">@size</option>
+                            }
+                        </select>
+                    </div>
+
+                    <div>
+                        <label class="adm-label">Cor / Modelo</label>
+                        <select class="adm-select" @bind="_selectedColor" @bind:after="ApplyFiltersAsync">
+                            <option value="">Todas</option>
+                            @foreach (var color in _filters.Colors)
+                            {
+                                <option value="@color.Color">@color.Color</option>
+                            }
+                        </select>
+                    </div>
+
+                    <label style="display: flex; align-items: center; gap: 0.45rem; font-size: 0.88rem; cursor: pointer; min-height: 44px;">
+                        <input type="checkbox" @bind="_onlyInStock" @bind:after="ApplyFiltersAsync" />
+                        <span>Somente em estoque</span>
+                    </label>
+                </div>
+            }
         </section>
 
         <!-- Grade de Produtos do Catálogo -->
-        <section style="padding: 1.75rem;">
+        <section style="padding: 1.5rem 1.75rem;">
             @if (_filters.Categories.Count > 0)
             {
                 <div class="adm-pill-chips" style="margin-bottom: 1.15rem;">
                     <button type="button"
                             class="adm-chip-filter @(string.IsNullOrWhiteSpace(_selectedCategorySlug) ? "active" : "")"
                             @onclick="() => QuickFilterCategoryAsync(null)">
-                        Todos os produtos
+                        Todos
                     </button>
                     @foreach (var cat in _filters.Categories)
                     {
@@ -239,8 +237,8 @@
                 </div>
             }
 
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.25rem; flex-wrap: wrap; gap: 0.5rem;">
-                <h2 style="font-size: 1.3rem; font-weight: 700; margin: 0; font-family: var(--brand-font-display);">Produtos Disponíveis (@_products.Count)</h2>
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.15rem; flex-wrap: wrap; gap: 0.5rem;">
+                <h2 style="font-size: 1.25rem; font-weight: 700; margin: 0; font-family: var(--brand-font-display);">Produtos Disponíveis (@_products.Count)</h2>
             </div>
 
             <div class="lux-preview-grid">
@@ -251,7 +249,7 @@
                              @onclick="() => OpenProductDetail(prod.Slug)">
                             @if (!string.IsNullOrWhiteSpace(prod.PrimaryImageUrl))
                             {
-                                <img src="@prod.PrimaryImageUrl" alt="@prod.Name" style="width: 100%; height: 100%; object-fit: cover;" />
+                                <img src="@prod.PrimaryImageUrl" alt="@prod.Name" style="width: 100%; height: 100%; object-fit: contain;" />
                             }
                             else
                             {
@@ -270,52 +268,42 @@
                                     Últimas unidades
                                 </span>
                             }
-                            else
-                            {
-                                <span style="position: absolute; top: 0.65rem; left: 0.65rem; background: rgba(22,163,74,0.92); color: #FFFFFF; font-size: 0.7rem; font-weight: 700; padding: 0.22rem 0.6rem; border-radius: 999px;">
-                                    Disponível
-                                </span>
-                            }
                         </div>
 
                         <div class="lux-preview-card-body">
-                            <span style="font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.14em; color: var(--brand-accent);">
-                                @prod.CategoryName
-                            </span>
+                            @if (!string.IsNullOrWhiteSpace(prod.CategoryName))
+                            {
+                                <span style="font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.14em; color: var(--brand-accent);">
+                                    @prod.CategoryName
+                                </span>
+                            }
                             <div style="font-family: var(--brand-font-display); font-size: 1.08rem; font-weight: 600; cursor: pointer; color: var(--brand-text);" @onclick="() => OpenProductDetail(prod.Slug)">
                                 @prod.Name
-                            </div>
-                            <div style="font-size: 1.06rem; font-weight: 700; color: var(--brand-text);">
-                                @prod.BasePrice.ToString("C", new System.Globalization.CultureInfo("pt-BR"))
                             </div>
 
                             @{
                                 var previewCardColors = prod.AvailableColors.Where(c => !WhatsAppLinkBuilder.IsPlaceholderColor(c.Color)).ToList();
-                                var previewCardSizes = prod.AvailableSizes.Where(s => !WhatsAppLinkBuilder.IsPlaceholderSize(s)).ToList();
                             }
-                            @if (previewCardColors.Count > 0 || previewCardSizes.Count > 0)
-                            {
-                                <div style="display: flex; justify-content: space-between; align-items: center; margin-top: auto; padding-top: 0.6rem; border-top: 1px solid var(--brand-border);">
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-top: auto; padding-top: 0.55rem; border-top: 1px solid var(--brand-border);">
+                                <div style="font-size: 1.12rem; font-weight: 800; color: var(--brand-text);">
+                                    @prod.BasePrice.ToString("C", new System.Globalization.CultureInfo("pt-BR"))
+                                </div>
+                                @if (previewCardColors.Count > 0)
+                                {
                                     <div style="display: flex; gap: 0.3rem;">
-                                        @foreach (var c in previewCardColors)
+                                        @foreach (var c in previewCardColors.Take(4))
                                         {
                                             <span style="width: 13px; height: 13px; border-radius: 50%; background: @c.ColorHex; border: 1px solid rgba(120,113,108,0.35);" title="@c.Color"></span>
                                         }
                                     </div>
-                                    <div style="display: flex; gap: 0.25rem; flex-wrap: wrap;">
-                                        @foreach (var s in previewCardSizes)
-                                        {
-                                            <span style="font-size: 0.72rem; font-weight: 600; background: var(--brand-surface-subtle); color: var(--brand-text); padding: 0.12rem 0.42rem; border-radius: 4px;">@s</span>
-                                        }
-                                    </div>
-                                </div>
-                            }
+                                }
+                            </div>
 
                             <button type="button"
                                     class="adm-btn adm-btn-primary"
-                                    style="width: 100%; margin-top: 0.65rem;"
+                                    style="width: 100%; margin-top: 0.55rem;"
                                     @onclick="() => OpenProductDetail(prod.Slug)">
-                                Ver Fotos &amp; Opções
+                                Ver produto &rarr;
                             </button>
                         </div>
                     </article>
@@ -632,6 +620,7 @@
     private string? _selectedColor;
     private string? _selectedSize;
     private bool _onlyInStock;
+    private bool _showAdvancedFilters;
 
     private string? _activeImageUrl;
     private string? _detailColor;
