@@ -126,6 +126,8 @@ builder.Services.AddSingleton<IEmailService>(sp =>
     new SmtpEmailService(sp.GetRequiredService<IConfiguration>(), outboxPath));
 builder.Services.AddSingleton<IClothingStoreRepository>(sp =>
     new ClothingStoreRepository(sp.GetRequiredService<IPasswordHasher>(), sharedDbPath));
+builder.Services.AddSingleton(sp =>
+    new CloudAccountRegistryService(appDataRoot, sp.GetRequiredService<IPasswordHasher>()));
 
 builder.Services.AddHttpClient();
 
@@ -223,6 +225,11 @@ app.UseExceptionHandler(errApp =>
             context.Response.StatusCode = StatusCodes.Status400BadRequest;
             await context.Response.WriteAsJsonAsync(new { error = domainEx.Message });
             return;
+        }
+
+        if (exception is not null)
+        {
+            Console.Error.WriteLine($"[ClothingStore.Api 500] {context.Request.Method} {context.Request.Path}: {exception}");
         }
 
         context.Response.StatusCode = StatusCodes.Status500InternalServerError;
@@ -706,35 +713,92 @@ app.MapPost("/api/platform-sync/apply-vip", async (
     HttpContext httpContext,
     RemoteApplyVipRequest request,
     IClothingStoreRepository repository,
+    MultiTenantGatewayService gateway,
+    CloudAccountRegistryService accountRegistry,
     CancellationToken ct) =>
 {
-    var settings = await repository.GetStoreSettingsAsync(ct);
-    if (!IsAuthorizedPlatformSyncRequest(httpContext, settings))
+    var rootSettings = await repository.GetStoreSettingsAsync(ct);
+    if (!IsAuthorizedPlatformSyncRequest(httpContext, rootSettings))
         return Results.Unauthorized();
 
-    var now = DateTimeOffset.UtcNow;
-    var normalizedTier = StoreSettings.NormalizePlanTier(request.PlanTier);
-    DateTimeOffset? nextExpiry = null;
+    var applied = await CloudPlatformPlanSyncHelper.ApplyRemoteVipAsync(
+        request,
+        repository,
+        gateway,
+        accountRegistry,
+        ct);
 
-    if (!string.Equals(normalizedTier, StoreSettings.PlanTierBasic, StringComparison.OrdinalIgnoreCase) &&
-        request.DurationDays.HasValue && request.DurationDays.Value > 0)
-    {
-        var baseStart = request.ExtendExistingDuration &&
-                        string.Equals(settings.PlanTier, normalizedTier, StringComparison.OrdinalIgnoreCase) &&
-                        settings.PlanExpiresAt.HasValue &&
-                        settings.PlanExpiresAt.Value > now
-            ? settings.PlanExpiresAt.Value
-            : now;
-        nextExpiry = baseStart.AddDays(request.DurationDays.Value);
-    }
+    if (applied is not null)
+        return Results.Ok(applied);
 
-    settings.UpdatePlanAndDesign(normalizedTier, designConfig: settings.DesignConfig);
-    settings.PlanExpiresAt = nextExpiry;
-    if (request.ActivateSite)
-        settings.ActivateSite();
-    await repository.UpdateStoreSettingsAsync(settings, ct);
+    return Results.NotFound(new { error = "Conta ou loja de destino não encontrada." });
+}).AllowAnonymous();
 
-    return Results.Ok(EmployeeAndSettingsService.MapToAdminSettingsDto(settings));
+app.MapPost("/api/platform-sync/verify-client-vip", async (
+    HttpContext httpContext,
+    RemoteVerifyClientVipRequest request,
+    IClothingStoreRepository repository,
+    MultiTenantGatewayService gateway,
+    CloudAccountRegistryService accountRegistry,
+    CancellationToken ct) =>
+{
+    var rootSettings = await repository.GetStoreSettingsAsync(ct);
+    if (!IsAuthorizedPlatformSyncRequest(httpContext, rootSettings))
+        return Results.Unauthorized();
+
+    var res = await CloudPlatformPlanSyncHelper.VerifyAndRepairClientVipAsync(
+        request,
+        repository,
+        gateway,
+        accountRegistry,
+        GetApiPublicOrigin(httpContext),
+        ct);
+    return Results.Ok(res);
+}).AllowAnonymous();
+
+app.MapGet("/api/cloud/plan-status", async (
+    string? email,
+    string? username,
+    string? storeSlug,
+    string? storeName,
+    string? clientPlanTier,
+    DateTimeOffset? clientPlanExpiresAt,
+    string? clientAppVersion,
+    IClothingStoreRepository rootRepository,
+    MultiTenantGatewayService gateway,
+    CloudAccountRegistryService accountRegistry,
+    CancellationToken ct) =>
+{
+    var status = await CloudPlatformPlanSyncHelper.ResolveCloudPlanStatusAsync(
+        email,
+        username,
+        storeSlug,
+        storeName,
+        clientPlanTier,
+        clientPlanExpiresAt,
+        clientAppVersion,
+        rootRepository,
+        gateway,
+        accountRegistry,
+        ct);
+    return Results.Ok(status);
+}).AllowAnonymous();
+
+app.MapPost("/api/cloud/client-vip-ack", async (
+    CloudClientVipAckRequest request,
+    CloudAccountRegistryService accountRegistry,
+    CancellationToken ct) =>
+{
+    var recorded = await accountRegistry.RecordClientCheckInAsync(
+        request.Email,
+        request.Username,
+        request.StoreSlug,
+        request.StoreName,
+        request.AppliedPlanTier,
+        request.AppliedExpiresAt,
+        request.ClientAppVersion,
+        ct);
+    return Results.Ok(new { recorded });
 }).AllowAnonymous();
 
 app.MapPost("/api/platform-sync/toggle-user-active/{userId:guid}", async (

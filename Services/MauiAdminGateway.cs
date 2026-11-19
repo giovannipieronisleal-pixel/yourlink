@@ -19,6 +19,7 @@ public sealed class MauiAdminGateway
     private const string SessionStorageKey = "clothingstore_auth_session_v1";
     private const string ServerUrlPreferenceKey = "youlink_api_base_url_v1";
     private const string PendingAccountSyncPreferenceKey = "youlink_pending_account_sync_v1";
+    private const string PendingCloudAccountSyncPreferenceKey = "youlink_pending_cloud_account_v1";
     private const string PendingPlanOrderPreferenceKey = "youlink_pending_plan_order_v1";
     private sealed record PersistedAuthSession(LoginResponse Login, string? WorkspaceId);
     private static string ResolveCurrentClientAppVersion()
@@ -55,6 +56,7 @@ public sealed class MauiAdminGateway
     private DateTimeOffset _lastCentralCatalogCheckAt = DateTimeOffset.MinValue;
     private DateTimeOffset _lastOrdersCloudPullAt = DateTimeOffset.MinValue;
     private DateTimeOffset _lastCloudPlanSyncAt = DateTimeOffset.MinValue;
+    private readonly SemaphoreSlim _cloudPlanSyncLock = new(1, 1);
 
     public EmployeeProfileDto? CurrentEmployee { get; private set; }
     public string? AccessToken { get; private set; }
@@ -123,6 +125,7 @@ public sealed class MauiAdminGateway
         _skipRemoteApiUntil = DateTimeOffset.MinValue;
         _lastCentralCatalogCheckAt = DateTimeOffset.MinValue;
         _lastOrdersCloudPullAt = DateTimeOffset.MinValue;
+        _lastCloudPlanSyncAt = DateTimeOffset.MinValue;
         LatestAdminCentralServerUrl = null;
         LatestPlatformCatalog = null;
         LatestCompatibilityStatus = null;
@@ -208,11 +211,11 @@ public sealed class MauiAdminGateway
         return probe;
     }
 
-    private bool GetPendingAccountSync()
+    private bool GetWorkspaceFlag(string baseKey)
     {
         try
         {
-            return Preferences.Default.Get(ResolveWorkspacePreferenceKey(PendingAccountSyncPreferenceKey), false);
+            return Preferences.Default.Get(ResolveWorkspacePreferenceKey(baseKey), false);
         }
         catch
         {
@@ -220,12 +223,12 @@ public sealed class MauiAdminGateway
         }
     }
 
-    private void SetPendingAccountSync(bool pending)
+    private void SetWorkspaceFlag(string baseKey, bool enabled)
     {
         try
         {
-            var key = ResolveWorkspacePreferenceKey(PendingAccountSyncPreferenceKey);
-            if (pending)
+            var key = ResolveWorkspacePreferenceKey(baseKey);
+            if (enabled)
                 Preferences.Default.Set(key, true);
             else
                 Preferences.Default.Remove(key);
@@ -234,6 +237,11 @@ public sealed class MauiAdminGateway
         {
         }
     }
+
+    private bool GetPendingAccountSync() => GetWorkspaceFlag(PendingAccountSyncPreferenceKey);
+    private void SetPendingAccountSync(bool pending) => SetWorkspaceFlag(PendingAccountSyncPreferenceKey, pending);
+    private bool GetPendingCloudAccountSync() => GetWorkspaceFlag(PendingCloudAccountSyncPreferenceKey);
+    private void SetPendingCloudAccountSync(bool pending) => SetWorkspaceFlag(PendingCloudAccountSyncPreferenceKey, pending);
 
     private async Task<SyncLocalAccountsResultDto?> TrySyncLocalAccountsQuietlyAsync(CancellationToken ct = default)
     {
@@ -447,6 +455,13 @@ public sealed class MauiAdminGateway
             {
                 _ = TrySyncLocalAccountsQuietlyAsync();
             }
+
+            if (GetPendingCloudAccountSync())
+            {
+                _ = SyncActiveAccountToCloudBestEffortAsync();
+            }
+
+            _ = RefreshPlanFromCentralCloudBestEffortAsync(forceRefresh: false);
         }
         catch
         {
@@ -494,7 +509,8 @@ public sealed class MauiAdminGateway
                     _ = TrySyncLocalAccountsQuietlyAsync();
                 }
 
-                await PersistSessionAsync(localResp);
+                await PersistSessionAsync(localResp, deferBackgroundCloudSync: true);
+                await WaitBrieflyForPlanSyncOnLoginAsync();
                 return localResp;
             }
             catch
@@ -534,7 +550,8 @@ public sealed class MauiAdminGateway
             _ = TrySyncLocalAccountsQuietlyAsync();
         }
 
-        await PersistSessionAsync(response);
+        await PersistSessionAsync(response, deferBackgroundCloudSync: true);
+        await WaitBrieflyForPlanSyncOnLoginAsync();
         return response;
     }
 
@@ -601,8 +618,8 @@ public sealed class MauiAdminGateway
             if (!localChallenge.RequiresTwoFactor && localChallenge.AuthResult is not null)
             {
                 _apiClient.SetSession(localChallenge.AuthResult.AccessToken, localChallenge.AuthResult.Employee);
-                await PersistSessionAsync(localChallenge.AuthResult, rememberMe);
-                await RefreshPlanFromCentralCloudBestEffortAsync(forceRefresh: true);
+                await PersistSessionAsync(localChallenge.AuthResult, rememberMe, deferBackgroundCloudSync: true);
+                await WaitBrieflyForPlanSyncOnLoginAsync();
             }
             return localChallenge;
         }
@@ -631,7 +648,8 @@ public sealed class MauiAdminGateway
 
         if (!challenge.RequiresTwoFactor && challenge.AuthResult is not null)
         {
-            await PersistSessionAsync(challenge.AuthResult, rememberMe);
+            await PersistSessionAsync(challenge.AuthResult, rememberMe, deferBackgroundCloudSync: true);
+            await WaitBrieflyForPlanSyncOnLoginAsync();
         }
         return challenge;
     }
@@ -645,7 +663,8 @@ public sealed class MauiAdminGateway
             var localResp = await _authService.VerifyTwoFactorLoginAsync(request);
             LastAccountActionWasLocalOnly = true;
             _apiClient.SetSession(localResp.AccessToken, localResp.Employee);
-            await PersistSessionAsync(localResp, rememberMe);
+            await PersistSessionAsync(localResp, rememberMe, deferBackgroundCloudSync: true);
+            await WaitBrieflyForPlanSyncOnLoginAsync();
             return localResp;
         }
 
@@ -668,7 +687,8 @@ public sealed class MauiAdminGateway
         if (usedFallback)
             LastAccountActionWasLocalOnly = true;
 
-        await PersistSessionAsync(response, rememberMe);
+        await PersistSessionAsync(response, rememberMe, deferBackgroundCloudSync: true);
+        await WaitBrieflyForPlanSyncOnLoginAsync();
         return response;
     }
 
@@ -681,7 +701,8 @@ public sealed class MauiAdminGateway
             var localResp = await _authService.LoginAsync(request);
             LastAccountActionWasLocalOnly = true;
             _apiClient.SetSession(localResp.AccessToken, localResp.Employee);
-            await PersistSessionAsync(localResp, rememberMe);
+            await PersistSessionAsync(localResp, rememberMe, deferBackgroundCloudSync: true);
+            await WaitBrieflyForPlanSyncOnLoginAsync();
             return localResp;
         }
 
@@ -694,7 +715,8 @@ public sealed class MauiAdminGateway
                 return localResp;
             });
 
-        await PersistSessionAsync(response, rememberMe);
+        await PersistSessionAsync(response, rememberMe, deferBackgroundCloudSync: true);
+        await WaitBrieflyForPlanSyncOnLoginAsync();
         return response;
     }
 
@@ -719,11 +741,12 @@ public sealed class MauiAdminGateway
                 return localResp;
             });
 
-        await PersistSessionAsync(response, rememberMe);
+        await PersistSessionAsync(response, rememberMe, deferBackgroundCloudSync: true);
+        await WaitBrieflyForPlanSyncOnLoginAsync();
         return response;
     }
 
-    private async Task PersistSessionAsync(LoginResponse response, bool rememberMe = true)
+    private async Task PersistSessionAsync(LoginResponse response, bool rememberMe = true, bool deferBackgroundCloudSync = false)
     {
         if (_workspaceRepository is not null)
         {
@@ -761,9 +784,13 @@ public sealed class MauiAdminGateway
 
         AuthStateChanged?.Invoke();
 
-        if (!HasCustomServerUrl && _workspaceRepository is not null)
+        if (_workspaceRepository is not null)
         {
-            _ = SyncAccountByUserIdToCloudAsync(response.Employee.UserId);
+            SetPendingCloudAccountSync(true);
+            if (!deferBackgroundCloudSync)
+            {
+                _ = SyncAccountByUserIdToCloudAsync(response.Employee.UserId);
+            }
         }
     }
 
@@ -789,6 +816,7 @@ public sealed class MauiAdminGateway
     {
         AccessToken = null;
         CurrentEmployee = null;
+        _lastCloudPlanSyncAt = DateTimeOffset.MinValue;
         _shownSessionPopupSignatures.Clear();
         ActivePlanPopupNotice = null;
         _apiClient.ClearSession();
@@ -1374,6 +1402,11 @@ public sealed class MauiAdminGateway
         var result = await ExecuteWithFallbackAsync(
             () => _apiClient.UpdateStoreSettingsAsync(request),
             () => _employeeAndSettingsService.UpdateStoreSettingsAsync(CurrentEmployee!.EmployeeId, request));
+        if (_workspaceRepository is not null && CurrentEmployee is not null)
+        {
+            SetPendingCloudAccountSync(true);
+            _ = SyncAccountByUserIdToCloudAsync(CurrentEmployee.UserId);
+        }
         if (!suppressAutoSync)
         {
             _cloudSyncService?.TriggerAutoSyncIfEnabled();
@@ -2408,12 +2441,71 @@ public sealed class MauiAdminGateway
         return true;
     }
 
+    private async Task WaitBrieflyForPlanSyncOnLoginAsync()
+    {
+        try
+        {
+            var refreshTask = RefreshPlanFromCentralCloudBestEffortAsync(forceRefresh: true);
+            await Task.WhenAny(refreshTask, Task.Delay(TimeSpan.FromMilliseconds(2200)));
+        }
+        catch
+        {
+        }
+    }
+
+    private static bool IsLocalOrPrivateServerUrl(string url)
+    {
+        if (!Uri.TryCreate(url, UriKind.Absolute, out var uri))
+            return false;
+
+        if (uri.IsLoopback)
+            return true;
+
+        if (System.Net.IPAddress.TryParse(uri.Host, out var ip) &&
+            ip.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork)
+        {
+            var bytes = ip.GetAddressBytes();
+            return bytes[0] == 10 ||
+                   (bytes[0] == 172 && bytes[1] >= 16 && bytes[1] <= 31) ||
+                   (bytes[0] == 192 && bytes[1] == 168) ||
+                   bytes[0] == 127;
+        }
+
+        return false;
+    }
+
+    private IReadOnlyList<string> BuildCentralCloudCandidateUrls(AdminStoreSettingsDto? settings = null, bool preferCentralOverCustom = false)
+    {
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var urls = new List<string>(5);
+
+        void TryAdd(string? raw)
+        {
+            var normalized = WhatsAppLinkBuilder.NormalizePublicServerUrl(raw);
+            if (!string.IsNullOrWhiteSpace(normalized) && seen.Add(normalized))
+                urls.Add(normalized);
+        }
+
+        if (!preferCentralOverCustom)
+            TryAdd(ResolveCentralBillingServerUrl(settings, allowDefaultFallback: true));
+
+        TryAdd(LatestAdminCentralServerUrl);
+        TryAdd(GoogleCloudSyncService.GetCachedCentralCatalogUrl(CurrentWorkspaceId));
+        TryAdd(settings?.CentralCatalogBaseUrl);
+        TryAdd(AppUpdateCatalog.DefaultCentralPlatformServerUrl);
+
+        if (preferCentralOverCustom)
+            TryAdd(ResolveCentralBillingServerUrl(settings, allowDefaultFallback: true));
+
+        return urls;
+    }
+
     public async Task SyncActiveAccountToCloudBestEffortAsync(
         string? previousEmail = null,
         string? previousPasswordHash = null,
         CancellationToken ct = default)
     {
-        if (HasCustomServerUrl || _workspaceRepository is null || CurrentEmployee is null)
+        if (_workspaceRepository is null || CurrentEmployee is null)
             return;
 
         await SyncAccountByUserIdToCloudAsync(CurrentEmployee.UserId, previousEmail, previousPasswordHash, ct);
@@ -2425,7 +2517,7 @@ public sealed class MauiAdminGateway
         string? previousPasswordHash = null,
         CancellationToken ct = default)
     {
-        if (_workspaceRepository is null || HasCustomServerUrl)
+        if (_workspaceRepository is null)
             return;
 
         try
@@ -2437,8 +2529,8 @@ public sealed class MauiAdminGateway
             var employee = await _workspaceRepository.GetEmployeeByUserIdAsync(user.Id, ct);
             var settings = await _workspaceRepository.GetStoreSettingsAsync(ct);
 
-            var centralUrl = ResolveCentralBillingServerUrl(null, allowDefaultFallback: true);
-            if (string.IsNullOrWhiteSpace(centralUrl))
+            var candidates = BuildCentralCloudCandidateUrls(null, preferCentralOverCustom: true);
+            if (candidates.Count == 0)
                 return;
 
             var storeName = !string.IsNullOrWhiteSpace(settings.StoreName) &&
@@ -2461,12 +2553,55 @@ public sealed class MauiAdminGateway
                 PreviousPasswordHash: previousPasswordHash,
                 PreviousEmail: previousEmail);
 
-            using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-            timeoutCts.CancelAfter(TimeSpan.FromSeconds(6));
+            SetPendingCloudAccountSync(true);
 
-            var endpoint = $"{centralUrl.TrimEnd('/')}/api/cloud/accounts/upsert";
-            using var content = System.Net.Http.Json.JsonContent.Create(dto);
-            await RemotePlatformBillingHttpClient.PostAsync(endpoint, content, timeoutCts.Token);
+            foreach (var baseUrl in candidates)
+            {
+                if (IsLocalOrPrivateServerUrl(baseUrl) && HasCustomServerUrl &&
+                    candidates.Any(u => !IsLocalOrPrivateServerUrl(u)))
+                {
+                    continue;
+                }
+
+                var endpoint = $"{baseUrl.TrimEnd('/')}/api/cloud/accounts/upsert";
+                var maxAttempts = IsLocalOrPrivateServerUrl(baseUrl) ? 1 : 2;
+                var perAttemptTimeout = IsLocalOrPrivateServerUrl(baseUrl)
+                    ? TimeSpan.FromSeconds(4)
+                    : TimeSpan.FromSeconds(25);
+
+                for (var attempt = 1; attempt <= maxAttempts; attempt++)
+                {
+                    try
+                    {
+                        using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                        timeoutCts.CancelAfter(perAttemptTimeout);
+
+                        using var content = System.Net.Http.Json.JsonContent.Create(dto);
+                        using var response = await RemotePlatformBillingHttpClient.PostAsync(endpoint, content, timeoutCts.Token);
+                        if (response.IsSuccessStatusCode)
+                        {
+                            SetPendingCloudAccountSync(false);
+                            return;
+                        }
+
+                        if (attempt < maxAttempts && (int)response.StatusCode is 502 or 503 or 504 or 429)
+                        {
+                            await Task.Delay(TimeSpan.FromSeconds(2), ct);
+                            continue;
+                        }
+
+                        break;
+                    }
+                    catch (Exception) when (attempt < maxAttempts && !ct.IsCancellationRequested)
+                    {
+                        await Task.Delay(TimeSpan.FromSeconds(2), ct);
+                    }
+                    catch
+                    {
+                        break;
+                    }
+                }
+            }
         }
         catch
         {
@@ -2538,14 +2673,56 @@ public sealed class MauiAdminGateway
         return false;
     }
 
+    private async Task SendClientVipAckBestEffortAsync(
+        string centralUrl,
+        AdminStoreSettingsDto settings,
+        CancellationToken ct = default)
+    {
+        try
+        {
+            var payload = new CloudClientVipAckRequest(
+                Email: CurrentEmployee?.Email,
+                Username: CurrentEmployee?.Username,
+                StoreSlug: !string.IsNullOrWhiteSpace(settings.StoreSlug) &&
+                           !string.Equals(settings.StoreSlug.Trim(), "minha-loja", StringComparison.OrdinalIgnoreCase)
+                    ? settings.StoreSlug.Trim()
+                    : null,
+                StoreName: !string.IsNullOrWhiteSpace(settings.StoreName) &&
+                           !string.Equals(settings.StoreName.Trim(), "Minha Loja", StringComparison.OrdinalIgnoreCase)
+                    ? settings.StoreName.Trim()
+                    : null,
+                AppliedPlanTier: StoreDesignPresets.NormalizePlanTier(settings.PlanTier),
+                AppliedExpiresAt: settings.PlanExpiresAt,
+                ClientAppVersion: AppUpdateCatalog.CurrentAppVersion);
+
+            using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            timeoutCts.CancelAfter(TimeSpan.FromSeconds(10));
+
+            var endpoint = $"{centralUrl.TrimEnd('/')}/api/cloud/client-vip-ack";
+            using var content = System.Net.Http.Json.JsonContent.Create(payload);
+            await RemotePlatformBillingHttpClient.PostAsync(endpoint, content, timeoutCts.Token);
+        }
+        catch
+        {
+        }
+    }
+
     public async Task<AdminStoreSettingsDto?> RefreshPlanFromCentralCloudBestEffortAsync(
         bool forceRefresh = false,
         CancellationToken ct = default)
     {
         AdminStoreSettingsDto? currentSettings = null;
         var popupHandled = false;
+        var lockAcquired = false;
+
         try
         {
+            if (!IsAuthenticated)
+                return null;
+
+            await _cloudPlanSyncLock.WaitAsync(ct);
+            lockAcquired = true;
+
             if (!IsAuthenticated)
                 return null;
 
@@ -2555,13 +2732,18 @@ public sealed class MauiAdminGateway
 
             _lastCloudPlanSyncAt = now;
 
+            if (_workspaceRepository is not null && CurrentEmployee is not null && GetPendingCloudAccountSync())
+            {
+                await SyncAccountByUserIdToCloudAsync(CurrentEmployee.UserId, ct: ct);
+            }
+
             currentSettings = await _employeeAndSettingsService.GetAdminStoreSettingsAsync(ct);
-            var centralUrl = ResolveCentralBillingServerUrl(currentSettings, allowDefaultFallback: true);
-            if (string.IsNullOrWhiteSpace(centralUrl))
+            var candidates = BuildCentralCloudCandidateUrls(currentSettings);
+            if (candidates.Count == 0)
                 return null;
 
-            var queryParts = new List<string>(4);
-            if (!string.IsNullOrWhiteSpace(CurrentEmployee?.Email) && CurrentEmployee.Email.Contains('@'))
+            var queryParts = new List<string>(7);
+            if (!string.IsNullOrWhiteSpace(CurrentEmployee?.Email))
                 queryParts.Add($"email={Uri.EscapeDataString(CurrentEmployee.Email.Trim())}");
             if (!string.IsNullOrWhiteSpace(CurrentEmployee?.Username))
                 queryParts.Add($"username={Uri.EscapeDataString(CurrentEmployee.Username.Trim())}");
@@ -2579,25 +2761,96 @@ public sealed class MauiAdminGateway
             if (queryParts.Count == 0)
                 return null;
 
-            var endpoint = $"{centralUrl.TrimEnd('/')}/api/cloud/plan-status?{string.Join("&", queryParts)}";
-            using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-            timeoutCts.CancelAfter(TimeSpan.FromSeconds(5));
+            queryParts.Add($"clientPlanTier={Uri.EscapeDataString(StoreDesignPresets.NormalizePlanTier(currentSettings.PlanTier))}");
+            if (currentSettings.PlanExpiresAt.HasValue)
+                queryParts.Add($"clientPlanExpiresAt={Uri.EscapeDataString(currentSettings.PlanExpiresAt.Value.ToString("O"))}");
+            queryParts.Add($"clientAppVersion={Uri.EscapeDataString(AppUpdateCatalog.CurrentAppVersion)}");
 
-            using var response = await RemotePlatformBillingHttpClient.GetAsync(endpoint, timeoutCts.Token);
-            if (!response.IsSuccessStatusCode)
-                return null;
+            var queryString = string.Join("&", queryParts);
+            CloudPlanStatusDto? remotePlan = null;
+            string? respondedBaseUrl = null;
 
-            var raw = await response.Content.ReadAsStringAsync(timeoutCts.Token);
-            var remotePlan = JsonSerializer.Deserialize<CloudPlanStatusDto>(
-                raw,
-                new JsonSerializerOptions(JsonSerializerDefaults.Web));
+            for (var index = 0; index < candidates.Count; index++)
+            {
+                var baseUrl = candidates[index];
+                var isLocal = IsLocalOrPrivateServerUrl(baseUrl);
+                var timeout = isLocal
+                    ? TimeSpan.FromSeconds(4)
+                    : (forceRefresh ? TimeSpan.FromSeconds(30) : TimeSpan.FromSeconds(20));
+                var maxAttempts = isLocal ? 1 : (forceRefresh ? 2 : 1);
+                var endpoint = $"{baseUrl.TrimEnd('/')}/api/cloud/plan-status?{queryString}";
+
+                CloudPlanStatusDto? candidatePlan = null;
+                for (var attempt = 1; attempt <= maxAttempts; attempt++)
+                {
+                    try
+                    {
+                        using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                        timeoutCts.CancelAfter(timeout);
+
+                        using var response = await RemotePlatformBillingHttpClient.GetAsync(endpoint, timeoutCts.Token);
+                        if (response.IsSuccessStatusCode)
+                        {
+                            var raw = await response.Content.ReadAsStringAsync(timeoutCts.Token);
+                            candidatePlan = JsonSerializer.Deserialize<CloudPlanStatusDto>(
+                                raw,
+                                new JsonSerializerOptions(JsonSerializerDefaults.Web));
+                            break;
+                        }
+
+                        if (attempt < maxAttempts && (int)response.StatusCode is 502 or 503 or 504 or 429)
+                        {
+                            await Task.Delay(TimeSpan.FromSeconds(2), ct);
+                            continue;
+                        }
+
+                        break;
+                    }
+                    catch (Exception) when (attempt < maxAttempts && !ct.IsCancellationRequested)
+                    {
+                        await Task.Delay(TimeSpan.FromSeconds(2), ct);
+                    }
+                    catch
+                    {
+                        break;
+                    }
+                }
+
+                if (candidatePlan is null)
+                    continue;
+
+                remotePlan = candidatePlan;
+                respondedBaseUrl = baseUrl;
+
+                var candidateTier = StoreDesignPresets.NormalizePlanTier(candidatePlan.PlanTier);
+                var isPlainBasic = string.Equals(candidateTier, StoreDesignPresets.PlanBasic, StringComparison.OrdinalIgnoreCase) &&
+                                   !candidatePlan.PlanRevokedAt.HasValue &&
+                                   !candidatePlan.IsBillingSuspended;
+                if (!isPlainBasic || index == candidates.Count - 1)
+                    break;
+            }
+
             if (remotePlan is null)
+            {
+                if (forceRefresh)
+                    _lastCloudPlanSyncAt = DateTimeOffset.MinValue;
                 return null;
+            }
 
             var (updated, updatedSettings) = await _employeeAndSettingsService.ApplyCloudPlanSyncAsync(
                 remotePlan,
                 CurrentEmployee?.EmployeeId,
                 ct);
+
+            if (!string.IsNullOrWhiteSpace(respondedBaseUrl) &&
+                (updated ||
+                 !string.Equals(
+                     StoreDesignPresets.NormalizePlanTier(currentSettings.PlanTier),
+                     StoreDesignPresets.NormalizePlanTier(updatedSettings.PlanTier),
+                     StringComparison.OrdinalIgnoreCase)))
+            {
+                _ = SendClientVipAckBestEffortAsync(respondedBaseUrl, updatedSettings, CancellationToken.None);
+            }
 
             if (updated)
             {
@@ -2618,9 +2871,14 @@ public sealed class MauiAdminGateway
         }
         catch
         {
+            if (forceRefresh)
+                _lastCloudPlanSyncAt = DateTimeOffset.MinValue;
         }
         finally
         {
+            if (lockAcquired)
+                _cloudPlanSyncLock.Release();
+
             if (!popupHandled && IsAuthenticated && currentSettings is not null)
                 RaisePlanPopupFromSettings(currentSettings, "local_session", forcePopup: false);
         }

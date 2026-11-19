@@ -578,6 +578,7 @@ else
     protected override async Task OnInitializedAsync()
     {
         Gateway.AuthStateChanged += OnAuthStateChanged;
+        Gateway.PlanEntitlementActivated += OnPlanEntitlementActivated;
         if (Gateway.IsAuthenticated)
         {
             await LoadAsync();
@@ -602,12 +603,26 @@ else
         await InvokeAsync(StateHasChanged);
     }
 
-    private async Task LoadAsync()
+    private void OnPlanEntitlementActivated(AdminStoreSettingsDto updated)
+    {
+        _settings = updated;
+        BrandState.ApplyFromAdminSettings(updated);
+        _ = InvokeAsync(StateHasChanged);
+    }
+
+    private Task LoadAsync() => LoadCoreAsync(refreshCloud: true);
+
+    private async Task LoadCoreAsync(bool refreshCloud)
     {
         _loading = true;
         _error = null;
         try
         {
+            if (refreshCloud && Gateway.IsAuthenticated)
+            {
+                await Gateway.RefreshPlanFromCentralCloudBestEffortAsync(forceRefresh: false);
+            }
+
             _settings = await Gateway.GetPlanCatalogSettingsAsync();
             await Gateway.TryLoadPublicPlatformCatalogAsync();
             BrandState.ApplyFromAdminSettings(_settings);
@@ -858,5 +873,6 @@ else
     public void Dispose()
     {
         Gateway.AuthStateChanged -= OnAuthStateChanged;
+        Gateway.PlanEntitlementActivated -= OnPlanEntitlementActivated;
     }
 }

@@ -186,7 +186,10 @@ public sealed record PlatformAccountSyncDto(
     bool IsRecurringSubscription = false,
     DateTimeOffset? BillingGraceEndsAt = null,
     bool IsBillingSuspended = false,
-    string? BillingWarningMessage = null);
+    string? BillingWarningMessage = null,
+    DateTimeOffset? LastClientCheckInAt = null,
+    string? LastReportedClientPlanTier = null,
+    string? LastClientAppVersion = null);
 
 public sealed record PlatformAccountsSyncEnvelopeDto(
     string ServerVersion,
@@ -267,3 +270,39 @@ public sealed record CloudPlanStatusDto(
     DateTimeOffset? BillingGraceEndsAt = null,
     bool IsBillingSuspended = false,
     string? BillingWarningMessage = null);
+
+public sealed record RemoteVerifyClientVipRequest(
+    string? TargetEmail = null,
+    string? TargetUsername = null,
+    string? StoreName = null,
+    string? StoreSlug = null,
+    string? ExpectedAdminPlanTier = null,
+    DateTimeOffset? ExpectedAdminExpiresAt = null,
+    bool AutoRepairIfDivergent = false,
+    bool IsCourtesyVip = true);
+
+public sealed record RemoteVerifyClientVipResult(
+    bool FoundOnServer,
+    bool HasActiveServerVip,
+    string ServerEffectivePlanTier,
+    DateTimeOffset? ServerPlanExpiresAt,
+    bool HasCloudAccountRecord,
+    string? CloudRegistryPlanTier,
+    bool HasPublishedTenantRepo,
+    string? PublishedTenantPlanTier,
+    string? PublishedStoreUrl,
+    DateTimeOffset? LastClientCheckInAt,
+    string? LastReportedClientPlanTier,
+    string? LastClientAppVersion,
+    bool AutoRepaired,
+    string StatusCode,
+    string SummaryMessage);
+
+public sealed record CloudClientVipAckRequest(
+    string? Email = null,
+    string? Username = null,
+    string? StoreSlug = null,
+    string? StoreName = null,
+    string AppliedPlanTier = "Basico",
+    DateTimeOffset? AppliedExpiresAt = null,
+    string? ClientAppVersion = null);

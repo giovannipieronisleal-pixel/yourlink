@@ -886,9 +886,16 @@
         <button type="button"
                 class="adm-btn adm-btn-accent"
                 style="white-space: nowrap; font-weight: 700;"
-                disabled="@_isRedeemingGiftCard"
+                disabled="@(_isRedeemingGiftCard || _isCheckingCloudVip)"
                 @onclick="RedeemGiftCardAsync">
             @(_isRedeemingGiftCard ? "Ativando..." : "🎁 Ativar Código Gift Card")
+        </button>
+        <button type="button"
+                class="adm-btn"
+                style="white-space: nowrap; font-weight: 700;"
+                disabled="@(_isRedeemingGiftCard || _isCheckingCloudVip)"
+                @onclick="VerifyCloudVipNowAsync">
+            @(_isCheckingCloudVip ? "Verificando..." : "🔄 Verificar VIP Agora")
         </button>
     </div>
 </section>
@@ -914,6 +921,7 @@
     private string? _activeGiftCardCode;
     private string _giftCardCodeInput = string.Empty;
     private bool _isRedeemingGiftCard;
+    private bool _isCheckingCloudVip;
     private decimal _basicPlanPrice = 49.90m;
     private decimal _intermediaryPlanPrice = 89.90m;
     private decimal _premiumPlanPrice = 129.90m;
@@ -962,9 +970,28 @@
     {
         Theme.OnThemeChanged += StateHasChanged;
         CloudSync.OnSyncStatusChanged += StateHasChanged;
+        Gateway.PlanEntitlementActivated += OnPlanEntitlementActivated;
+        Gateway.AuthStateChanged += OnGatewayAuthStateChanged;
         _centralServerUrlInput = Gateway.CurrentServerUrl;
         await Gateway.TrySyncCentralCatalogUrlFromAdminAsync();
         await LoadSettingsAsync();
+    }
+
+    private void OnGatewayAuthStateChanged()
+    {
+        if (Gateway.IsAuthenticated)
+        {
+            _ = InvokeAsync(() => LoadSettingsCoreAsync(refreshCloud: false));
+        }
+    }
+
+    private void OnPlanEntitlementActivated(AdminStoreSettingsDto updated)
+    {
+        _ = InvokeAsync(() =>
+        {
+            ApplyPlanStateFromSettings(updated);
+            StateHasChanged();
+        });
     }
 
     private async Task ConnectCentralServerFromSettingsAsync()
@@ -1028,11 +1055,18 @@
         Theme.SetThemePreference(preference);
     }
 
-    private async Task LoadSettingsAsync()
+    private Task LoadSettingsAsync() => LoadSettingsCoreAsync(refreshCloud: true);
+
+    private async Task LoadSettingsCoreAsync(bool refreshCloud)
     {
         _error = null;
         try
         {
+            if (refreshCloud && Gateway.IsAuthenticated)
+            {
+                await Gateway.RefreshPlanFromCentralCloudBestEffortAsync(forceRefresh: false);
+            }
+
             var current = await Gateway.GetStoreSettingsAsync();
             _domainInput = string.IsNullOrWhiteSpace(current.OnlineBaseUrl)
                 ? WhatsAppLinkBuilder.GenerateDefaultStoreDomain(current.StoreName)
@@ -1057,22 +1091,29 @@
                 PlanTier = current.PlanTier,
                 ManualSalesEnabled = current.ManualSalesEnabled
             };
-            _planTier = current.PlanTier;
-            _planActivatedAt = current.PlanActivatedAt;
-            _planExpiresAt = current.PlanExpiresAt;
-            _activeGiftCardCode = current.ActiveGiftCardCode;
             _basicPlanPrice = current.BasicPlanMonthlyPrice;
             _intermediaryPlanPrice = current.IntermediaryPlanMonthlyPrice;
             _premiumPlanPrice = current.PremiumPlanMonthlyPrice;
-            _designDraft = (current.Design ?? StoreDesignDto.CreateMinimalistaLuxo()).Clone();
-            ApplyPixAndShippingFields(current);
+            ApplyPlanStateFromSettings(current);
             ApplyHostingAndGoogleFields(current);
-            BrandState.ApplyFromAdminSettings(current);
         }
         catch (Exception ex)
         {
             _error = ex.Message;
         }
+    }
+
+    private void ApplyPlanStateFromSettings(AdminStoreSettingsDto updated)
+    {
+        _planTier = updated.PlanTier;
+        _planActivatedAt = updated.PlanActivatedAt;
+        _planExpiresAt = updated.PlanExpiresAt;
+        _activeGiftCardCode = updated.ActiveGiftCardCode;
+        _form.PlanTier = updated.PlanTier;
+        _form.IsSiteActive = updated.IsSiteActive;
+        _designDraft = (updated.Design ?? StoreDesignDto.CreateMinimalistaLuxo()).Clone();
+        ApplyPixAndShippingFields(updated);
+        BrandState.ApplyFromAdminSettings(updated);
     }
 
     private async Task CheckDomainAvailabilityAsync()
@@ -1442,15 +1483,7 @@
             });
 
             _giftCardCodeInput = string.Empty;
-            _planTier = result.UpdatedSettings.PlanTier;
-            _planActivatedAt = result.UpdatedSettings.PlanActivatedAt;
-            _planExpiresAt = result.UpdatedSettings.PlanExpiresAt;
-            _activeGiftCardCode = result.UpdatedSettings.ActiveGiftCardCode;
-            _form.PlanTier = _planTier;
-            _form.IsSiteActive = result.UpdatedSettings.IsSiteActive;
-            _designDraft = (result.UpdatedSettings.Design ?? StoreDesignDto.CreateMinimalistaLuxo()).Clone();
-            ApplyPixAndShippingFields(result.UpdatedSettings);
-            BrandState.ApplyFromAdminSettings(result.UpdatedSettings);
+            ApplyPlanStateFromSettings(result.UpdatedSettings);
             _success = "🎉 " + result.Message;
         }
         catch (Exception ex)
@@ -1460,6 +1493,41 @@
         finally
         {
             _isRedeemingGiftCard = false;
+        }
+    }
+
+    private async Task VerifyCloudVipNowAsync()
+    {
+        _error = null;
+        _success = null;
+        _isCheckingCloudVip = true;
+        try
+        {
+            await Gateway.SyncActiveAccountToCloudBestEffortAsync();
+            var synced = await Gateway.RefreshPlanFromCentralCloudBestEffortAsync(forceRefresh: true);
+            var latest = synced ?? await Gateway.GetStoreSettingsAsync();
+            ApplyPlanStateFromSettings(latest);
+
+            var normalizedTier = StoreDesignPresets.NormalizePlanTier(latest.PlanTier);
+            if (!string.Equals(normalizedTier, StoreDesignPresets.PlanBasic, StringComparison.OrdinalIgnoreCase))
+            {
+                var validityText = latest.PlanExpiresAt.HasValue
+                    ? $"válido até {latest.PlanExpiresAt.Value.ToLocalTime():dd/MM/yyyy}"
+                    : "vitalício (sem vencimento)";
+                _success = $"✅ VIP confirmado no client: plano {normalizedTier} ({validityText}).";
+            }
+            else
+            {
+                _success = "🔄 Verificação concluída no servidor central. Seu plano atual no client é o Plano Básico.";
+            }
+        }
+        catch (Exception ex)
+        {
+            _error = $"Não foi possível verificar o VIP agora: {ex.Message}";
+        }
+        finally
+        {
+            _isCheckingCloudVip = false;
         }
     }
 
@@ -2161,5 +2229,7 @@
         _mpPollCts?.Dispose();
         Theme.OnThemeChanged -= StateHasChanged;
         CloudSync.OnSyncStatusChanged -= StateHasChanged;
+        Gateway.PlanEntitlementActivated -= OnPlanEntitlementActivated;
+        Gateway.AuthStateChanged -= OnGatewayAuthStateChanged;
     }
 }

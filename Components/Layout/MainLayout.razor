@@ -175,6 +175,7 @@
     private ApiCompatibilityStatusDto? _compatibilityStatus;
     private bool _dismissedUpdateBanner;
     private CancellationTokenSource? _pendingPlanMonitorCts;
+    private CancellationTokenSource? _cloudPlanMonitorCts;
 
     private static string GetUserInitials(string? fullName)
     {
@@ -225,8 +226,9 @@
     private async Task RunStartupBackgroundChecksAsync()
     {
         await TryDeliverPendingPlanQuietlyAsync();
-        await RefreshCloudPlanStatusQuietlyAsync();
+        await RefreshCloudPlanStatusQuietlyAsync(forceRefresh: true);
         EnsurePendingPlanBackgroundMonitor();
+        EnsureCloudPlanBackgroundMonitor();
         await RefreshUpdatesInBackgroundAsync();
 
         try
@@ -238,20 +240,63 @@
         }
     }
 
-    private async Task RefreshCloudPlanStatusQuietlyAsync()
+    private async Task RefreshCloudPlanStatusQuietlyAsync(bool forceRefresh = false)
     {
         if (!Gateway.IsAuthenticated)
             return;
 
         try
         {
-            var synced = await Gateway.RefreshPlanFromCentralCloudBestEffortAsync(forceRefresh: true);
+            var synced = await Gateway.RefreshPlanFromCentralCloudBestEffortAsync(forceRefresh: forceRefresh);
             if (synced is not null)
+            {
                 await RefreshStoreInfoAsync();
+                await InvokeAsync(StateHasChanged);
+            }
         }
         catch
         {
         }
+    }
+
+    private void EnsureCloudPlanBackgroundMonitor()
+    {
+        if (!Gateway.IsAuthenticated)
+        {
+            StopCloudPlanBackgroundMonitor();
+            return;
+        }
+
+        if (_cloudPlanMonitorCts is not null)
+            return;
+
+        var cts = new CancellationTokenSource();
+        _cloudPlanMonitorCts = cts;
+
+        _ = Task.Run(async () =>
+        {
+            using var timer = new PeriodicTimer(TimeSpan.FromSeconds(35));
+            while (true)
+            {
+                try
+                {
+                    if (!await timer.WaitForNextTickAsync(cts.Token))
+                        break;
+                }
+                catch (OperationCanceledException)
+                {
+                    break;
+                }
+
+                if (!Gateway.IsAuthenticated)
+                {
+                    StopCloudPlanBackgroundMonitor();
+                    break;
+                }
+
+                await RefreshCloudPlanStatusQuietlyAsync(forceRefresh: false);
+            }
+        }, cts.Token);
     }
 
     private void EnsurePendingPlanBackgroundMonitor()
@@ -305,21 +350,24 @@
         }, cts.Token);
     }
 
-    private void StopPendingPlanBackgroundMonitor()
+    private static void StopMonitorCts(ref CancellationTokenSource? cts)
     {
         try
         {
-            _pendingPlanMonitorCts?.Cancel();
-            _pendingPlanMonitorCts?.Dispose();
+            cts?.Cancel();
+            cts?.Dispose();
         }
         catch
         {
         }
         finally
         {
-            _pendingPlanMonitorCts = null;
+            cts = null;
         }
     }
+
+    private void StopPendingPlanBackgroundMonitor() => StopMonitorCts(ref _pendingPlanMonitorCts);
+    private void StopCloudPlanBackgroundMonitor() => StopMonitorCts(ref _cloudPlanMonitorCts);
 
     private async Task TryDeliverPendingPlanQuietlyAsync()
     {
@@ -365,7 +413,9 @@
     private async void OnLocationChanged(object? sender, LocationChangedEventArgs e)
     {
         await TryDeliverPendingPlanQuietlyAsync();
+        _ = RefreshCloudPlanStatusQuietlyAsync(forceRefresh: false);
         EnsurePendingPlanBackgroundMonitor();
+        EnsureCloudPlanBackgroundMonitor();
         await RefreshStoreInfoAsync();
         _ = RefreshUpdatesInBackgroundAsync();
         await InvokeAsync(StateHasChanged);
@@ -378,12 +428,18 @@
             if (!Gateway.IsAuthenticated)
             {
                 StopPendingPlanBackgroundMonitor();
+                StopCloudPlanBackgroundMonitor();
             }
 
             await InvokeAsync(StateHasChanged);
             await RefreshStoreInfoAsync();
             _ = RefreshUpdatesInBackgroundAsync();
             _ = TryDeliverPendingPlanQuietlyAsync();
+            if (Gateway.IsAuthenticated)
+            {
+                _ = RefreshCloudPlanStatusQuietlyAsync(forceRefresh: false);
+                EnsureCloudPlanBackgroundMonitor();
+            }
             EnsurePendingPlanBackgroundMonitor();
             await InvokeAsync(StateHasChanged);
         }
@@ -394,12 +450,15 @@
 
     private void OnPlanEntitlementActivated(AdminStoreSettingsDto updated)
     {
-        _storeName = updated.StoreName;
-        _storeSlug = updated.StoreSlug;
-        _onlineBaseUrl = updated.OnlineBaseUrl;
-        BrandState.ApplyFromAdminSettings(updated);
-        Gateway.EnsurePlanPopupFromSettings(updated);
-        InvokeAsync(StateHasChanged);
+        _ = InvokeAsync(() =>
+        {
+            _storeName = updated.StoreName;
+            _storeSlug = updated.StoreSlug;
+            _onlineBaseUrl = updated.OnlineBaseUrl;
+            BrandState.ApplyFromAdminSettings(updated);
+            Gateway.EnsurePlanPopupFromSettings(updated);
+            StateHasChanged();
+        });
     }
 
     private void OnThemeChanged()
@@ -455,6 +514,7 @@
     public void Dispose()
     {
         StopPendingPlanBackgroundMonitor();
+        StopCloudPlanBackgroundMonitor();
         Gateway.AuthStateChanged -= OnAuthStateChanged;
         Gateway.PlanEntitlementActivated -= OnPlanEntitlementActivated;
         Navigation.LocationChanged -= OnLocationChanged;
