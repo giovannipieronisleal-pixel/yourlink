@@ -90,6 +90,7 @@ public static class MauiProgram
         builder.Services.AddSingleton<ThemeService>();
         builder.Services.AddSingleton<StoreBrandStateService>();
         builder.Services.AddSingleton<GoogleCloudSyncService>();
+        builder.Services.AddSingleton(sp => new GeminiProductAssistantService(sp.GetRequiredService<HttpClient>()));
         builder.Services.AddSingleton<MauiAdminGateway>();
         builder.Services.AddSingleton<AppUpdateService>();
 

@@ -70,6 +70,7 @@ public sealed class CreatePixOrderRequest
     public string State { get; set; } = string.Empty;
     public string? CustomerNotes { get; set; }
     public bool ExpressMobileMode { get; set; }
+    public string? TurnstileToken { get; set; }
 }
 
 public sealed class UpdateOrderFulfillmentRequest

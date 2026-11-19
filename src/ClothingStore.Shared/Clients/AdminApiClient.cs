@@ -801,6 +801,52 @@ public sealed class AdminApiClient
             content: null,
             ct);
 
+    public async Task<GeneratedProductCopyDto> GenerateProductCopyAsync(
+        GenerateProductCopyRequest request,
+        CancellationToken ct = default)
+    {
+        var response = await _httpClient.PostAsJsonAsync(Endpoint("/api/ai/product-copy"), request, ct);
+        await EnsureSuccessOrThrowAsync(response, ct);
+        return (await response.Content.ReadFromJsonAsync<GeneratedProductCopyDto>(cancellationToken: ct))!;
+    }
+
+    public async Task<RemoteFeatureConfigDto> GetRemoteFeatureConfigAsync(CancellationToken ct = default)
+    {
+        var response = await _httpClient.GetAsync(Endpoint("/api/cloud/remote-config"), ct);
+        await EnsureSuccessOrThrowAsync(response, ct);
+        return (await response.Content.ReadFromJsonAsync<RemoteFeatureConfigDto>(cancellationToken: ct))!;
+    }
+
+    public Task<RemoteFeatureConfigDto> SaveRemoteFeatureConfigAsync(
+        RemoteFeatureConfigDto config,
+        string? syncSecret,
+        CancellationToken ct = default) =>
+        SendSyncRequestAsync<RemoteFeatureConfigDto>(
+            HttpMethod.Post,
+            "/api/platform-sync/remote-config",
+            syncSecret,
+            JsonContent.Create(config),
+            ct);
+
+    public async Task ReportClientErrorAsync(
+        ClientCrashReportRequest report,
+        CancellationToken ct = default)
+    {
+        var response = await _httpClient.PostAsJsonAsync(Endpoint("/api/cloud/telemetry/error"), report, ct);
+        await EnsureSuccessOrThrowAsync(response, ct);
+    }
+
+    public Task<IReadOnlyList<ClientCrashReportEntryDto>> GetRecentClientErrorsAsync(
+        string? syncSecret,
+        int maxCount = 50,
+        CancellationToken ct = default) =>
+        SendSyncRequestAsync<IReadOnlyList<ClientCrashReportEntryDto>>(
+            HttpMethod.Get,
+            $"/api/platform-sync/telemetry/errors?limit={Math.Clamp(maxCount, 1, 100)}",
+            syncSecret,
+            content: null,
+            ct);
+
     private async Task<T> SendSyncRequestAsync<T>(
         HttpMethod method,
         string relativePath,

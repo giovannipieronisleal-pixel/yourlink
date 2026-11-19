@@ -119,6 +119,11 @@ builder.Services.AddSingleton<IClothingStoreRepository>(sp =>
     new ClothingStoreRepository(sp.GetRequiredService<IPasswordHasher>(), sharedDbPath));
 builder.Services.AddSingleton(sp =>
     new CloudAccountRegistryService(appDataRoot, sp.GetRequiredService<IPasswordHasher>()));
+builder.Services.AddSingleton(_ => new RemoteConfigAndTelemetryStore(appDataRoot));
+builder.Services.AddSingleton(sp =>
+    new CloudflareTurnstileService(sp.GetRequiredService<IHttpClientFactory>().CreateClient("CloudflareTurnstile")));
+builder.Services.AddSingleton(sp =>
+    new GeminiProductAssistantService(sp.GetRequiredService<IHttpClientFactory>().CreateClient("GeminiAi")));
 builder.Services.AddSingleton<IMultiTenantStoreResolver>(sp =>
     new MultiTenantStoreManager(
         sp.GetRequiredService<IClothingStoreRepository>(),
@@ -399,18 +404,29 @@ app.MapGet("/api/public/store-info", async (
     var repo = await gateway.ResolveReadRepositoryAsync(slug, ct);
     if (repo is null)
         return Results.NotFound(new { error = "Loja não encontrada neste servidor." });
+    ctx.Response.Headers.CacheControl = "public, max-age=60, stale-while-revalidate=300";
     return Results.Ok(await gateway.CreateCatalogService(repo).GetPublicStoreSettingsAsync(ct));
 });
 
 app.MapGet("/api/public/stores/{storeSlug}/store-info", async (
     string storeSlug,
+    HttpContext ctx,
     MultiTenantGatewayService gateway,
     CancellationToken ct) =>
 {
     var repo = await gateway.ResolveReadRepositoryAsync(storeSlug, ct);
     if (repo is null)
         return Results.NotFound(new { error = "Loja não encontrada neste servidor." });
+    ctx.Response.Headers.CacheControl = "public, max-age=60, stale-while-revalidate=300";
     return Results.Ok(await gateway.CreateCatalogService(repo).GetPublicStoreSettingsAsync(ct));
+});
+
+app.MapGet("/api/public/security-config", (
+    HttpContext ctx,
+    CloudflareTurnstileService turnstile) =>
+{
+    ctx.Response.Headers.CacheControl = "public, max-age=120";
+    return Results.Ok(turnstile.GetPublicConfig());
 });
 
 app.MapGet("/api/public/categories", async (
@@ -419,9 +435,10 @@ app.MapGet("/api/public/categories", async (
     CancellationToken ct) =>
 {
     var repo = await gateway.ResolveReadRepositoryAsync(ResolveStoreSlug(ctx, null), ct);
-    return repo is null
-        ? Results.NotFound(new { error = "Loja não encontrada." })
-        : Results.Ok(await gateway.CreateCatalogService(repo).GetPublicCategoriesAsync(ct));
+    if (repo is null)
+        return Results.NotFound(new { error = "Loja não encontrada." });
+    ctx.Response.Headers.CacheControl = "public, max-age=60, stale-while-revalidate=300";
+    return Results.Ok(await gateway.CreateCatalogService(repo).GetPublicCategoriesAsync(ct));
 });
 
 app.MapGet("/api/public/stores/{storeSlug}/categories", async (
@@ -576,10 +593,19 @@ app.MapPost("/api/public/orders/pix", async (
     HttpContext ctx,
     CreatePixOrderRequest request,
     MultiTenantGatewayService gateway,
+    CloudflareTurnstileService turnstile,
     CancellationToken ct) =>
 {
     try
     {
+        var (ok, turnstileErr) = await turnstile.VerifyTokenAsync(
+            request.TurnstileToken,
+            "checkout_pix",
+            ctx.Connection.RemoteIpAddress?.ToString(),
+            ct);
+        if (!ok)
+            return Results.Json(new { error = turnstileErr ?? "Verificação anti-bot inválida." }, statusCode: StatusCodes.Status403Forbidden);
+
         request.ExpressMobileMode = false;
         var created = await gateway.PlacePixOrderForStoreAsync(
             ResolveStoreSlug(ctx, null),
@@ -599,10 +625,19 @@ app.MapPost("/api/public/stores/{storeSlug}/orders/pix", async (
     HttpContext ctx,
     CreatePixOrderRequest request,
     MultiTenantGatewayService gateway,
+    CloudflareTurnstileService turnstile,
     CancellationToken ct) =>
 {
     try
     {
+        var (ok, turnstileErr) = await turnstile.VerifyTokenAsync(
+            request.TurnstileToken,
+            "checkout_pix",
+            ctx.Connection.RemoteIpAddress?.ToString(),
+            ct);
+        if (!ok)
+            return Results.Json(new { error = turnstileErr ?? "Verificação anti-bot inválida." }, statusCode: StatusCodes.Status403Forbidden);
+
         request.ExpressMobileMode = false;
         var created = await gateway.PlacePixOrderForStoreAsync(
             storeSlug,
@@ -1396,6 +1431,64 @@ app.MapPost("/api/cloud/client-vip-ack", async (
     return Results.Ok(new { recorded });
 }).DisableAntiforgery();
 
+app.MapGet("/api/cloud/remote-config", async (
+    HttpContext ctx,
+    RemoteConfigAndTelemetryStore store,
+    CancellationToken ct) =>
+{
+    ctx.Response.Headers.CacheControl = "public, max-age=60, stale-while-revalidate=300";
+    return Results.Ok(await store.GetRemoteConfigAsync(ct));
+});
+
+app.MapPost("/api/platform-sync/remote-config", async (
+    HttpContext httpContext,
+    RemoteFeatureConfigDto config,
+    IClothingStoreRepository repository,
+    RemoteConfigAndTelemetryStore store,
+    CancellationToken ct) =>
+{
+    if (!await IsAuthorizedSyncRequestAsync(httpContext, repository, ct))
+        return Results.Json(new { error = "Chave de sincronização inválida ou ausente." }, statusCode: StatusCodes.Status401Unauthorized);
+
+    var saved = await store.SaveRemoteConfigAsync(config, ct);
+    await TryFlushCloudMirrorAsync(httpContext, ct);
+    return Results.Ok(saved);
+}).DisableAntiforgery();
+
+app.MapPost("/api/cloud/telemetry/error", async (
+    ClientCrashReportRequest report,
+    RemoteConfigAndTelemetryStore store,
+    CancellationToken ct) =>
+{
+    var recorded = await store.RecordClientErrorAsync(report, ct);
+    return Results.Ok(new { recorded = true, id = recorded.Id });
+}).DisableAntiforgery().RequireRateLimiting("cloud-accounts");
+
+app.MapGet("/api/platform-sync/telemetry/errors", async (
+    int? limit,
+    HttpContext httpContext,
+    IClothingStoreRepository repository,
+    RemoteConfigAndTelemetryStore store,
+    CancellationToken ct) =>
+{
+    if (!await IsAuthorizedSyncRequestAsync(httpContext, repository, ct))
+        return Results.Json(new { error = "Chave de sincronização inválida ou ausente." }, statusCode: StatusCodes.Status401Unauthorized);
+
+    return Results.Ok(await store.GetRecentErrorsAsync(limit ?? 50, ct));
+});
+
+app.MapPost("/api/ai/product-copy", async (
+    GenerateProductCopyRequest request,
+    GeminiProductAssistantService aiService,
+    CancellationToken ct) =>
+{
+    if (string.IsNullOrWhiteSpace(request.ProductName))
+        return Results.BadRequest(new { error = "Informe o nome do produto." });
+
+    var result = await aiService.GenerateProductCopyAsync(request, ct);
+    return Results.Ok(result);
+}).DisableAntiforgery().RequireRateLimiting("cloud-accounts");
+
 app.MapPost("/api/cloud/accounts/purge-all", async (
     HttpContext httpContext,
     CloudAccountRegistryService accountRegistry,
@@ -2086,7 +2179,7 @@ static async Task<IResult> ServePublicProductMediaAsync(
                 try
                 {
                     var bytes = Convert.FromBase64String(base64Part);
-                    httpContext.Response.Headers.CacheControl = "public, max-age=86400";
+                    httpContext.Response.Headers.CacheControl = "public, max-age=86400, stale-while-revalidate=604800";
                     return Results.Bytes(bytes, mime == "image/jpg" ? "image/jpeg" : mime);
                 }
                 catch

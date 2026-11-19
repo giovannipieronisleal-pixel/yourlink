@@ -1,0 +1,58 @@
+{
+  "conditions": [
+    {
+      "name": "android_clients",
+      "expression": "app.platform == 'android'"
+    }
+  ],
+  "parameters": {
+    "ai_studio_enabled": {
+      "defaultValue": {
+        "value": "true"
+      },
+      "description": "Ativa o Estúdio IA Gemini no cadastro e editor de produtos dos lojistas."
+    },
+    "turnstile_checkout_enabled": {
+      "defaultValue": {
+        "value": "true"
+      },
+      "description": "Habilita validação Cloudflare Turnstile no checkout público quando a chave estiver configurada no servidor."
+    },
+    "global_announcement_banner": {
+      "defaultValue": {
+        "value": ""
+      },
+      "description": "Banner remoto exibido no topo do aplicativo YouLink sem precisar recompilar uma nova versão."
+    },
+    "global_announcement_kind": {
+      "defaultValue": {
+        "value": "info"
+      },
+      "description": "Tipo visual do banner remoto: info, success ou warning."
+    },
+    "vip_promo_message": {
+      "defaultValue": {
+        "value": "Libere vendas diretas por Pix, Estúdio Visual e Estúdio IA Gemini com os planos YouLink."
+      },
+      "description": "Mensagem promocional exibida na tela de Planos e Configurações."
+    },
+    "min_recommended_app_version": {
+      "defaultValue": {
+        "value": "1.0.50"
+      },
+      "description": "Versão mínima recomendada para sincronização VIP e telemetria."
+    },
+    "edge_proxy_base_url": {
+      "defaultValue": {
+        "value": "https://youlink-edge-accelerator.youlink-edge.workers.dev"
+      },
+      "description": "URL opcional do Cloudflare Edge Worker na frente do servidor central para acelerar mídias e vitrines."
+    },
+    "crash_telemetry_enabled": {
+      "defaultValue": {
+        "value": "true"
+      },
+      "description": "Ativa envio anônimo de exceções não tratadas para o painel do administrador (estilo Crashlytics)."
+    }
+  }
+}

@@ -4,7 +4,12 @@
     <a href="@DetailHref" class="lux-product-media" aria-label="Ver detalhes de @Product.Name">
         @if (WhatsAppLinkBuilder.IsSafeMediaUrl(Product.PrimaryImageUrl))
         {
-            <img src="@WhatsAppLinkBuilder.SanitizeMediaUrl(Product.PrimaryImageUrl)" alt="@Product.Name" referrerpolicy="no-referrer" loading="lazy" />
+            <img src="@WhatsAppLinkBuilder.SanitizeMediaUrl(Product.PrimaryImageUrl)"
+                 alt="@Product.Name"
+                 referrerpolicy="no-referrer"
+                 loading="@(IsAboveFold ? "eager" : "lazy")"
+                 fetchpriority="@(IsAboveFold ? "high" : "auto")"
+                 decoding="@(IsAboveFold ? "sync" : "async")" />
         }
         else
         {
@@ -82,6 +87,9 @@
 
     [Parameter]
     public string? StoreSlug { get; set; }
+
+    [Parameter]
+    public bool IsAboveFold { get; set; }
 
     private string DetailHref => string.IsNullOrWhiteSpace(StoreSlug)
         ? $"/produto/{Product.Slug}"

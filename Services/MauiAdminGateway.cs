@@ -21,6 +21,7 @@ public sealed class MauiAdminGateway
     private const string PendingAccountSyncPreferenceKey = "youlink_pending_account_sync_v1";
     private const string PendingCloudAccountSyncPreferenceKey = "youlink_pending_cloud_account_v1";
     private const string PendingPlanOrderPreferenceKey = "youlink_pending_plan_order_v1";
+    private const string GeminiApiKeyPreferenceKey = "youlink_gemini_api_key_v1";
     private sealed record PersistedAuthSession(LoginResponse Login, string? WorkspaceId);
     private static string ResolveCurrentClientAppVersion()
     {
@@ -81,6 +82,10 @@ public sealed class MauiAdminGateway
     public event Action? AuthStateChanged;
     public event Action<AdminStoreSettingsDto>? PlanEntitlementActivated;
     public event Action? PlanPopupNoticeChanged;
+    public event Action? RemoteConfigChanged;
+
+    public RemoteFeatureConfigDto? LatestRemoteConfig { get; private set; }
+    private readonly GeminiProductAssistantService _aiAssistant;
 
     private readonly HashSet<string> _shownSessionPopupSignatures = new(StringComparer.OrdinalIgnoreCase);
     public UserPlanStatusPopupNotice? ActivePlanPopupNotice { get; private set; }
@@ -100,7 +105,8 @@ public sealed class MauiAdminGateway
         GoogleCloudSyncService? cloudSyncService = null,
         OrderAndShippingService? orderAndShippingService = null,
         PlatformSubscriptionService? subscriptionService = null,
-        SwitchableClothingStoreRepository? workspaceRepository = null)
+        SwitchableClothingStoreRepository? workspaceRepository = null,
+        GeminiProductAssistantService? aiAssistant = null)
     {
         _apiClient = apiClient;
         _authService = authService;
@@ -111,6 +117,7 @@ public sealed class MauiAdminGateway
         _orderAndShippingService = orderAndShippingService;
         _subscriptionService = subscriptionService;
         _workspaceRepository = workspaceRepository;
+        _aiAssistant = aiAssistant ?? new GeminiProductAssistantService(RemotePlatformBillingHttpClient);
 
         LoadSavedServerUrl();
     }
@@ -3004,6 +3011,170 @@ public sealed class MauiAdminGateway
 
         ActivePlanPopupNotice = notice;
         PlanPopupNoticeChanged?.Invoke();
+    }
+
+    public bool HasSavedGeminiApiKey()
+    {
+        try
+        {
+            return !string.IsNullOrWhiteSpace(Preferences.Default.Get(GeminiApiKeyPreferenceKey + "_has", string.Empty));
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    public async Task<string?> GetSavedGeminiApiKeyAsync()
+    {
+        try
+        {
+            var secure = await SecureStorage.Default.GetAsync(GeminiApiKeyPreferenceKey);
+            if (!string.IsNullOrWhiteSpace(secure))
+                return secure.Trim();
+        }
+        catch
+        {
+        }
+
+        try
+        {
+            var fallback = Preferences.Default.Get(GeminiApiKeyPreferenceKey + "_fallback", string.Empty);
+            return string.IsNullOrWhiteSpace(fallback) ? null : fallback.Trim();
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    public async Task SaveGeminiApiKeyAsync(string? apiKey)
+    {
+        var clean = string.IsNullOrWhiteSpace(apiKey) ? null : apiKey.Trim();
+        try
+        {
+            if (clean is null)
+                SecureStorage.Default.Remove(GeminiApiKeyPreferenceKey);
+            else
+                await SecureStorage.Default.SetAsync(GeminiApiKeyPreferenceKey, clean);
+        }
+        catch
+        {
+        }
+
+        try
+        {
+            if (clean is null)
+            {
+                Preferences.Default.Remove(GeminiApiKeyPreferenceKey + "_fallback");
+                Preferences.Default.Remove(GeminiApiKeyPreferenceKey + "_has");
+            }
+            else
+            {
+                Preferences.Default.Set(GeminiApiKeyPreferenceKey + "_fallback", clean);
+                Preferences.Default.Set(GeminiApiKeyPreferenceKey + "_has", "1");
+            }
+        }
+        catch
+        {
+        }
+    }
+
+    public async Task<GeneratedProductCopyDto> GenerateProductMarketingCopyAsync(
+        GenerateProductCopyRequest request,
+        CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        var savedKey = await GetSavedGeminiApiKeyAsync();
+        var effectiveReq = string.IsNullOrWhiteSpace(request.CustomApiKey) && !string.IsNullOrWhiteSpace(savedKey)
+            ? request with { CustomApiKey = savedKey }
+            : request;
+
+        if (!string.IsNullOrWhiteSpace(effectiveReq.CustomApiKey))
+        {
+            return await _aiAssistant.GenerateProductCopyAsync(effectiveReq, ct);
+        }
+
+        var candidates = BuildCentralCloudCandidateUrls(null, preferCentralOverCustom: true);
+        foreach (var baseUrl in candidates)
+        {
+            try
+            {
+                var client = CreateCentralBillingClient(baseUrl);
+                using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                timeoutCts.CancelAfter(TimeSpan.FromSeconds(IsLocalOrPrivateServerUrl(baseUrl) ? 5 : 25));
+                var remote = await client.GenerateProductCopyAsync(effectiveReq, timeoutCts.Token);
+                if (remote.UsedLiveGemini)
+                    return remote;
+            }
+            catch
+            {
+            }
+        }
+
+        return await _aiAssistant.GenerateProductCopyAsync(effectiveReq, ct);
+    }
+
+    public async Task<RemoteFeatureConfigDto?> FetchRemoteFeatureConfigBestEffortAsync(CancellationToken ct = default)
+    {
+        var candidates = BuildCentralCloudCandidateUrls(null, preferCentralOverCustom: true);
+        foreach (var baseUrl in candidates)
+        {
+            try
+            {
+                var client = CreateCentralBillingClient(baseUrl);
+                using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                timeoutCts.CancelAfter(TimeSpan.FromSeconds(IsLocalOrPrivateServerUrl(baseUrl) ? 4 : 15));
+                var config = await client.GetRemoteFeatureConfigAsync(timeoutCts.Token);
+                LatestRemoteConfig = config;
+                RemoteConfigChanged?.Invoke();
+                return config;
+            }
+            catch
+            {
+            }
+        }
+
+        return LatestRemoteConfig;
+    }
+
+    public async Task ReportClientErrorBestEffortAsync(string context, Exception ex, CancellationToken ct = default)
+    {
+        if (LatestRemoteConfig?.CrashTelemetryEnabled == false)
+            return;
+
+        try
+        {
+            var report = new ClientCrashReportRequest(
+                AppName: "YouLink",
+                AppVersion: AppUpdateCatalog.CurrentAppVersion,
+                Platform: OperatingSystem.IsAndroid() ? "Android" : (OperatingSystem.IsWindows() ? "Windows" : "Other"),
+                Context: context,
+                ErrorType: ex.GetType().Name,
+                ErrorMessage: ex.Message,
+                StackTrace: ex.StackTrace,
+                AccountHint: CurrentEmployee?.Username);
+
+            var candidates = BuildCentralCloudCandidateUrls(null, preferCentralOverCustom: true);
+            foreach (var baseUrl in candidates)
+            {
+                try
+                {
+                    var client = CreateCentralBillingClient(baseUrl);
+                    using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                    timeoutCts.CancelAfter(TimeSpan.FromSeconds(8));
+                    await client.ReportClientErrorAsync(report, timeoutCts.Token);
+                    return;
+                }
+                catch
+                {
+                }
+            }
+        }
+        catch
+        {
+        }
     }
 }
 

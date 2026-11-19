@@ -87,6 +87,89 @@
         </div>
     </section>
 
+    <!-- ESTÚDIO IA GEMINI (Anúncio, SEO, WhatsApp & Instagram) -->
+    @if (Gateway.CanManageProducts && Gateway.LatestRemoteConfig?.AiStudioEnabled != false)
+    {
+        <section class="adm-card" style="border-left: 4px solid var(--adm-accent);">
+            <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.75rem; margin-bottom: 0.85rem;">
+                <div>
+                    <h2 style="font-size: 1.08rem; font-weight: 700; margin: 0;">✨ Estúdio IA Gemini — Anúncio, WhatsApp &amp; Instagram</h2>
+                    <p style="font-size: 0.82rem; color: var(--adm-muted); margin: 0.2rem 0 0;">
+                        Gere título otimizado, descrição persuasiva, mensagem pronta para WhatsApp e legenda com hashtags em 1 clique.
+                    </p>
+                </div>
+                <div style="display: flex; gap: 0.45rem; align-items: center; flex-wrap: wrap;">
+                    <select class="adm-select" style="width: auto; min-width: 130px;" @bind="_aiTone">
+                        <option value="Luxo">Tom: Luxo Editorial</option>
+                        <option value="Direto">Tom: Direto ao Ponto</option>
+                        <option value="Promocional">Tom: Promocional</option>
+                    </select>
+                    <button type="button"
+                            class="adm-btn adm-btn-accent"
+                            disabled="@_isGeneratingAiKit"
+                            @onclick="GenerateAiMarketingKitAsync">
+                        @(_isGeneratingAiKit ? "⏳ Gerando..." : "✨ Gerar Kit com IA")
+                    </button>
+                </div>
+            </div>
+
+            @if (_aiKit is not null)
+            {
+                <div style="display: grid; gap: 0.75rem; padding: 0.9rem; border-radius: 10px; border: 1px solid var(--adm-border); background: var(--adm-input-bg);">
+                    <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem;">
+                        <span class="pill-badge @(_aiKit.UsedLiveGemini ? "pill-green" : "pill-gold")">@_aiKit.ProviderUsed</span>
+                        <button type="button" class="adm-btn adm-btn-primary" style="padding: 0.35rem 0.75rem; font-size: 0.8rem;" @onclick="ApplyAiTitleAndDescription">
+                            ✓ Aplicar Título e Descrição no Formulário
+                        </button>
+                    </div>
+
+                    <div>
+                        <strong style="font-size: 0.78rem; color: var(--adm-muted);">TÍTULO SUGERIDO:</strong>
+                        <div style="font-weight: 700; margin-top: 0.15rem;">@_aiKit.SuggestedTitle</div>
+                    </div>
+
+                    <div>
+                        <strong style="font-size: 0.78rem; color: var(--adm-muted);">DESCRIÇÃO PERSUASIVA:</strong>
+                        <div style="font-size: 0.88rem; margin-top: 0.15rem; line-height: 1.45;">@_aiKit.PersuasiveDescription</div>
+                    </div>
+
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr)); gap: 0.75rem;">
+                        <div style="padding: 0.65rem; border: 1px solid var(--adm-border); border-radius: 8px; background: var(--adm-surface);">
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.35rem;">
+                                <strong style="font-size: 0.78rem;">💬 Mensagem WhatsApp</strong>
+                                <button type="button" class="adm-btn adm-btn-outline" style="padding: 0.2rem 0.55rem; font-size: 0.74rem;" @onclick="() => CopyAiTextAsync(_aiKit.WhatsappPromoMessage, nameof(_aiKit.WhatsappPromoMessage))">
+                                    📋 Copiar
+                                </button>
+                            </div>
+                            <div style="font-size: 0.82rem; white-space: pre-wrap;">@_aiKit.WhatsappPromoMessage</div>
+                        </div>
+
+                        <div style="padding: 0.65rem; border: 1px solid var(--adm-border); border-radius: 8px; background: var(--adm-surface);">
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.35rem;">
+                                <strong style="font-size: 0.78rem;">📸 Legenda Instagram</strong>
+                                <button type="button" class="adm-btn adm-btn-outline" style="padding: 0.2rem 0.55rem; font-size: 0.74rem;" @onclick="() => CopyAiTextAsync(_aiKit.InstagramCaption, nameof(_aiKit.InstagramCaption))">
+                                    📋 Copiar
+                                </button>
+                            </div>
+                            <div style="font-size: 0.82rem; white-space: pre-wrap;">@_aiKit.InstagramCaption</div>
+                        </div>
+                    </div>
+
+                    @if (_aiKit.SeoTags.Count > 0)
+                    {
+                        <div style="display: flex; gap: 0.35rem; flex-wrap: wrap; align-items: center;">
+                            <strong style="font-size: 0.74rem; color: var(--adm-muted);">SEO:</strong>
+                            @foreach (var tag in _aiKit.SeoTags)
+                            {
+                                <span class="pill-badge pill-slate" style="font-size: 0.7rem;">#@tag</span>
+                            }
+                        </div>
+                    }
+                </div>
+            }
+        </section>
+    }
+
     <!-- 2. GERENCIAMENTO DE VARIANTES (Cor + Tamanho + Estoque Independente) -->
     <section class="adm-card">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; flex-wrap: wrap; gap: 0.75rem;">
@@ -338,6 +421,9 @@
 
     private string _newImageUrl = string.Empty;
     private bool _addingUrlImage;
+    private string _aiTone = "Luxo";
+    private bool _isGeneratingAiKit;
+    private GeneratedProductCopyDto? _aiKit;
     private string? _error;
     private string? _success;
 
@@ -610,6 +696,72 @@
         catch (Exception ex)
         {
             _error = ex.Message;
+        }
+    }
+
+    private async Task GenerateAiMarketingKitAsync()
+    {
+        if (_product is null)
+            return;
+
+        _error = null;
+        _success = null;
+        _isGeneratingAiKit = true;
+        try
+        {
+            var variantHints = _product.Variants
+                .Where(v => v.StockQuantity > 0)
+                .Select(v => $"{v.Color} {v.Size}".Trim())
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .Take(6)
+                .ToList();
+
+            var catName = _editCategorySelection == "__NEW__"
+                ? _editProduct.CategoryName
+                : _categories.FirstOrDefault(c => c.Id.ToString() == _editCategorySelection)?.Name ?? _product.CategoryName;
+
+            _aiKit = await Gateway.GenerateProductMarketingCopyAsync(new GenerateProductCopyRequest(
+                ProductName: string.IsNullOrWhiteSpace(_editProduct.Name) ? _product.Name : _editProduct.Name,
+                CategoryName: catName,
+                Price: _editProduct.BasePrice > 0 ? _editProduct.BasePrice : _product.BasePrice,
+                CurrentDescription: _editProduct.Description,
+                Tone: _aiTone,
+                VariantHints: variantHints));
+
+            _success = $"✨ Kit de vendas gerado via {_aiKit.ProviderUsed}!";
+        }
+        catch (Exception ex)
+        {
+            _error = $"Falha ao gerar kit com IA: {ex.Message}";
+        }
+        finally
+        {
+            _isGeneratingAiKit = false;
+        }
+    }
+
+    private void ApplyAiTitleAndDescription()
+    {
+        if (_aiKit is null)
+            return;
+
+        _editProduct.Name = _aiKit.SuggestedTitle;
+        _editProduct.Description = _aiKit.PersuasiveDescription;
+        _success = "✓ Título e descrição aplicados nos campos acima! Clique em 'Salvar Alterações do Produto' para gravar.";
+    }
+
+    private async Task CopyAiTextAsync(string text, string label)
+    {
+        try
+        {
+            await Clipboard.Default.SetTextAsync(text);
+            _success = label == nameof(GeneratedProductCopyDto.WhatsappPromoMessage)
+                ? "✓ Mensagem de WhatsApp copiada para a área de transferência!"
+                : "✓ Legenda para Instagram copiada para a área de transferência!";
+        }
+        catch
+        {
+            _error = "Não foi possível copiar o texto neste dispositivo.";
         }
     }
 }

@@ -189,9 +189,9 @@ else
         else
         {
             <div class="lux-product-grid">
-                @foreach (var product in _featuredProducts)
+                @for (var i = 0; i < _featuredProducts.Count; i++)
                 {
-                    <ProductCard Product="@product" StoreSlug="@EffectiveStoreSlug" />
+                    <ProductCard Product="@_featuredProducts[i]" StoreSlug="@EffectiveStoreSlug" IsAboveFold="@(i < 3)" />
                 }
             </div>
         }

@@ -101,7 +101,16 @@
             </div>
 
             <div style="grid-column: 1 / -1;">
-                <label class="adm-label">Descrição do Produto</label>
+                <div style="display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; margin-bottom: 0.3rem; flex-wrap: wrap;">
+                    <label class="adm-label" style="margin: 0;">Descrição do Produto</label>
+                    <button type="button"
+                            class="adm-btn adm-btn-outline"
+                            style="padding: 0.25rem 0.65rem; font-size: 0.78rem;"
+                            disabled="@(_generatingAi || string.IsNullOrWhiteSpace(_editProductForm.Name))"
+                            @onclick="() => GenerateAiDescriptionAsync(isNewProduct: false)">
+                        @(_generatingAi ? "⏳ Gerando com IA..." : "✨ Melhorar Descrição com IA")
+                    </button>
+                </div>
                 <textarea class="adm-textarea" rows="2" @bind="_editProductForm.Description" placeholder="Características, medidas, especificações e detalhes..."></textarea>
             </div>
 
@@ -175,7 +184,16 @@
             </div>
 
             <div style="grid-column: 1 / -1;">
-                <label class="adm-label">Descrição do Produto</label>
+                <div style="display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; margin-bottom: 0.3rem; flex-wrap: wrap;">
+                    <label class="adm-label" style="margin: 0;">Descrição do Produto</label>
+                    <button type="button"
+                            class="adm-btn adm-btn-outline"
+                            style="padding: 0.25rem 0.65rem; font-size: 0.78rem;"
+                            disabled="@(_generatingAi || string.IsNullOrWhiteSpace(_newProduct.Name))"
+                            @onclick="() => GenerateAiDescriptionAsync(isNewProduct: true)">
+                        @(_generatingAi ? "⏳ Gerando com IA..." : "✨ Gerar Descrição com IA")
+                    </button>
+                </div>
                 <textarea class="adm-textarea" rows="2" @bind="_newProduct.Description" placeholder="Características, medidas, especificações e detalhes..."></textarea>
             </div>
 
@@ -680,6 +698,47 @@ else if (_categories.Count > 0)
         catch (Exception ex)
         {
             _error = ex.Message;
+        }
+    }
+
+    private bool _generatingAi;
+
+    private async Task GenerateAiDescriptionAsync(bool isNewProduct)
+    {
+        _error = null;
+        _success = null;
+        var form = isNewProduct ? _newProduct : _editProductForm;
+        if (string.IsNullOrWhiteSpace(form.Name))
+        {
+            _error = "Digite primeiro o nome do produto para a IA gerar a descrição.";
+            return;
+        }
+
+        _generatingAi = true;
+        try
+        {
+            var catSelection = isNewProduct ? _newProductCategorySelection : _editProductCategorySelection;
+            var catName = catSelection == "__NEW__"
+                ? form.CategoryName
+                : _categories.FirstOrDefault(c => c.Id.ToString() == catSelection)?.Name;
+
+            var generated = await Gateway.GenerateProductMarketingCopyAsync(new GenerateProductCopyRequest(
+                ProductName: form.Name,
+                CategoryName: catName,
+                Price: form.BasePrice,
+                CurrentDescription: form.Description,
+                Tone: "Luxo"));
+
+            form.Description = generated.PersuasiveDescription;
+            _success = $"✨ Descrição gerada via {generated.ProviderUsed}! Revise e clique em Salvar.";
+        }
+        catch (Exception ex)
+        {
+            _error = $"Não foi possível gerar a descrição com IA: {ex.Message}";
+        }
+        finally
+        {
+            _generatingAi = false;
         }
     }
 }
