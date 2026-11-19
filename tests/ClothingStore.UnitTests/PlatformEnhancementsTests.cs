@@ -252,6 +252,20 @@ public sealed class PlatformEnhancementsTests
             "O app do usuário comum não deve pedir chave API do Gemini.");
         Assert.IsFalse(storeSettings.Contains("aistudio.google.com/apikey", StringComparison.Ordinal),
             "O app do usuário comum não deve exibir links técnicos de API key.");
+        Assert.IsFalse(storeSettings.Contains("SearchFreeDomainsInSettingsAsync", StringComparison.Ordinal),
+            "O app do usuário comum não deve exibir buscador/verificador de domínios externos.");
+
+        var plansPage = File.ReadAllText(Path.Combine(root, "Components", "Pages", "PlansPage.razor"));
+        Assert.IsFalse(plansPage.Contains("SearchFreeDomainsAsync", StringComparison.Ordinal),
+            "A tela de planos não deve exibir buscador de domínios gratuitos externos.");
+
+        var loginPage = File.ReadAllText(Path.Combine(root, "Components", "Pages", "Login.razor"));
+        Assert.IsFalse(loginPage.Contains("CheckDomainInSetupAsync", StringComparison.Ordinal),
+            "O cadastro inicial não deve exibir verificador de domínio.");
+
+        var checkoutPage = File.ReadAllText(Path.Combine(root, "Components", "Pages", "PlanCheckoutPage.razor"));
+        Assert.IsFalse(checkoutPage.Contains("CheckCheckoutDomainAsync", StringComparison.Ordinal),
+            "O checkout de planos não deve exibir verificador de domínio externo.");
 
         var ownerSettings = File.ReadAllText(Path.Combine(root, "src", "ClothingStore.AdminApp", "Components", "Pages", "OwnerSettingsPage.razor"));
         Assert.IsTrue(ownerSettings.Contains("SaveServerGeminiKeyAsync", StringComparison.Ordinal),
