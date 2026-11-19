@@ -8,7 +8,7 @@
   "parameters": {
     "ai_studio_enabled": {
       "defaultValue": {
-        "value": "true"
+        "value": "false"
       },
       "description": "Ativa o Estúdio IA Gemini no cadastro e editor de produtos dos lojistas."
     },
@@ -32,13 +32,13 @@
     },
     "vip_promo_message": {
       "defaultValue": {
-        "value": "Libere vendas diretas por Pix, Estúdio Visual e Estúdio IA Gemini com os planos YouLink."
+        "value": "Libere vendas diretas por Pix e Estúdio Visual com os planos YouLink."
       },
       "description": "Mensagem promocional exibida na tela de Planos e Configurações."
     },
     "min_recommended_app_version": {
       "defaultValue": {
-        "value": "1.0.55"
+        "value": "1.0.56"
       },
       "description": "Versão mínima recomendada para sincronização VIP e telemetria."
     },

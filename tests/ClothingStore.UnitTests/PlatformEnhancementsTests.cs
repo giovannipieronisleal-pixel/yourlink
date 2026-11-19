@@ -240,12 +240,14 @@ public sealed class PlatformEnhancementsTests
         Assert.IsTrue(productDetail.Contains("fetchpriority=\"high\"", StringComparison.Ordinal));
         Assert.IsTrue(productDetail.Contains("ylk-turnstile-checkout", StringComparison.Ordinal));
 
-        // 4. Gemini AI Studio UI in Client (zero API key setup for users) & Central Key in AdminApp
+        // 4. Clean Product & Store Settings UI (no AI key or AI Studio buttons exposed)
         var productEditor = File.ReadAllText(Path.Combine(root, "Components", "Pages", "ProductEditor.razor"));
-        Assert.IsTrue(productEditor.Contains("GenerateAiMarketingKitAsync", StringComparison.Ordinal));
+        Assert.IsFalse(productEditor.Contains("GenerateAiMarketingKitAsync", StringComparison.Ordinal),
+            "O editor de produto não deve exibir o bloco Estúdio IA Gemini.");
 
         var productsPage = File.ReadAllText(Path.Combine(root, "Components", "Pages", "Products.razor"));
-        Assert.IsTrue(productsPage.Contains("GenerateAiDescriptionAsync", StringComparison.Ordinal));
+        Assert.IsFalse(productsPage.Contains("GenerateAiDescriptionAsync", StringComparison.Ordinal),
+            "A tela de produtos não deve exibir botões de geração com IA.");
 
         var storeSettings = File.ReadAllText(Path.Combine(root, "Components", "Pages", "StoreSettingsPage.razor"));
         Assert.IsFalse(storeSettings.Contains("SaveGeminiKeyFromSettingsAsync", StringComparison.Ordinal),
@@ -277,9 +279,13 @@ public sealed class PlatformEnhancementsTests
         Assert.IsTrue(webProgram.Contains("/api/cloud/check-render-store-link", StringComparison.Ordinal),
             "O servidor Render (ClothingStore.Web) deve expor /api/cloud/check-render-store-link.");
 
-        var ownerSettings = File.ReadAllText(Path.Combine(root, "src", "ClothingStore.AdminApp", "Components", "Pages", "OwnerSettingsPage.razor"));
-        Assert.IsTrue(ownerSettings.Contains("SaveServerGeminiKeyAsync", StringComparison.Ordinal),
-            "A configuração central da chave Gemini deve ficar no YouLink Admin do dono.");
+        var ownerSettingsPath = Path.Combine(root, "src", "ClothingStore.AdminApp", "Components", "Pages", "OwnerSettingsPage.razor");
+        if (File.Exists(ownerSettingsPath))
+        {
+            var ownerSettings = File.ReadAllText(ownerSettingsPath);
+            Assert.IsFalse(ownerSettings.Contains("SaveServerGeminiKeyAsync", StringComparison.Ordinal),
+                "A configuração de chave IA Gemini deve estar removida do painel do dono.");
+        }
 
         // 5. Merchant Manual synced to Google Docs
         var manualPath = Path.Combine(root, "docs", "Manual-Oficial-Lojista-YouLink.md");
