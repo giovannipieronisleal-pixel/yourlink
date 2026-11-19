@@ -257,7 +257,7 @@ public sealed class GeminiProductAssistantService
             InstagramCaption: ig,
             SeoTags: tags,
             BannerHeadline: headline,
-            ProviderUsed: "Assistente Local YouLink (adicione GEMINI_API_KEY para Gemini 4)",
+            ProviderUsed: "Assistente Inteligente YouLink",
             UsedLiveGemini: false);
     }
 
