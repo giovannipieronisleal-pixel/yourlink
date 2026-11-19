@@ -123,7 +123,9 @@ builder.Services.AddSingleton(_ => new RemoteConfigAndTelemetryStore(appDataRoot
 builder.Services.AddSingleton(sp =>
     new CloudflareTurnstileService(sp.GetRequiredService<IHttpClientFactory>().CreateClient("CloudflareTurnstile")));
 builder.Services.AddSingleton(sp =>
-    new GeminiProductAssistantService(sp.GetRequiredService<IHttpClientFactory>().CreateClient("GeminiAi")));
+    new GeminiProductAssistantService(
+        sp.GetRequiredService<IHttpClientFactory>().CreateClient("GeminiAi"),
+        () => sp.GetRequiredService<RemoteConfigAndTelemetryStore>().GetServerGeminiApiKey()));
 builder.Services.AddSingleton<IMultiTenantStoreResolver>(sp =>
     new MultiTenantStoreManager(
         sp.GetRequiredService<IClothingStoreRepository>(),
@@ -1476,6 +1478,33 @@ app.MapGet("/api/platform-sync/telemetry/errors", async (
 
     return Results.Ok(await store.GetRecentErrorsAsync(limit ?? 50, ct));
 });
+
+app.MapGet("/api/platform-sync/ai-config", async (
+    HttpContext httpContext,
+    IClothingStoreRepository repository,
+    RemoteConfigAndTelemetryStore store,
+    CancellationToken ct) =>
+{
+    if (!await IsAuthorizedSyncRequestAsync(httpContext, repository, ct))
+        return Results.Json(new { error = "Chave de sincronização inválida ou ausente." }, statusCode: StatusCodes.Status401Unauthorized);
+
+    return Results.Ok(store.GetServerAiKeyStatus());
+});
+
+app.MapPost("/api/platform-sync/ai-config", async (
+    HttpContext httpContext,
+    SaveServerAiKeyRequest request,
+    IClothingStoreRepository repository,
+    RemoteConfigAndTelemetryStore store,
+    CancellationToken ct) =>
+{
+    if (!await IsAuthorizedSyncRequestAsync(httpContext, repository, ct))
+        return Results.Json(new { error = "Chave de sincronização inválida ou ausente." }, statusCode: StatusCodes.Status401Unauthorized);
+
+    var status = await store.SaveServerGeminiApiKeyAsync(request.GeminiApiKey, ct);
+    await TryFlushCloudMirrorAsync(httpContext, ct);
+    return Results.Ok(status);
+}).DisableAntiforgery();
 
 app.MapPost("/api/ai/product-copy", async (
     GenerateProductCopyRequest request,

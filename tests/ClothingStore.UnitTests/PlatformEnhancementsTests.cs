@@ -182,14 +182,27 @@ public sealed class PlatformEnhancementsTests
                 ErrorType: "HttpRequestException",
                 ErrorMessage: "Header Bearer super-secret-jwt and x-goog-api-key leaked",
                 StackTrace: "at MauiAdminGateway.Test()",
-                AccountHint: "flavia"));
+                AccountHint: "loja-modelo"));
 
             Assert.IsFalse(entry.ErrorMessage.Contains("Bearer super-secret-jwt", StringComparison.Ordinal));
             Assert.IsTrue(entry.ErrorMessage.Contains("[REDACTED]", StringComparison.Ordinal));
 
             var recent = await store.GetRecentErrorsAsync(10);
             Assert.AreEqual(1, recent.Count);
-            Assert.AreEqual("flavia", recent[0].AccountHint);
+            Assert.AreEqual("loja-modelo", recent[0].AccountHint);
+
+            // Chave central de IA fica apenas no servidor (nunca exposta no RemoteConfig público)
+            var savedAiStatus = await store.SaveServerGeminiApiKeyAsync("AIza-central-owner-key");
+            Assert.IsTrue(savedAiStatus.Configured);
+            Assert.AreEqual("AIza-central-owner-key", store.GetServerGeminiApiKey());
+
+            var publicRemote = await store.GetRemoteConfigAsync();
+            var publicJson = JsonSerializer.Serialize(publicRemote);
+            Assert.IsFalse(publicJson.Contains("AIza-central-owner-key", StringComparison.Ordinal),
+                "A chave Gemini do servidor nunca deve vazar no RemoteConfig público.");
+
+            var clearedAiStatus = await store.SaveServerGeminiApiKeyAsync(null);
+            Assert.IsFalse(clearedAiStatus.Source.Contains("Painel Admin", StringComparison.Ordinal));
         }
         finally
         {
@@ -227,7 +240,7 @@ public sealed class PlatformEnhancementsTests
         Assert.IsTrue(productDetail.Contains("fetchpriority=\"high\"", StringComparison.Ordinal));
         Assert.IsTrue(productDetail.Contains("ylk-turnstile-checkout", StringComparison.Ordinal));
 
-        // 4. Gemini AI Studio UI in Client & Remote Ops in Admin
+        // 4. Gemini AI Studio UI in Client (zero API key setup for users) & Central Key in AdminApp
         var productEditor = File.ReadAllText(Path.Combine(root, "Components", "Pages", "ProductEditor.razor"));
         Assert.IsTrue(productEditor.Contains("GenerateAiMarketingKitAsync", StringComparison.Ordinal));
 
@@ -235,7 +248,14 @@ public sealed class PlatformEnhancementsTests
         Assert.IsTrue(productsPage.Contains("GenerateAiDescriptionAsync", StringComparison.Ordinal));
 
         var storeSettings = File.ReadAllText(Path.Combine(root, "Components", "Pages", "StoreSettingsPage.razor"));
-        Assert.IsTrue(storeSettings.Contains("SaveGeminiKeyFromSettingsAsync", StringComparison.Ordinal));
+        Assert.IsFalse(storeSettings.Contains("SaveGeminiKeyFromSettingsAsync", StringComparison.Ordinal),
+            "O app do usuário comum não deve pedir chave API do Gemini.");
+        Assert.IsFalse(storeSettings.Contains("aistudio.google.com/apikey", StringComparison.Ordinal),
+            "O app do usuário comum não deve exibir links técnicos de API key.");
+
+        var ownerSettings = File.ReadAllText(Path.Combine(root, "src", "ClothingStore.AdminApp", "Components", "Pages", "OwnerSettingsPage.razor"));
+        Assert.IsTrue(ownerSettings.Contains("SaveServerGeminiKeyAsync", StringComparison.Ordinal),
+            "A configuração central da chave Gemini deve ficar no YouLink Admin do dono.");
 
         // 5. Merchant Manual synced to Google Docs
         var manualPath = Path.Combine(root, "docs", "Manual-Oficial-Lojista-YouLink.md");

@@ -847,6 +847,27 @@ public sealed class AdminApiClient
             content: null,
             ct);
 
+    public Task<ServerAiKeyStatusDto> GetServerAiKeyStatusAsync(
+        string? syncSecret,
+        CancellationToken ct = default) =>
+        SendSyncRequestAsync<ServerAiKeyStatusDto>(
+            HttpMethod.Get,
+            "/api/platform-sync/ai-config",
+            syncSecret,
+            content: null,
+            ct);
+
+    public Task<ServerAiKeyStatusDto> SaveServerAiKeyAsync(
+        string? geminiApiKey,
+        string? syncSecret,
+        CancellationToken ct = default) =>
+        SendSyncRequestAsync<ServerAiKeyStatusDto>(
+            HttpMethod.Post,
+            "/api/platform-sync/ai-config",
+            syncSecret,
+            JsonContent.Create(new SaveServerAiKeyRequest(geminiApiKey)),
+            ct);
+
     private async Task<T> SendSyncRequestAsync<T>(
         HttpMethod method,
         string relativePath,

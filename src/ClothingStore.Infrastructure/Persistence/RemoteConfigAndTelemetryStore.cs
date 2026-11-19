@@ -14,7 +14,10 @@ public sealed class RemoteConfigAndTelemetryStore
 {
     public const string RemoteConfigFileName = "remote_config.json";
     public const string TelemetryFileName = "client_telemetry.json";
+    public const string ServerAiSecretFileName = "platform_ai_secret.json";
     private const int MaxStoredErrors = 100;
+
+    private sealed record StoredServerAiSecret(string? GeminiApiKey, DateTimeOffset UpdatedAt);
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -24,6 +27,7 @@ public sealed class RemoteConfigAndTelemetryStore
 
     private readonly string _configPath;
     private readonly string _telemetryPath;
+    private readonly string _aiSecretPath;
     private readonly SemaphoreSlim _lock = new(1, 1);
 
     public RemoteConfigAndTelemetryStore(string rootDirectory)
@@ -32,6 +36,7 @@ public sealed class RemoteConfigAndTelemetryStore
         var fullRoot = Path.GetFullPath(rootDirectory);
         _configPath = Path.Combine(fullRoot, RemoteConfigFileName);
         _telemetryPath = Path.Combine(fullRoot, TelemetryFileName);
+        _aiSecretPath = Path.Combine(fullRoot, ServerAiSecretFileName);
     }
 
     public async Task<RemoteFeatureConfigDto> GetRemoteConfigAsync(CancellationToken ct = default)
@@ -119,6 +124,71 @@ public sealed class RemoteConfigAndTelemetryStore
         finally
         {
             _lock.Release();
+        }
+    }
+
+    /// <summary>
+    /// Retorna a chave central do Google Gemini configurada pelo dono da plataforma (Painel Admin ou variável de ambiente).
+    /// Nunca é exposta nos endpoints públicos.
+    /// </summary>
+    public string? GetServerGeminiApiKey()
+    {
+        var stored = ReadAiSecretUnsafe();
+        if (!string.IsNullOrWhiteSpace(stored?.GeminiApiKey))
+            return stored.GeminiApiKey.Trim();
+
+        var env = Environment.GetEnvironmentVariable("GEMINI_API_KEY")?.Trim();
+        if (!string.IsNullOrWhiteSpace(env))
+            return env;
+
+        var fallbackEnv = Environment.GetEnvironmentVariable("GOOGLE_API_KEY")?.Trim();
+        return string.IsNullOrWhiteSpace(fallbackEnv) ? null : fallbackEnv;
+    }
+
+    public ServerAiKeyStatusDto GetServerAiKeyStatus()
+    {
+        var stored = ReadAiSecretUnsafe();
+        if (!string.IsNullOrWhiteSpace(stored?.GeminiApiKey))
+            return new ServerAiKeyStatusDto(true, "Painel Admin (Servidor Central)", stored.UpdatedAt);
+
+        if (!string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("GEMINI_API_KEY")) ||
+            !string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("GOOGLE_API_KEY")))
+        {
+            return new ServerAiKeyStatusDto(true, "Variável de Ambiente (Render / Cloud)", null);
+        }
+
+        return new ServerAiKeyStatusDto(false, "Assistente Local (sem chave Gemini configurada)", null);
+    }
+
+    public async Task<ServerAiKeyStatusDto> SaveServerGeminiApiKeyAsync(string? apiKey, CancellationToken ct = default)
+    {
+        var clean = TrimOrNull(apiKey, 256);
+        await _lock.WaitAsync(ct);
+        try
+        {
+            var record = new StoredServerAiSecret(clean, DateTimeOffset.UtcNow);
+            WriteAtomicallyUnsafe(_aiSecretPath, record);
+            return GetServerAiKeyStatus();
+        }
+        finally
+        {
+            _lock.Release();
+        }
+    }
+
+    private StoredServerAiSecret? ReadAiSecretUnsafe()
+    {
+        if (!File.Exists(_aiSecretPath))
+            return null;
+
+        try
+        {
+            var raw = File.ReadAllText(_aiSecretPath, Encoding.UTF8);
+            return JsonSerializer.Deserialize<StoredServerAiSecret>(raw, JsonOptions);
+        }
+        catch
+        {
+            return null;
         }
     }
 

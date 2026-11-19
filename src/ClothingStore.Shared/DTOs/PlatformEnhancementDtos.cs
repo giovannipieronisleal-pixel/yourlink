@@ -73,3 +73,17 @@ public sealed record ClientCrashReportEntryDto(
     string ErrorMessage,
     string? StackTrace,
     string? AccountHint);
+
+/// <summary>
+/// Requisição administrativa (YouLink Admin -> Servidor Central) para configurar ou remover
+/// a chave central do Google Gemini usada automaticamente por todas as lojas.
+/// </summary>
+public sealed record SaveServerAiKeyRequest(string? GeminiApiKey);
+
+/// <summary>
+/// Status sanitizado da chave central de IA no servidor (nunca retorna a chave em texto puro).
+/// </summary>
+public sealed record ServerAiKeyStatusDto(
+    bool Configured,
+    string Source,
+    DateTimeOffset? UpdatedAt = null);

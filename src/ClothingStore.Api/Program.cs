@@ -132,7 +132,9 @@ builder.Services.AddSingleton(_ => new RemoteConfigAndTelemetryStore(appDataRoot
 builder.Services.AddSingleton(sp =>
     new CloudflareTurnstileService(sp.GetRequiredService<IHttpClientFactory>().CreateClient("CloudflareTurnstile")));
 builder.Services.AddSingleton(sp =>
-    new GeminiProductAssistantService(sp.GetRequiredService<IHttpClientFactory>().CreateClient("GeminiAi")));
+    new GeminiProductAssistantService(
+        sp.GetRequiredService<IHttpClientFactory>().CreateClient("GeminiAi"),
+        () => sp.GetRequiredService<RemoteConfigAndTelemetryStore>().GetServerGeminiApiKey()));
 
 builder.Services.AddHttpClient();
 
@@ -878,6 +880,33 @@ app.MapGet("/api/platform-sync/telemetry/errors", async (
         return Results.Unauthorized();
 
     return Results.Ok(await store.GetRecentErrorsAsync(limit ?? 50, ct));
+}).AllowAnonymous();
+
+app.MapGet("/api/platform-sync/ai-config", async (
+    HttpContext httpContext,
+    IClothingStoreRepository repository,
+    RemoteConfigAndTelemetryStore store,
+    CancellationToken ct) =>
+{
+    var settings = await repository.GetStoreSettingsAsync(ct);
+    if (!IsAuthorizedPlatformSyncRequest(httpContext, settings))
+        return Results.Unauthorized();
+
+    return Results.Ok(store.GetServerAiKeyStatus());
+}).AllowAnonymous();
+
+app.MapPost("/api/platform-sync/ai-config", async (
+    HttpContext httpContext,
+    SaveServerAiKeyRequest request,
+    IClothingStoreRepository repository,
+    RemoteConfigAndTelemetryStore store,
+    CancellationToken ct) =>
+{
+    var settings = await repository.GetStoreSettingsAsync(ct);
+    if (!IsAuthorizedPlatformSyncRequest(httpContext, settings))
+        return Results.Unauthorized();
+
+    return Results.Ok(await store.SaveServerGeminiApiKeyAsync(request.GeminiApiKey, ct));
 }).AllowAnonymous();
 
 app.MapPost("/api/ai/product-copy", async (
