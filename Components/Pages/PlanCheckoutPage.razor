@@ -159,109 +159,15 @@ else
 
             <div>
                 <div style="display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 0.25rem;">
-                    <label class="adm-label" for="checkout-domain" style="margin: 0;">Endereço / Domínio da Loja</label>
-                    <span class="pill-badge pill-green">Incluso no Plano (R$ 0,00 extra)</span>
+                    <label class="adm-label" style="margin: 0;">Endereço Oficial da Loja Online</label>
+                    <span class="pill-badge pill-green">Incluso no Plano</span>
                 </div>
-                <div style="display: flex; gap: 0.45rem; flex-wrap: wrap;">
-                    <input id="checkout-domain"
-                           class="adm-input"
-                           style="flex: 1 1 200px; min-width: 0;"
-                           @bind="_desiredDomain"
-                           placeholder="Ex.: lojas.minhaloja.com ou minha-loja" />
-                    <button type="button"
-                            class="adm-btn adm-btn-outline"
-                            style="white-space: nowrap; flex: 0 1 auto;"
-                            disabled="@(_isCheckingDomain || string.IsNullOrWhiteSpace(_desiredDomain))"
-                            @onclick="CheckCheckoutDomainAsync">
-                        @(_isCheckingDomain ? "Verificando..." : "🔍 Verificar Endereço")
-                    </button>
-                    <button type="button"
-                            class="adm-btn adm-btn-accent"
-                            style="white-space: nowrap; flex: 0 1 auto;"
-                            disabled="@_searchingFreeDomains"
-                            @onclick="SearchFreeDomainsForCheckoutAsync">
-                        @(_searchingFreeDomains ? "Buscando..." : "🎁 Procurar Domínio Grátis")
-                    </button>
+                <div style="padding: 0.72rem 0.9rem; border-radius: 10px; background: var(--adm-surface-subtle); border: 1px solid var(--adm-border); font-size: 0.88rem; font-weight: 700; color: var(--adm-text); overflow-wrap: anywhere;">
+                    @WhatsAppLinkBuilder.BuildStoreCatalogUrl(Gateway.GetPublicPortalBaseUrl(), WhatsAppLinkBuilder.GenerateStoreSlug(string.IsNullOrWhiteSpace(_customerStoreName) ? _settings.StoreName : _customerStoreName))
                 </div>
-
-                @if (_freeDomainSearch?.FeaturedOffer is not null)
-                {
-                    var freeOffer = _freeDomainSearch.FeaturedOffer;
-                    var cheaperPreview = FreeDomainFinder.CalculateCheaperPlanWithFreeDomain(RegularMonthlyPrice);
-                    <div style="margin-top: 0.65rem; padding: 0.75rem 0.9rem; border-radius: 10px; background: rgba(22,163,74,0.1); border: 1.5px solid var(--adm-success);">
-                        <div style="font-weight: 800; font-size: 0.88rem; color: var(--adm-success);">
-                            🎁 Olha! Este domínio gratuito está disponível: <code>@freeOffer.Domain</code>
-                        </div>
-                        <div style="font-size: 0.8rem; color: var(--adm-text); margin-top: 0.2rem;">
-                            Deseja usar ele gratuitamente (<strong>@freeOffer.ProviderName</strong>) e ter um plano mais barato (de <s>@RegularMonthlyPrice.ToString("C")</s> por <strong>@cheaperPreview.CheaperMonthlyPrice.ToString("C")/mês</strong>)?
-                        </div>
-                        <div style="display: flex; gap: 0.45rem; flex-wrap: wrap; margin-top: 0.5rem;">
-                            @foreach (var item in _freeDomainSearch.Candidates.Where(c => c.IsAvailable).Take(5))
-                            {
-                                var picked = _useFreeDomainCheaperPlan && string.Equals(_desiredDomain, item.Domain, StringComparison.OrdinalIgnoreCase);
-                                <button type="button"
-                                        class="pill-badge @(picked ? "pill-gold" : "pill-green")"
-                                        style="border: none; cursor: pointer; padding: 0.25rem 0.6rem; font-size: 0.76rem;"
-                                        @onclick="() => UseFreeDomainOfferInCheckout(item)">
-                                    @(picked ? "✓ " : "🎁 Usar ")@item.Domain
-                                </button>
-                            }
-                        </div>
-                    </div>
-                }
-
-                <label style="display: flex; align-items: center; gap: 0.45rem; font-size: 0.82rem; font-weight: 700; margin-top: 0.5rem; cursor: pointer;">
-                    <input type="checkbox" @bind="_useFreeDomainCheaperPlan" />
-                    <span>Usar endereço/domínio gratuito e aplicar desconto de plano mais barato (-@FreeDomainFinder.CalculateCheaperPlanWithFreeDomain(RegularMonthlyPrice).SavingsPerMonth.ToString("C", new System.Globalization.CultureInfo("pt-BR"))/mês)</span>
-                </label>
-
-                <label style="display: flex; align-items: center; gap: 0.45rem; font-size: 0.82rem; font-weight: 700; margin-top: 0.4rem; cursor: pointer;">
-                    <input type="checkbox" @bind="_useOwnDedicatedServer" />
-                    <span>☁️ Vou hospedar no Meu Servidor Próprio (Google Cloud Run / Render / Fly.io: -R$ 10,00/mês)</span>
-                </label>
-
-                @if (_settings.QualifiesForDedicatedServerBenefit)
-                {
-                    <div style="margin-top: 0.45rem; padding: 0.5rem 0.75rem; border-radius: 8px; background: rgba(22,163,74,0.1); border: 1px solid var(--adm-success); font-size: 0.79rem; color: var(--adm-success); font-weight: 700;">
-                        👑 Conta Google Pro / Workspace verificada (@_settings.GoogleAccountEmail): desconto automático extra de -R$ 5,00/mês aplicado!
-                    </div>
-                }
-
-                @if (_domainCheckResult is not null)
-                {
-                    <div style="margin-top: 0.5rem; padding: 0.65rem 0.85rem; border-radius: 8px; font-size: 0.82rem; @(_domainCheckResult.IsAvailable ? "background: rgba(34,197,94,0.12); border: 1px solid var(--adm-success); color: var(--adm-success);" : "background: rgba(239,68,68,0.12); border: 1px solid var(--adm-danger); color: var(--adm-danger);")">
-                        <div style="font-weight: 700;">
-                            @(_domainCheckResult.IsAvailable ? "✓ " + _domainCheckResult.Message : "✕ " + _domainCheckResult.Message)
-                        </div>
-                        @if (_domainCheckResult.IsAvailable)
-                        {
-                            <div style="font-size: 0.76rem; margin-top: 0.2rem;">
-                                Endereço já coberto no plano (sem cobrança à parte): <strong>@_domainCheckResult.NormalizedUrl</strong>
-                            </div>
-                        }
-                        else if (_domainCheckResult.Suggestions.Count > 0)
-                        {
-                            <div style="margin-top: 0.35rem; font-size: 0.76rem;">Sugestões inclusas disponíveis:</div>
-                            <div style="display: flex; gap: 0.35rem; flex-wrap: wrap; margin-top: 0.25rem;">
-                                @foreach (var s in _domainCheckResult.Suggestions)
-                                {
-                                    <button type="button"
-                                            class="pill-badge pill-blue"
-                                            style="border: none; cursor: pointer; padding: 0.2rem 0.5rem; font-size: 0.75rem;"
-                                            @onclick="() => SelectCheckoutSuggestionAsync(s)">
-                                        @s
-                                    </button>
-                                }
-                            </div>
-                        }
-                    </div>
-                }
-                else
-                {
-                    <span style="font-size: 0.77rem; color: var(--adm-muted);">
-                        Servidor 24h, HTTPS e o endereço/subdomínio oficial da loja já vão dentro do plano — zero compra separada de domínio.
-                    </span>
-                }
+                <span style="font-size: 0.77rem; color: var(--adm-muted); display: block; margin-top: 0.3rem;">
+                    Hospedagem 24h, HTTPS e o endereço da vitrine no servidor oficial YouLink já estão inclusos — você não precisa comprar nem configurar domínio.
+                </span>
             </div>
 
             <div>
@@ -683,12 +589,8 @@ else
     private AdminStoreSettingsDto? _settings;
     private bool _loading = true;
     private bool _redeemingCode;
-    private bool _isCheckingDomain;
-    private bool _searchingFreeDomains;
     private bool _useFreeDomainCheaperPlan;
     private bool _useOwnDedicatedServer;
-    private FreeDomainSearchResponse? _freeDomainSearch;
-    private CheckDomainAvailabilityResponse? _domainCheckResult;
     private string _selectedTier = StoreDesignPresets.PlanIntermediate;
     private int _durationMonths = 1;
     private string _customerStoreName = string.Empty;
@@ -1237,63 +1139,6 @@ else
         {
             _error = $"Não foi possível abrir o WhatsApp automaticamente ({ex.Message}). Copie a chave Pix acima e envie o comprovante para concluir a ativação.";
         }
-    }
-
-    private async Task CheckCheckoutDomainAsync()
-    {
-        if (string.IsNullOrWhiteSpace(_desiredDomain))
-            return;
-
-        _isCheckingDomain = true;
-        _error = null;
-        try
-        {
-            _domainCheckResult = await Gateway.CheckDomainAvailabilityAsync(_desiredDomain.Trim());
-            if (_domainCheckResult.IsAvailable)
-            {
-                _desiredDomain = _domainCheckResult.Domain;
-            }
-        }
-        catch (Exception ex)
-        {
-            _error = $"Erro ao verificar disponibilidade do endereço: {ex.Message}";
-        }
-        finally
-        {
-            _isCheckingDomain = false;
-        }
-    }
-
-    private async Task SelectCheckoutSuggestionAsync(string suggestion)
-    {
-        _desiredDomain = suggestion;
-        await CheckCheckoutDomainAsync();
-    }
-
-    private async Task SearchFreeDomainsForCheckoutAsync()
-    {
-        _searchingFreeDomains = true;
-        _error = null;
-        try
-        {
-            var query = string.IsNullOrWhiteSpace(_customerStoreName) ? _desiredDomain : _customerStoreName;
-            _freeDomainSearch = await Gateway.SearchFreeDomainsAsync(query);
-        }
-        catch (Exception ex)
-        {
-            _error = $"Erro ao procurar domínios gratuitos: {ex.Message}";
-        }
-        finally
-        {
-            _searchingFreeDomains = false;
-        }
-    }
-
-    private void UseFreeDomainOfferInCheckout(FreeDomainCandidateDto candidate)
-    {
-        _desiredDomain = candidate.Domain;
-        _useFreeDomainCheaperPlan = true;
-        _successMessage = $"🎁 Olha! Domínio gratuito '{candidate.Domain}' aplicado e plano reduzido para {MonthlyPrice:C}/mês!";
     }
 
     private async Task RedeemGiftCardAsync()

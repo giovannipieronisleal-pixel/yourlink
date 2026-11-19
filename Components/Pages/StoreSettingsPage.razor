@@ -314,123 +314,23 @@
             </div>
         </section>
 
-        <!-- Card 5: Opções Avançadas (Discreto e Opcional para Administradores) -->
+        <!-- Card 5: Opções Avançadas (Sincronização) -->
         <details style="background: var(--adm-surface); border: 1px solid var(--adm-border); border-radius: 10px; padding: 0.85rem 1rem;">
             <summary style="cursor: pointer; font-weight: 600; font-size: 0.86rem; color: var(--adm-muted); user-select: none;">
-                ⚙️ Opções Avançadas de Domínio / Nuvem (Opcional)
+                ⚙️ Opções de Sincronização na Nuvem (Opcional)
             </summary>
             <div style="margin-top: 1rem; display: flex; flex-direction: column; gap: 0.85rem; font-size: 0.85rem;">
                 <div>
                     <div style="display: flex; justify-content: space-between; align-items: center; gap: 0.45rem; flex-wrap: wrap; margin-bottom: 0.25rem;">
-                        <label class="adm-label" style="margin: 0;">Endereço Base / Domínio do Site</label>
-                        <span class="pill-badge pill-green">Incluso no Plano (R$ 0,00 extra)</span>
+                        <label class="adm-label" style="margin: 0;">Servidor Oficial da Vitrine</label>
+                        <span class="pill-badge pill-green">Incluso no Plano</span>
                     </div>
-                    <div style="display: flex; gap: 0.45rem; flex-wrap: wrap;">
-                        <input type="text"
-                               class="adm-input"
-                               style="flex: 1 1 200px; min-width: 0;"
-                               @bind="_domainInput"
-                               placeholder="Ex.: lojas.minhaloja.com ou minha-loja" />
-                        <button type="button"
-                                class="adm-btn adm-btn-outline"
-                                style="white-space: nowrap; padding: 0 0.85rem; font-size: 0.82rem; border-color: var(--adm-accent); font-weight: 700; flex: 0 1 auto;"
-                                disabled="@_isCheckingDomain"
-                                @onclick="CheckDomainAvailabilityAsync">
-                            @(_isCheckingDomain ? "Consultando..." : "🔍 Verificar Google Cloud")
-                        </button>
-                        <button type="button"
-                                class="adm-btn adm-btn-accent"
-                                style="white-space: nowrap; padding: 0 0.85rem; font-size: 0.82rem; font-weight: 700; flex: 0 1 auto;"
-                                disabled="@_isSearchingFreeDomains"
-                                @onclick="SearchFreeDomainsInSettingsAsync">
-                            @(_isSearchingFreeDomains ? "Buscando..." : "🎁 Buscar Domínios Grátis")
-                        </button>
+                    <div style="padding: 0.65rem 0.85rem; border-radius: 8px; background: var(--adm-surface-subtle); border: 1px solid var(--adm-border); font-size: 0.84rem; color: var(--adm-text); overflow-wrap: anywhere;">
+                        @storeCatalogUrl
                     </div>
-
-                    @if (_freeDomainSearch?.FeaturedOffer is not null)
-                    {
-                        var freeOffer = _freeDomainSearch.FeaturedOffer;
-                        <div style="margin-top: 0.55rem; padding: 0.7rem 0.9rem; border-radius: 9px; background: rgba(22,163,74,0.1); border: 1.5px solid var(--adm-success);">
-                            <div style="font-weight: 800; font-size: 0.84rem; color: var(--adm-success);">
-                                🎁 Olha! Este domínio está disponível gratuitamente: <code>@freeOffer.Domain</code>
-                            </div>
-                            <div style="font-size: 0.78rem; color: var(--adm-text); margin-top: 0.2rem;">
-                                Deseja usar ele gratuitamente (<strong>@freeOffer.ProviderName</strong>) e ter um <strong>plano mais barato</strong> (economia de @FreeDomainFinder.DefaultMonthlyDiscountWithFreeDomain.ToString("C", new System.Globalization.CultureInfo("pt-BR"))/mês)?
-                            </div>
-                            <div style="display: flex; gap: 0.4rem; flex-wrap: wrap; margin-top: 0.45rem; align-items: center;">
-                                @foreach (var cand in _freeDomainSearch.Candidates.Where(c => c.IsAvailable).Take(5))
-                                {
-                                    <button type="button"
-                                            class="pill-badge @(string.Equals(_domainInput, cand.Domain, StringComparison.OrdinalIgnoreCase) ? "pill-gold" : "pill-green")"
-                                            style="border: none; cursor: pointer; padding: 0.22rem 0.55rem; font-size: 0.75rem;"
-                                            @onclick="() => UseFreeDomainCandidateAsync(cand)">
-                                        ✓ Usar @cand.Domain
-                                    </button>
-                                }
-                                <a href="/contratar-plano/@(string.IsNullOrWhiteSpace(_form.PlanTier) ? "Basico" : _form.PlanTier)?freeDomain=@Uri.EscapeDataString(freeOffer.Domain)&cheaper=1"
-                                   class="pill-badge pill-gold"
-                                   style="text-decoration: none; padding: 0.24rem 0.6rem; font-size: 0.75rem;">
-                                    💰 Contratar Plano Mais Barato →
-                                </a>
-                            </div>
-                        </div>
-                    }
-
-                    @if (_domainInput.EndsWith(".duckdns.org", StringComparison.OrdinalIgnoreCase))
-                    {
-                        <div style="margin-top: 0.55rem; padding: 0.65rem 0.85rem; border-radius: 8px; background: var(--adm-surface-subtle); border: 1px solid var(--adm-border); display: flex; flex-direction: column; gap: 0.45rem;">
-                            <div style="font-size: 0.78rem; font-weight: 700;">
-                                🦆 Sincronização Gratuita via API DuckDNS (Opcional)
-                            </div>
-                            <div style="display: flex; gap: 0.45rem; flex-wrap: wrap;">
-                                <input type="text" class="adm-input" style="flex: 1 1 180px;" @bind="_duckDnsToken" placeholder="Seu Token gratuito de duckdns.org" />
-                                <input type="text" class="adm-input" style="flex: 0 1 140px;" @bind="_duckDnsIp" placeholder="IP (opcional)" />
-                                <button type="button"
-                                        class="adm-btn adm-btn-outline"
-                                        style="font-size: 0.78rem;"
-                                        disabled="@_isSyncingDuckDns"
-                                        @onclick="SyncDuckDnsNowAsync">
-                                    @(_isSyncingDuckDns ? "Atualizando..." : "Atualizar IP DuckDNS")
-                                </button>
-                            </div>
-                        </div>
-                    }
-
-                    @if (_domainCheckResult is not null)
-                    {
-                        <div style="margin-top: 0.5rem; padding: 0.65rem 0.85rem; border-radius: 8px; font-size: 0.82rem; @(_domainCheckResult.IsAvailable ? "background: rgba(34,197,94,0.12); border: 1px solid var(--adm-success); color: var(--adm-success);" : "background: rgba(239,68,68,0.12); border: 1px solid var(--adm-danger); color: var(--adm-danger);")">
-                            <div style="font-weight: 700;">
-                                @(_domainCheckResult.IsAvailable ? "✓ " + _domainCheckResult.Message : "✕ " + _domainCheckResult.Message)
-                            </div>
-                            <div style="font-size: 0.76rem; margin-top: 0.25rem;">
-                                @if (_domainCheckResult.IsAvailable)
-                                {
-                                    <div>URL que será configurada: <strong>@_domainCheckResult.NormalizedUrl</strong></div>
-                                }
-                                else if (_domainCheckResult.Suggestions.Count > 0)
-                                {
-                                    <div style="margin-bottom: 0.2rem;">Sugestões disponíveis no Google Cloud (toque para aplicar):</div>
-                                    <div style="display: flex; gap: 0.35rem; flex-wrap: wrap; margin-top: 0.25rem;">
-                                        @foreach (var s in _domainCheckResult.Suggestions)
-                                        {
-                                            <button type="button"
-                                                    class="pill-badge pill-blue"
-                                                    style="border: none; cursor: pointer; padding: 0.2rem 0.5rem; font-size: 0.75rem;"
-                                                    @onclick="() => SelectDomainSuggestion(s)">
-                                                @s
-                                            </button>
-                                        }
-                                    </div>
-                                }
-                            </div>
-                        </div>
-                    }
-                    else
-                    {
-                        <span style="font-size: 0.75rem; color: var(--adm-muted);">
-                            Servidor e subdomínio padrão da sua vitrine já estão inclusos no plano. O vínculo de domínio próprio é opcional.
-                        </span>
-                    }
+                    <span style="font-size: 0.76rem; color: var(--adm-muted); display: block; margin-top: 0.25rem;">
+                        Sua loja usa automaticamente o domínio do servidor oficial YouLink — sem precisar configurar domínio separado.
+                    </span>
                 </div>
 
                 <label style="display: flex; align-items: center; gap: 0.5rem; font-weight: 600; cursor: pointer;">
@@ -942,14 +842,6 @@
     private bool _copiedUrl;
     private string? _error;
     private string? _success;
-    private string _domainInput = string.Empty;
-    private bool _isCheckingDomain;
-    private bool _isSearchingFreeDomains;
-    private FreeDomainSearchResponse? _freeDomainSearch;
-    private string _duckDnsToken = string.Empty;
-    private string _duckDnsIp = string.Empty;
-    private bool _isSyncingDuckDns;
-    private CheckDomainAvailabilityResponse? _domainCheckResult;
 
     // Servidor Próprio
     private string _serverHostingMode = "PlatformShared";
@@ -1068,9 +960,6 @@
             }
 
             var current = await Gateway.GetStoreSettingsAsync();
-            _domainInput = string.IsNullOrWhiteSpace(current.OnlineBaseUrl)
-                ? WhatsAppLinkBuilder.GenerateDefaultStoreDomain(current.StoreName)
-                : current.OnlineBaseUrl.Replace("https://", "").Replace("http://", "").TrimEnd('/');
             _form = new UpdateStoreSettingsRequest
             {
                 StoreName = current.StoreName,
@@ -1080,7 +969,7 @@
                 LogoPublicUrl = current.LogoPublicUrl,
                 DefaultLowStockThreshold = current.DefaultLowStockThreshold,
                 OnlineBaseUrl = string.IsNullOrWhiteSpace(current.OnlineBaseUrl)
-                    ? WhatsAppLinkBuilder.GenerateDefaultStoreUrl(current.StoreName)
+                    ? Gateway.GetPublicPortalBaseUrl()
                     : current.OnlineBaseUrl,
                 AutoSyncOnlineOnSave = current.AutoSyncOnlineOnSave,
                 LastOnlineSyncAt = current.LastOnlineSyncAt,
@@ -1116,97 +1005,11 @@
         BrandState.ApplyFromAdminSettings(updated);
     }
 
-    private async Task CheckDomainAvailabilityAsync()
-    {
-        if (string.IsNullOrWhiteSpace(_domainInput))
-            return;
-
-        _isCheckingDomain = true;
-        _error = null;
-        try
-        {
-            _domainCheckResult = await Gateway.CheckDomainAvailabilityAsync(_domainInput.Trim());
-            if (_domainCheckResult.IsAvailable)
-            {
-                _form.OnlineBaseUrl = _domainCheckResult.NormalizedUrl;
-                _domainInput = _domainCheckResult.Domain;
-            }
-        }
-        catch (Exception ex)
-        {
-            _error = $"Erro ao consultar o Google Cloud: {ex.Message}";
-        }
-        finally
-        {
-            _isCheckingDomain = false;
-        }
-    }
-
-    private async Task SelectDomainSuggestion(string suggestion)
-    {
-        _domainInput = suggestion;
-        await CheckDomainAvailabilityAsync();
-    }
-
-    private async Task SearchFreeDomainsInSettingsAsync()
-    {
-        _isSearchingFreeDomains = true;
-        _error = null;
-        try
-        {
-            var query = string.IsNullOrWhiteSpace(_form.StoreName) ? _domainInput : _form.StoreName;
-            _freeDomainSearch = await Gateway.SearchFreeDomainsAsync(query);
-        }
-        catch (Exception ex)
-        {
-            _error = $"Erro ao procurar domínios gratuitos: {ex.Message}";
-        }
-        finally
-        {
-            _isSearchingFreeDomains = false;
-        }
-    }
-
-    private void UseFreeDomainCandidateAsync(FreeDomainCandidateDto cand)
-    {
-        _domainInput = cand.Domain;
-        _form.OnlineBaseUrl = cand.NormalizedUrl;
-        _success = $"🎁 Domínio gratuito '{cand.Domain}' selecionado! Salve as configurações para aplicar e aproveite o plano mais barato.";
-    }
-
-    private async Task SyncDuckDnsNowAsync()
-    {
-        _isSyncingDuckDns = true;
-        _error = null;
-        _success = null;
-        try
-        {
-            var (ok, msg) = await Gateway.UpdateDuckDnsAsync(_domainInput, _duckDnsToken, _duckDnsIp);
-            if (ok)
-                _success = msg;
-            else
-                _error = msg;
-        }
-        catch (Exception ex)
-        {
-            _error = ex.Message;
-        }
-        finally
-        {
-            _isSyncingDuckDns = false;
-        }
-    }
-
     private void SyncSlugFromStoreNameIfUnlocked()
     {
         if (_autoSyncSlugWithName)
         {
             _form.StoreSlug = WhatsAppLinkBuilder.GenerateStoreSlug(_form.StoreName);
-            if (string.IsNullOrWhiteSpace(_domainInput) || _domainInput.StartsWith("lojas."))
-            {
-                _domainInput = WhatsAppLinkBuilder.GenerateDefaultStoreDomain(_form.StoreName);
-                _form.OnlineBaseUrl = WhatsAppLinkBuilder.GenerateDefaultStoreUrl(_form.StoreName);
-            }
         }
     }
 
@@ -1223,7 +1026,7 @@
 
             if (string.IsNullOrWhiteSpace(_form.OnlineBaseUrl))
             {
-                _form.OnlineBaseUrl = WhatsAppLinkBuilder.GenerateDefaultStoreUrl(_form.StoreName);
+                _form.OnlineBaseUrl = Gateway.GetPublicPortalBaseUrl();
             }
 
             _form.PlanTier = _planTier;
@@ -1240,7 +1043,7 @@
             }
             else if (BrandState.IsIntermediatePlan)
             {
-                _form.Design = StoreDesignPresets.ResolveByPresetKey(_designDraft.PresetKey);
+                _form.Design = StoreDesignPresets.ResolveByPresetKeyForPlan(StoreDesignPresets.PlanIntermediate, _designDraft.PresetKey);
             }
 
             var updated = await Gateway.UpdateStoreSettingsAsync(_form);
@@ -1935,14 +1738,6 @@
         _premiumPlanPrice = updated.PremiumPlanMonthlyPrice;
         _designDraft = (updated.Design ?? StoreDesignDto.CreateMinimalistaLuxo()).Clone();
 
-        if (!string.IsNullOrWhiteSpace(updated.OnlineBaseUrl))
-        {
-            _domainInput = updated.OnlineBaseUrl
-                .Replace("https://", "", StringComparison.OrdinalIgnoreCase)
-                .Replace("http://", "", StringComparison.OrdinalIgnoreCase)
-                .TrimEnd('/');
-        }
-
         ApplyHostingAndGoogleFields(updated);
         BrandState.ApplyFromAdminSettings(updated);
     }
@@ -2011,7 +1806,7 @@
             }
             else if (BrandState.IsIntermediatePlan)
             {
-                _form.Design = StoreDesignPresets.ResolveByPresetKey(_designDraft.PresetKey);
+                _form.Design = StoreDesignPresets.ResolveByPresetKeyForPlan(StoreDesignPresets.PlanIntermediate, _designDraft.PresetKey);
             }
 
             await Gateway.UpdateStoreSettingsAsync(_form, suppressAutoSync: true);
@@ -2138,7 +1933,7 @@
             }
             else if (BrandState.IsIntermediatePlan)
             {
-                _form.Design = StoreDesignPresets.ResolveByPresetKey(_designDraft.PresetKey);
+                _form.Design = StoreDesignPresets.ResolveByPresetKeyForPlan(StoreDesignPresets.PlanIntermediate, _designDraft.PresetKey);
             }
 
             var updated = await Gateway.UpdateStoreSettingsAsync(_form, suppressAutoSync: true);
