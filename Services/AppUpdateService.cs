@@ -442,77 +442,26 @@ public sealed class AppUpdateService
 
     public async Task ApplyCloudHotUpdateAsync(CancellationToken ct = default)
     {
-        if (IsDownloading || IsApplyingUpdate)
-            return;
-
-        var release = AvailableRelease;
-        if (release is null)
-        {
-            await CheckForUpdatesAsync(manualTrigger: true, ct);
-            release = AvailableRelease;
-        }
-
-        if (release is null || string.IsNullOrWhiteSpace(release.LatestVersion))
-            return;
-
-        var targetVersion = AppUpdateCatalog.NormalizeVersion(release.LatestVersion);
-        if (string.IsNullOrWhiteSpace(targetVersion))
-            return;
-
-        IsApplyingUpdate = true;
-        ErrorMessage = null;
-        AndroidSignatureConflictDetected = false;
-        DownloadProgressPercent = 40;
-        StatusMessage = $"Sincronizando recursos da v{targetVersion} na nuvem (sem instalar pacote)...";
-        NotifyChanged();
-
         try
         {
+            Preferences.Default.Remove(AppliedCloudUpdateVersionKey);
+        }
+        catch
+        {
+        }
+
+        if (_cloudSync is not null)
+        {
             try
             {
-                await _gateway.RefreshCompatibilityAsync(ct);
+                await _cloudSync.EnsureCloudMirrorPopulatedAsync();
             }
             catch
             {
             }
-
-            if (_cloudSync is not null)
-            {
-                try
-                {
-                    await _cloudSync.EnsureCloudMirrorPopulatedAsync();
-                }
-                catch
-                {
-                }
-            }
-
-            try
-            {
-                Preferences.Default.Set(AppliedCloudUpdateVersionKey, targetVersion);
-            }
-            catch
-            {
-            }
-
-            DownloadProgressPercent = 100;
-            AvailableRelease = release with
-            {
-                CurrentVersion = targetVersion,
-                IsUpdateAvailable = false
-            };
-            StatusMessage = $"✓ Atualização rápida v{targetVersion} aplicada pela nuvem sem precisar instalar APK!";
-            PurgeUpdaterCacheSafe();
         }
-        catch (Exception ex)
-        {
-            ErrorMessage = $"Não foi possível aplicar a atualização rápida: {ex.Message}";
-        }
-        finally
-        {
-            IsApplyingUpdate = false;
-            NotifyChanged();
-        }
+
+        await DownloadAndInstallAsync(ct);
     }
 
     public async Task ReplaceConflictingAndroidPackageAsync()
@@ -784,8 +733,8 @@ public sealed class AppUpdateService
             var savedNotice = !string.IsNullOrWhiteSpace(PublicDownloadsApkPath)
                 ? $" O instalador também foi salvo na sua pasta Downloads ({Path.GetFileName(PublicDownloadsApkPath)})."
                 : string.Empty;
-            ErrorMessage = $"O Android detectou diferença de assinatura entre a versão instalada e o novo APK.{savedNotice} Você pode usar '⚡ Atualizar pela Nuvem (Sem APK)' agora mesmo sem desinstalar nada, ou tocar em '🔄 Substituir Pacote Antigo'.";
-            StatusMessage = $"Escolha abaixo como concluir a atualização para a v{targetVersion}:";
+            ErrorMessage = $"O Android detectou diferença de assinatura entre a versão instalada e o novo APK.{savedNotice} Toque em '🔄 Substituir Pacote Antigo (1 Toque)' abaixo para remover a versão antiga e instalar o novo APK.";
+            StatusMessage = $"Toque em '🔄 Substituir Pacote Antigo' abaixo para concluir a instalação da v{targetVersion}:";
             NotifyChanged();
             return;
         }
@@ -819,11 +768,11 @@ public sealed class AppUpdateService
 
         if (!opened)
         {
-            ErrorMessage = "O Android não conseguiu abrir o pacote automaticamente. Toque em '⚡ Atualizar pela Nuvem (Sem APK)' ou 'Abrir no GitHub'.";
+            ErrorMessage = "O Android não conseguiu abrir o pacote automaticamente. Toque em '🔄 Substituir Pacote Antigo' ou '🌐 Abrir Página do GitHub' para instalar o APK.";
         }
         else
         {
-            StatusMessage = $"✓ Instalador do Android aberto! Se o Android informar conflito de pacote da versão antiga, toque em '⚡ Atualizar pela Nuvem (Sem APK)' abaixo.";
+            StatusMessage = $"✓ Instalador do Android aberto! Confirme a instalação na tela do Android para atualizar para a v{targetVersion}.";
         }
     }
 
@@ -938,12 +887,7 @@ public sealed class AppUpdateService
 
         try
         {
-            var cloudVersion = Preferences.Default.Get(AppliedCloudUpdateVersionKey, string.Empty);
-            if (!string.IsNullOrWhiteSpace(cloudVersion) &&
-                AppUpdateCatalog.IsVersionNewer(cloudVersion, binaryVersion))
-            {
-                return AppUpdateCatalog.NormalizeVersion(cloudVersion);
-            }
+            Preferences.Default.Remove(AppliedCloudUpdateVersionKey);
         }
         catch
         {

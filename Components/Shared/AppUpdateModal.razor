@@ -106,13 +106,6 @@
                 @if (release is { IsUpdateAvailable: true })
                 {
                     <button type="button"
-                            class="adm-btn adm-btn-accent aum-primary-btn"
-                            disabled="@isBusy"
-                            @onclick="ApplyCloudUpdateNowAsync">
-                        ⚡ Atualizar pela Nuvem (Sem Instalar APK)
-                    </button>
-
-                    <button type="button"
                             class="adm-btn adm-btn-success aum-primary-btn"
                             disabled="@isBusy"
                             @onclick="UpdateNowAsync">

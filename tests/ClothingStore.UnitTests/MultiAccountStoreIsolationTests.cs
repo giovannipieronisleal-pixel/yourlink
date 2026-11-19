@@ -735,7 +735,8 @@ public class MultiAccountStoreIsolationTests
         var updateModal = File.ReadAllText(Path.Combine(root, "Components", "Shared", "AppUpdateModal.razor"));
         Assert.IsTrue(updateService.Contains("ApplyCloudHotUpdateAsync", StringComparison.Ordinal));
         Assert.IsTrue(updateService.Contains("ReplaceConflictingAndroidPackageAsync", StringComparison.Ordinal));
-        Assert.IsTrue(updateModal.Contains("Atualizar pela Nuvem", StringComparison.Ordinal));
+        Assert.IsFalse(updateModal.Contains("Sem Instalar APK", StringComparison.Ordinal),
+            "O modal de atualização não deve oferecer botão que finge atualizar a versão sem instalar o novo APK.");
         Assert.IsTrue(updateModal.Contains("Substituir Pacote Antigo", StringComparison.Ordinal));
     }
 
@@ -751,26 +752,26 @@ public class MultiAccountStoreIsolationTests
 
             var passwordHash = hasher.HashPassword("SenhaForte@123");
             var upsert = await registry.UpsertAccountAsync(new CloudAccountCredentialSyncDto(
-                FullName: "Flavia",
-                Username: "flavia",
-                Email: "flavinhaasilva15@gmail.com",
+                FullName: "Lojista Modelo",
+                Username: "lojista.modelo",
+                Email: "lojista.modelo@gmail.com",
                 PasswordHash: passwordHash,
                 Phone: "41999991111",
-                StoreName: "Loja flavia",
-                StoreSlug: "loja-flavia",
+                StoreName: "Loja Modelo",
+                StoreSlug: "loja-modelo",
                 PlanTier: StoreSettings.PlanTierPremium));
             Assert.IsTrue(upsert.Success);
 
             // Cliente sem SyncKey NÃO pode auto-promover para Premium durante upsert
-            var initialStatus = await registry.GetPlanStatusAsync("flavinhaasilva15@gmail.com", "flavia", "loja-flavia", "Loja flavia");
+            var initialStatus = await registry.GetPlanStatusAsync("lojista.modelo@gmail.com", "lojista.modelo", "loja-modelo", "Loja Modelo");
             Assert.IsNotNull(initialStatus);
             Assert.AreEqual(StoreSettings.PlanTierBasic, initialStatus!.PlanTier);
 
             // Admin aplica VIP Premium Vitalício pelo servidor central
             var applied = await registry.ApplyPlanAsync(
-                targetEmail: "flavinhaasilva15@gmail.com",
-                targetUsername: "flavia",
-                storeName: "Loja flavia",
+                targetEmail: "lojista.modelo@gmail.com",
+                targetUsername: "lojista.modelo",
+                storeName: "Loja Modelo",
                 planTier: StoreSettings.PlanTierPremium,
                 durationDays: null,
                 extendExistingDuration: true,
@@ -779,13 +780,13 @@ public class MultiAccountStoreIsolationTests
             Assert.AreEqual(StoreSettings.PlanTierPremium, applied!.PlanTier);
             Assert.IsNull(applied.PlanExpiresAt);
 
-            var syncedStatus = await registry.GetPlanStatusAsync("flavinhaasilva15@gmail.com", "flavia", "loja-flavia", "Loja flavia");
+            var syncedStatus = await registry.GetPlanStatusAsync("lojista.modelo@gmail.com", "lojista.modelo", "loja-modelo", "Loja Modelo");
             Assert.IsNotNull(syncedStatus);
             Assert.AreEqual(StoreSettings.PlanTierPremium, syncedStatus!.PlanTier);
             Assert.IsNull(syncedStatus.PlanExpiresAt);
 
             // Login em outro aparelho traz o plano Premium automaticamente na hidratação
-            var verified = await registry.VerifyLoginAsync(new LoginRequest("flavia", "SenhaForte@123"));
+            var verified = await registry.VerifyLoginAsync(new LoginRequest("lojista.modelo", "SenhaForte@123"));
             Assert.IsTrue(verified.Verified);
             Assert.AreEqual(StoreSettings.PlanTierPremium, verified.Account?.PlanTier);
 
@@ -806,10 +807,10 @@ public class MultiAccountStoreIsolationTests
             {
                 Settings = new UpdateStoreSettingsRequest
                 {
-                    StoreName = "Loja flavia",
-                    StoreSlug = "loja-flavia",
+                    StoreName = "Loja Modelo",
+                    StoreSlug = "loja-modelo",
                     WhatsappNumber = "41999991111",
-                    StoreDescription = "Catalogo da Flavia",
+                    StoreDescription = "Catalogo Loja Modelo",
                     PlanTier = StoreSettings.PlanTierBasic,
                     IsSiteActive = true
                 }
