@@ -959,6 +959,10 @@ public class MultiAccountStoreIsolationTests
             Assert.IsTrue(userPopup.Contains("BillingSuspended", StringComparison.Ordinal));
             Assert.IsTrue(userPopup.Contains("PurchasedVip", StringComparison.Ordinal));
 
+            var userGateway = File.ReadAllText(Path.Combine(root, "Services", "MauiAdminGateway.cs"));
+            Assert.IsTrue(userGateway.Contains("else if (forcePopup && !isBasic && !isExpired)", StringComparison.Ordinal),
+                "O popup de VIP ativo deve abrir somente quando o plano for ativado (forcePopup) e não a cada abertura do app.");
+
             var usersPagePath = Path.Combine(root, "src", "ClothingStore.AdminApp", "Components", "Pages", "UsersAndVipPage.razor");
             if (File.Exists(usersPagePath))
             {

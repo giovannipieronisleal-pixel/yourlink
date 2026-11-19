@@ -3079,8 +3079,15 @@ public sealed class MauiAdminGateway
                 GraceEndsAt: null,
                 BillingHint: "Cortesia encerrada");
             onceSignature = null;
+            try
+            {
+                Preferences.Default.Remove($"youlink_last_vip_popup_sig_v1_{CurrentWorkspaceId}");
+            }
+            catch
+            {
+            }
         }
-        else if (!isBasic && !isExpired)
+        else if (forcePopup && !isBasic && !isExpired)
         {
             if (isCourtesy)
             {
@@ -3112,6 +3119,20 @@ public sealed class MauiAdminGateway
                     BillingHint: "Mercado Pago • Pago");
                 onceSignature = $"purchased:{tier}:{settings.PlanExpiresAt:O}";
             }
+
+            if (triggerContext == "cloud_sync" && !string.IsNullOrWhiteSpace(onceSignature))
+            {
+                try
+                {
+                    var prefKey = $"youlink_last_vip_popup_sig_v1_{CurrentWorkspaceId}";
+                    var lastShownSig = Preferences.Default.Get(prefKey, string.Empty);
+                    if (string.Equals(lastShownSig, onceSignature, StringComparison.OrdinalIgnoreCase))
+                        return;
+                }
+                catch
+                {
+                }
+            }
         }
 
         if (notice is null)
@@ -3121,7 +3142,16 @@ public sealed class MauiAdminGateway
             return;
 
         if (forcePopup && !string.IsNullOrWhiteSpace(onceSignature))
+        {
             _shownSessionPopupSignatures.Add(onceSignature);
+            try
+            {
+                Preferences.Default.Set($"youlink_last_vip_popup_sig_v1_{CurrentWorkspaceId}", onceSignature);
+            }
+            catch
+            {
+            }
+        }
 
         ActivePlanPopupNotice = notice;
         PlanPopupNoticeChanged?.Invoke();
