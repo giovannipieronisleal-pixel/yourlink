@@ -580,22 +580,12 @@
 
                     @if (!string.IsNullOrWhiteSpace(_store.WhatsappNumber))
                     {
-                        <details style="margin-top: 0.75rem; font-size: 0.82rem; color: var(--brand-text-muted);">
-                            <summary style="cursor: pointer; font-weight: 600;">💬 Atendimento opcional pelo WhatsApp</summary>
-                            <div style="margin-top: 0.65rem; display: flex; flex-direction: column; gap: 0.55rem;">
-                                <button type="button"
-                                        class="adm-btn adm-btn-outline"
-                                        style="width: 100%; padding: 0.7rem;"
-                                        @onclick="ConsultProductOnWhatsAppAsync">
-                                    💬 Tirar dúvida deste produto no WhatsApp (Opcional)
-                                </button>
-                                <div style="background: var(--brand-surface-subtle); border: 1px solid var(--brand-border); border-radius: 8px; padding: 0.75rem; font-size: 0.8rem; color: var(--brand-text);">
-                                    <div style="color: var(--brand-text-muted);">
-                                        "@WhatsAppLinkBuilder.BuildProductConsultationMessage(_selectedProduct.Name, _detailColor, _detailSize)"
-                                    </div>
-                                </div>
-                            </div>
-                        </details>
+                        <button type="button"
+                                class="adm-btn adm-btn-success"
+                                style="width: 100%; margin-top: 0.5rem; padding: 0.85rem; background: #16A34A; color: #FFFFFF; font-weight: 700;"
+                                @onclick="ConsultProductOnWhatsAppAsync">
+                            💬 Pedir este Produto no WhatsApp
+                        </button>
                     }
                 </div>
             </div>

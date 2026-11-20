@@ -66,8 +66,8 @@
                 </a>
 
                 <nav class="lux-nav" aria-label="Navegação principal">
-                    <NavLink href="@HomeHref" Match="NavLinkMatch.All" class="lux-nav-link">Início</NavLink>
-                    <NavLink href="@CatalogHref" class="lux-nav-link">Ver Produtos</NavLink>
+                    <NavLink href="@HomeHref" Match="NavLinkMatch.All" class="lux-nav-link lux-hide-xs">Início</NavLink>
+                    <NavLink href="@CatalogHref" class="lux-nav-link">Produtos</NavLink>
                     <button type="button" class="lux-btn lux-btn-outline lux-btn-sm lux-pwa-install-btn" data-pwa-install>
                         📲 Instalar
                     </button>
@@ -91,7 +91,7 @@
                         <a href="@WhatsAppLinkBuilder.BuildGeneralStoreLink(_store.WhatsappNumber, _store.StoreName)"
                            target="_blank"
                            rel="noopener noreferrer"
-                           class="lux-btn lux-btn-whatsapp lux-btn-sm">
+                           class="lux-btn lux-btn-whatsapp lux-btn-sm lux-hide-xs">
                             💬 WhatsApp
                         </a>
                     }

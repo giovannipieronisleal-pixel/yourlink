@@ -38,11 +38,19 @@
 html, body {
     margin: 0;
     padding: 0;
+    max-width: 100%;
+    overflow-x: hidden;
     background-color: var(--brand-bg);
     color: var(--brand-text);
     font-family: var(--brand-font-body);
     line-height: 1.6;
     -webkit-font-smoothing: antialiased;
+}
+
+.lux-shell {
+    width: 100%;
+    max-width: 100vw;
+    overflow-x: hidden;
 }
 
 a {
@@ -132,7 +140,8 @@ img {
 .lux-nav {
     display: flex;
     align-items: center;
-    gap: 1.75rem;
+    flex-wrap: wrap;
+    gap: 1rem;
 }
 
 .lux-nav-link {
@@ -921,13 +930,37 @@ img {
 }
 
 @media (max-width: 640px) {
+    .lux-container {
+        padding: 0 1rem;
+    }
+
     .lux-header-inner {
         flex-wrap: wrap;
-        gap: 0.75rem;
+        gap: 0.5rem;
+        min-height: 60px;
+        padding: 0.55rem 0;
+    }
+
+    .lux-brand-title {
+        font-size: 1.08rem;
     }
 
     .lux-nav {
-        gap: 1rem;
+        gap: 0.45rem;
+    }
+
+    .lux-hide-xs {
+        display: none !important;
+    }
+
+    .lux-btn-sm {
+        padding: 0.42rem 0.72rem;
+        min-height: 36px;
+        font-size: 0.78rem;
+    }
+
+    .lux-detail-info {
+        padding: 1.15rem;
     }
 
     .lux-product-grid {
@@ -935,7 +968,7 @@ img {
     }
 
     .lux-main {
-        padding-bottom: 5.5rem;
+        padding: 1rem 0 5.5rem;
     }
 
     .lux-mobile-wa-bar {

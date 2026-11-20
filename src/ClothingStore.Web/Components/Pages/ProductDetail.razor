@@ -219,10 +219,10 @@ else
                 </div>
 
                 <div class="lux-detail-share-row">
-                    <button type="button" class="lux-btn lux-btn-outline lux-btn-sm" @onclick="ShareProductAsync">
+                    <button type="button" class="lux-btn lux-btn-outline lux-btn-sm" style="flex: 1 1 140px;" aria-label="Compartilhar Produto" @onclick="ShareProductAsync">
                         @(_copiedProductLink ? "✓ Link Copiado!" : "📤 Compartilhar Produto")
                     </button>
-                    <button type="button" class="lux-btn lux-btn-outline lux-btn-sm" @onclick="() => _showProductQr = !_showProductQr">
+                    <button type="button" class="lux-btn lux-btn-outline lux-btn-sm" style="flex: 1 1 140px;" aria-label="QR Code do Produto" @onclick="() => _showProductQr = !_showProductQr">
                         @(_showProductQr ? "Ocultar QR Code" : "📱 QR Code do Produto")
                     </button>
                 </div>
@@ -243,11 +243,6 @@ else
                         </div>
                     </div>
                 }
-
-                <div class="lux-msg-preview">
-                    <strong>Mensagem pronta que vamos enviar para a loja:</strong>
-                    <div>@WhatsAppLinkBuilder.BuildProductConsultationMessage(_product.Name, _selectedColor, _selectedSize)</div>
-                </div>
 
                 @if (_store.DirectPixSalesReady)
                 {
@@ -445,35 +440,6 @@ else
                         }
                     </div>
                 }
-            }
-
-            @if (_product.Variants.Count > 1 || HasMeaningfulColors || ProductHasAnyMeaningfulSizes)
-            {
-                <table class="lux-variant-table" aria-label="Opções disponíveis">
-                    <thead>
-                        <tr>
-                            <th>Cor / Modelo</th>
-                            @if (ProductHasAnyMeaningfulSizes)
-                            {
-                                <th>Tamanho / Opção</th>
-                            }
-                            <th>Situação</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        @foreach (var v in _product.Variants)
-                        {
-                            <tr>
-                                <td>@v.Color</td>
-                                @if (ProductHasAnyMeaningfulSizes)
-                                {
-                                    <td>@(WhatsAppLinkBuilder.IsPlaceholderSize(v.Size) ? "—" : v.Size)</td>
-                                }
-                                <td>@(v.StockQuantity > 3 ? "Disponível" : v.StockQuantity > 0 ? "Últimas unidades" : "Esgotado")</td>
-                            </tr>
-                        }
-                    </tbody>
-                </table>
             }
         </div>
     </div>
