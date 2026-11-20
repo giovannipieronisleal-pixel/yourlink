@@ -9,14 +9,119 @@ namespace ClothingStore.Shared.Helpers;
 /// Utilitário compartilhado entre o site Blazor e o aplicativo para construção do link oficial do WhatsApp
 /// (https://wa.me/NUMERO?text=MENSAGEM), link personalizado da loja com o nome da loja (/loja/{slug}) e QR Code fixo.
 /// </summary>
+public sealed record WhatsAppPhoneValidationResult(
+    bool IsValid,
+    string NormalizedNumber,
+    string FormattedDisplay,
+    string Message);
+
 public static class WhatsAppLinkBuilder
 {
+    private static readonly HashSet<int> ValidBrazilianDdds =
+    [
+        11, 12, 13, 14, 15, 16, 17, 18, 19,
+        21, 22, 24, 27, 28,
+        31, 32, 33, 34, 35, 37, 38,
+        41, 42, 43, 44, 45, 46, 47, 48, 49,
+        51, 53, 54, 55,
+        61, 62, 63, 64, 65, 66, 67, 68, 69,
+        71, 73, 74, 75, 77, 79,
+        81, 82, 83, 84, 85, 86, 87, 88, 89,
+        91, 92, 93, 94, 95, 96, 97, 98, 99
+    ];
+
     public static string SanitizePhoneNumber(string? rawPhone)
     {
         if (string.IsNullOrWhiteSpace(rawPhone))
             return string.Empty;
 
         return Regex.Replace(rawPhone, @"\D", "");
+    }
+
+    public static WhatsAppPhoneValidationResult ValidateBrazilianWhatsAppNumber(string? rawPhone)
+    {
+        var digits = SanitizePhoneNumber(rawPhone);
+        if (string.IsNullOrWhiteSpace(digits))
+        {
+            return new WhatsAppPhoneValidationResult(
+                false,
+                string.Empty,
+                string.Empty,
+                "Digite o DDD + número de celular do WhatsApp (ex.: 11999990000).");
+        }
+
+        if (digits.StartsWith('0') && digits.Length is 11 or 12)
+        {
+            digits = digits[1..];
+        }
+
+        if (digits.StartsWith("55", StringComparison.Ordinal) && digits.Length is 12 or 13)
+        {
+            digits = digits[2..];
+        }
+
+        if (digits.Length is not (10 or 11))
+        {
+            return new WhatsAppPhoneValidationResult(
+                false,
+                string.Empty,
+                string.Empty,
+                "Número incompleto ou inválido. Digite o DDD (2 dígitos) + celular com 9 dígitos (ex.: 11988887777).");
+        }
+
+        if (!int.TryParse(digits[..2], out var ddd) || !ValidBrazilianDdds.Contains(ddd))
+        {
+            return new WhatsAppPhoneValidationResult(
+                false,
+                string.Empty,
+                string.Empty,
+                $"O DDD '{digits[..2]}' não é um DDD brasileiro válido. Confira os 2 primeiros dígitos.");
+        }
+
+        var subscriber = digits[2..];
+        if (subscriber.Length == 9 && subscriber[0] != '9')
+        {
+            return new WhatsAppPhoneValidationResult(
+                false,
+                string.Empty,
+                string.Empty,
+                "Celulares brasileiros de 9 dígitos devem começar com o dígito 9 após o DDD.");
+        }
+
+        if (subscriber is "900000000" or "00000000" or "999999999" ||
+            subscriber.Distinct().Count() == 1 ||
+            (subscriber.Length == 9 && subscriber[1..].Distinct().Count() == 1 && subscriber[1] is '0' or '9'))
+        {
+            return new WhatsAppPhoneValidationResult(
+                false,
+                string.Empty,
+                string.Empty,
+                "Informe um número de WhatsApp real (números de exemplo ou repetidos não são aceitos).");
+        }
+
+        var normalized = $"55{digits}";
+        var formatted = subscriber.Length == 9
+            ? $"({ddd:00}) {subscriber[..5]}-{subscriber[5..]}"
+            : $"({ddd:00}) {subscriber[..4]}-{subscriber[4..]}";
+
+        return new WhatsAppPhoneValidationResult(
+            true,
+            normalized,
+            formatted,
+            $"Número válido: {formatted}");
+    }
+
+    public static string GenerateWhatsAppVerificationCode() =>
+        RandomNumberGenerator.GetInt32(1000, 10000).ToString(CultureInfo.InvariantCulture);
+
+    public static string BuildWhatsAppVerificationLink(string? rawPhone, string verificationCode, string? storeName = null)
+    {
+        var validation = ValidateBrazilianWhatsAppNumber(rawPhone);
+        var phone = validation.IsValid ? validation.NormalizedNumber : SanitizePhoneNumber(rawPhone);
+        var cleanCode = (verificationCode ?? string.Empty).Trim();
+        var storeLabel = string.IsNullOrWhiteSpace(storeName) ? "YouLink" : $"YouLink ({storeName.Trim()})";
+        var message = $"🔐 Código de autenticação do seu WhatsApp no {storeLabel}: *{cleanCode}*\n\nVolte ao aplicativo e digite os 4 números acima para confirmar seu WhatsApp.";
+        return $"https://wa.me/{phone}?text={Uri.EscapeDataString(message)}";
     }
 
     public static string? SanitizeSupportPhone(string? rawPhone)

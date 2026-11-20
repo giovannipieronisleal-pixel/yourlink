@@ -167,11 +167,72 @@
                     </div>
 
                     <div>
-                        <label class="adm-label">Número do WhatsApp (DDD + Celular) *</label>
-                        <input type="text" class="adm-input" @bind="_form.WhatsappNumber" placeholder="Ex.: 11999990000" />
-                        <span style="font-size: 0.78rem; color: var(--adm-muted);">
+                        @{
+                            var waCheck = WhatsAppLinkBuilder.ValidateBrazilianWhatsAppNumber(_form.WhatsappNumber);
+                            var isWaVerified = waCheck.IsValid &&
+                                               !string.IsNullOrWhiteSpace(_verifiedWhatsappNumber) &&
+                                               string.Equals(waCheck.NormalizedNumber, _verifiedWhatsappNumber, StringComparison.Ordinal);
+                        }
+                        <div style="display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 0.35rem;">
+                            <label class="adm-label" style="margin: 0;">Número do WhatsApp (DDD + Celular) *</label>
+                            <span class="pill-badge @(isWaVerified ? "pill-green" : "pill-amber")">
+                                @(isWaVerified ? $"✓ WhatsApp Autenticado ({waCheck.FormattedDisplay})" : "⚠️ Não autenticado")
+                            </span>
+                        </div>
+                        <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+                            <input type="text"
+                                   class="adm-input"
+                                   style="flex: 1 1 200px; min-width: 0;"
+                                   @bind="_form.WhatsappNumber"
+                                   @bind:event="oninput"
+                                   @bind:after="OnWhatsappInputChanged"
+                                   placeholder="Ex.: 11999990000" />
+                            <button type="button"
+                                    class="adm-btn @(isWaVerified ? "adm-btn-outline" : "adm-btn-success")"
+                                    style="white-space: nowrap;"
+                                    @onclick="SendWhatsappVerificationCodeAsync">
+                                @(isWaVerified ? "🔄 Reautenticar Zap" : "📲 Autenticar Meu WhatsApp")
+                            </button>
+                        </div>
+                        <span style="font-size: 0.78rem; color: var(--adm-muted); display: block; margin-top: 0.3rem;">
                             Pode digitar apenas o DDD + número (ex.: <strong>11999990000</strong>). O código do Brasil (+55) é inserido automaticamente!
                         </span>
+
+                        @if (!string.IsNullOrWhiteSpace(_whatsappAuthFeedback))
+                        {
+                            <div style="margin-top: 0.45rem; font-size: 0.82rem; font-weight: 600; color: @(_whatsappAuthFeedbackOk ? "var(--adm-success)" : "var(--adm-danger)");">
+                                @_whatsappAuthFeedback
+                            </div>
+                        }
+
+                        @if (!string.IsNullOrWhiteSpace(_pendingWhatsappVerificationCode))
+                        {
+                            <div style="margin-top: 0.65rem; padding: 0.85rem; border-radius: 10px; border: 1.5px solid var(--adm-success); background: rgba(22, 163, 74, 0.08); display: flex; flex-direction: column; gap: 0.6rem;">
+                                <div style="font-size: 0.84rem; color: var(--adm-text); line-height: 1.45;">
+                                    🔐 <strong>Confirme o código de 4 dígitos:</strong> abrimos seu WhatsApp em <strong>@(waCheck.IsValid ? waCheck.FormattedDisplay : _form.WhatsappNumber)</strong> com uma mensagem contendo o código. Digite os 4 números que apareceram lá:
+                                </div>
+                                <div style="display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center;">
+                                    <input type="text"
+                                           maxlength="4"
+                                           class="adm-input"
+                                           style="max-width: 140px; font-family: monospace; font-weight: 800; font-size: 1.05rem; letter-spacing: 0.18em; text-align: center;"
+                                           @bind="_whatsappVerificationCodeInput"
+                                           @bind:event="oninput"
+                                           placeholder="0000" />
+                                    <button type="button"
+                                            class="adm-btn adm-btn-success"
+                                            style="font-weight: 700;"
+                                            @onclick="ConfirmWhatsappVerificationCodeAsync">
+                                        ✓ Confirmar Código
+                                    </button>
+                                    <button type="button"
+                                            class="adm-btn adm-btn-outline"
+                                            @onclick="SendWhatsappVerificationCodeAsync">
+                                        Reabrir no Zap
+                                    </button>
+                                </div>
+                            </div>
+                        }
                     </div>
 
                     <div>
@@ -883,6 +944,12 @@
     private bool _copiedUrl;
     private bool _isCheckingRenderLink;
     private RenderStoreLinkAvailabilityDto? _renderLinkCheck;
+    private string? _verifiedWhatsappNumber;
+    private string? _pendingWhatsappVerificationCode;
+    private string? _pendingWhatsappNormalizedTarget;
+    private string _whatsappVerificationCodeInput = string.Empty;
+    private string? _whatsappAuthFeedback;
+    private bool _whatsappAuthFeedbackOk;
     private string? _error;
     private string? _success;
 
@@ -1028,6 +1095,7 @@
             _premiumPlanPrice = current.PremiumPlanMonthlyPrice;
             ApplyPlanStateFromSettings(current);
             ApplyHostingAndGoogleFields(current);
+            LoadVerifiedWhatsappState();
         }
         catch (Exception ex)
         {
@@ -1049,6 +1117,96 @@
     }
 
     private void ClearRenderCheckResult() => _renderLinkCheck = null;
+
+    private string GetVerifiedWhatsappPreferenceKey() =>
+        $"youlink_verified_whatsapp_v1_{Gateway.CurrentWorkspaceId}";
+
+    private void LoadVerifiedWhatsappState()
+    {
+        try
+        {
+            _verifiedWhatsappNumber = Preferences.Default.Get(GetVerifiedWhatsappPreferenceKey(), string.Empty);
+        }
+        catch
+        {
+            _verifiedWhatsappNumber = null;
+        }
+    }
+
+    private void OnWhatsappInputChanged()
+    {
+        _whatsappAuthFeedback = null;
+        var check = WhatsAppLinkBuilder.ValidateBrazilianWhatsAppNumber(_form.WhatsappNumber);
+        if (!check.IsValid || !string.Equals(check.NormalizedNumber, _pendingWhatsappNormalizedTarget, StringComparison.Ordinal))
+        {
+            _pendingWhatsappVerificationCode = null;
+            _whatsappVerificationCodeInput = string.Empty;
+        }
+    }
+
+    private async Task SendWhatsappVerificationCodeAsync()
+    {
+        _whatsappAuthFeedback = null;
+        _error = null;
+
+        var check = WhatsAppLinkBuilder.ValidateBrazilianWhatsAppNumber(_form.WhatsappNumber);
+        if (!check.IsValid)
+        {
+            _whatsappAuthFeedbackOk = false;
+            _whatsappAuthFeedback = "⚠️ " + check.Message;
+            return;
+        }
+
+        _form.WhatsappNumber = check.NormalizedNumber;
+        _pendingWhatsappNormalizedTarget = check.NormalizedNumber;
+        _pendingWhatsappVerificationCode = WhatsAppLinkBuilder.GenerateWhatsAppVerificationCode();
+        _whatsappVerificationCodeInput = string.Empty;
+
+        var waUrl = WhatsAppLinkBuilder.BuildWhatsAppVerificationLink(
+            check.NormalizedNumber,
+            _pendingWhatsappVerificationCode,
+            _form.StoreName);
+
+        await Gateway.OpenExternalUrlSafeAsync(waUrl);
+        _whatsappAuthFeedbackOk = true;
+        _whatsappAuthFeedback = $"📲 Abrimos seu WhatsApp ({check.FormattedDisplay}) com o código de 4 dígitos. Caso o WhatsApp avise que o número não existe, corrija o número acima.";
+    }
+
+    private async Task ConfirmWhatsappVerificationCodeAsync()
+    {
+        _error = null;
+        var typed = WhatsAppLinkBuilder.SanitizePhoneNumber(_whatsappVerificationCodeInput);
+        if (string.IsNullOrWhiteSpace(_pendingWhatsappVerificationCode) ||
+            !string.Equals(typed, _pendingWhatsappVerificationCode, StringComparison.Ordinal))
+        {
+            _whatsappAuthFeedbackOk = false;
+            _whatsappAuthFeedback = "❌ Código incorreto. Confira os 4 dígitos na mensagem que abriu no seu WhatsApp.";
+            return;
+        }
+
+        var check = WhatsAppLinkBuilder.ValidateBrazilianWhatsAppNumber(_form.WhatsappNumber);
+        if (!check.IsValid)
+        {
+            _whatsappAuthFeedbackOk = false;
+            _whatsappAuthFeedback = "⚠️ " + check.Message;
+            return;
+        }
+
+        _verifiedWhatsappNumber = check.NormalizedNumber;
+        _pendingWhatsappVerificationCode = null;
+        _whatsappVerificationCodeInput = string.Empty;
+        try
+        {
+            Preferences.Default.Set(GetVerifiedWhatsappPreferenceKey(), check.NormalizedNumber);
+        }
+        catch
+        {
+        }
+
+        _whatsappAuthFeedbackOk = true;
+        _whatsappAuthFeedback = $"✅ WhatsApp {check.FormattedDisplay} autenticado e salvo com sucesso!";
+        await SaveSettingsAsync();
+    }
 
     private async Task CheckRenderStoreLinkAsync()
     {

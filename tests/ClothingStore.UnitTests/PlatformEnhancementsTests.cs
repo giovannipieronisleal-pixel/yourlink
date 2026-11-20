@@ -4,6 +4,7 @@ using System.Text.Json;
 using ClothingStore.Application.Services;
 using ClothingStore.Infrastructure.Persistence;
 using ClothingStore.Shared.DTOs;
+using ClothingStore.Shared.Helpers;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace ClothingStore.UnitTests;
@@ -274,6 +275,28 @@ public sealed class PlatformEnhancementsTests
             "As configurações da loja devem permitir verificar a disponibilidade do link no servidor Render.");
         Assert.IsTrue(storeSettings.Contains("_activeSettingsTab", StringComparison.Ordinal),
             "As configurações da loja devem separar os blocos em abas claras (_activeSettingsTab) com opcionais recolhidos.");
+        Assert.IsTrue(storeSettings.Contains("SendWhatsappVerificationCodeAsync", StringComparison.Ordinal),
+            "As configurações da loja devem oferecer autenticação gratuita do número do WhatsApp.");
+        Assert.IsTrue(storeSettings.Contains("ConfirmWhatsappVerificationCodeAsync", StringComparison.Ordinal),
+            "As configurações da loja devem confirmar o código de 4 dígitos do WhatsApp.");
+        Assert.IsTrue(loginPage.Contains("SendInitWhatsappVerificationAsync", StringComparison.Ordinal),
+            "O cadastro inicial da loja deve oferecer autenticação gratuita do WhatsApp.");
+
+        var validWa = WhatsAppLinkBuilder.ValidateBrazilianWhatsAppNumber("(41) 98877-6655");
+        Assert.IsTrue(validWa.IsValid);
+        Assert.AreEqual("5541988776655", validWa.NormalizedNumber);
+        Assert.AreEqual("(41) 98877-6655", validWa.FormattedDisplay);
+
+        var invalidDddWa = WhatsAppLinkBuilder.ValidateBrazilianWhatsAppNumber("00988776655");
+        Assert.IsFalse(invalidDddWa.IsValid);
+
+        var dummyWa = WhatsAppLinkBuilder.ValidateBrazilianWhatsAppNumber("11999999999");
+        Assert.IsFalse(dummyWa.IsValid);
+
+        var otpCode = WhatsAppLinkBuilder.GenerateWhatsAppVerificationCode();
+        Assert.AreEqual(4, otpCode.Length);
+        var waVerifyLink = WhatsAppLinkBuilder.BuildWhatsAppVerificationLink("41988776655", otpCode, "Loja Modelo");
+        Assert.IsTrue(waVerifyLink.StartsWith("https://wa.me/5541988776655?text=", StringComparison.Ordinal));
         Assert.IsTrue(loginPage.Contains("CheckRenderLinkInSetupAsync", StringComparison.Ordinal),
             "O cadastro inicial da loja deve verificar se o link no servidor Render está disponível.");
 
