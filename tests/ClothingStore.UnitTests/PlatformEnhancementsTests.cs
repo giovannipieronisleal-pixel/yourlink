@@ -272,6 +272,8 @@ public sealed class PlatformEnhancementsTests
             "O checkout deve permitir verificar a disponibilidade do endereço no servidor Render.");
         Assert.IsTrue(storeSettings.Contains("CheckRenderStoreLinkAsync", StringComparison.Ordinal),
             "As configurações da loja devem permitir verificar a disponibilidade do link no servidor Render.");
+        Assert.IsTrue(storeSettings.Contains("_activeSettingsTab", StringComparison.Ordinal),
+            "As configurações da loja devem separar os blocos em abas claras (_activeSettingsTab) com opcionais recolhidos.");
         Assert.IsTrue(loginPage.Contains("CheckRenderLinkInSetupAsync", StringComparison.Ordinal),
             "O cadastro inicial da loja deve verificar se o link no servidor Render está disponível.");
 

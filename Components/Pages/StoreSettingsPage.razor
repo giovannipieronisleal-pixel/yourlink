@@ -24,12 +24,41 @@
     var qrCodeSvgUri = WhatsAppLinkBuilder.GenerateQrCodeSvgDataUri(storeCatalogUrl);
 }
 
-<div style="margin-bottom: 1.5rem;">
+<div style="margin-bottom: 1.15rem;">
     <h1 style="font-size: 1.65rem; font-weight: 800; margin: 0; color: var(--adm-text);">Configurações da Loja &amp; Catálogo</h1>
     <p style="color: var(--adm-muted); font-size: 0.92rem; margin: 0.25rem 0 0;">
-        Personalize o nome da loja, tema visual (Claro/Escuro), WhatsApp e compartilhe o link do seu catálogo com seus clientes.
+        Escolha uma aba abaixo para configurar sua loja sem excesso de informação na tela.
     </p>
 </div>
+
+<!-- Barra de Abas Limpa para Separar Configurações da Loja, Visual, Pix/Entrega e Plano -->
+<nav aria-label="Seções das configurações da loja"
+     style="display: grid; grid-template-columns: repeat(auto-fit, minmax(175px, 1fr)); gap: 0.55rem; margin-bottom: 1.35rem; background: var(--adm-surface); padding: 0.45rem; border-radius: 14px; border: 1px solid var(--adm-border);">
+    <button type="button"
+            class="adm-btn @(_activeSettingsTab == "loja" ? "adm-btn-primary" : "adm-btn-outline")"
+            style="min-height: 46px; font-weight: 700; justify-content: center; border-radius: 10px;"
+            @onclick='() => _activeSettingsTab = "loja"'>
+        🏪 Dados &amp; Link da Loja
+    </button>
+    <button type="button"
+            class="adm-btn @(_activeSettingsTab == "visual" ? "adm-btn-primary" : "adm-btn-outline")"
+            style="min-height: 46px; font-weight: 700; justify-content: center; border-radius: 10px;"
+            @onclick='() => _activeSettingsTab = "visual"'>
+        🎨 Visual &amp; Temas
+    </button>
+    <button type="button"
+            class="adm-btn @(_activeSettingsTab == "vendas" ? "adm-btn-primary" : "adm-btn-outline")"
+            style="min-height: 46px; font-weight: 700; justify-content: center; border-radius: 10px;"
+            @onclick='() => _activeSettingsTab = "vendas"'>
+        💰 Pix, Vendas &amp; Frete
+    </button>
+    <button type="button"
+            class="adm-btn @(_activeSettingsTab == "plano" ? "adm-btn-primary" : "adm-btn-outline")"
+            style="min-height: 46px; font-weight: 700; justify-content: center; border-radius: 10px;"
+            @onclick='() => _activeSettingsTab = "plano"'>
+        🎁 Plano &amp; Gift Card
+    </button>
+</nav>
 
 @if (!string.IsNullOrWhiteSpace(_error))
 {
@@ -41,456 +70,407 @@
     <div class="alert-banner alert-success">@_success</div>
 }
 
-<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr)); gap: 1.25rem; align-items: start;">
-    <!-- Coluna Esquerda: Tema do App + Identidade da Loja -->
-    <div style="display: flex; flex-direction: column; gap: 1.25rem;">
-        <!-- Card 1: Aparência e Tema do Aplicativo -->
-        <section class="adm-card" style="border-left: 4px solid var(--adm-accent);">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
-                <h2 style="font-size: 1.1rem; font-weight: 700; margin: 0; color: var(--adm-text);">
-                    🎨 Tema do Aplicativo (Modo Claro &amp; Escuro)
+<!-- ====================================================================== -->
+<!-- ABA 1: DADOS & LINK DA LOJA (Essencial + Opcionais Recolhidos)          -->
+<!-- ====================================================================== -->
+<div style="@(_activeSettingsTab == "loja" ? string.Empty : "display: none;")">
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr)); gap: 1.25rem; align-items: start;">
+        <!-- Coluna Esquerda: Identidade Essencial da Loja -->
+        <div style="display: flex; flex-direction: column; gap: 1.15rem;">
+            <section class="adm-card">
+                <h2 style="font-size: 1.1rem; font-weight: 700; margin-top: 0; margin-bottom: 1rem; color: var(--adm-text);">
+                    🏪 Identidade da Loja &amp; WhatsApp
                 </h2>
-                <span class="pill-badge pill-blue">App</span>
-            </div>
-            <p style="font-size: 0.85rem; color: var(--adm-muted); margin-top: 0; margin-bottom: 0.75rem;">
-                Escolha a aparência visual do aplicativo de acordo com a sua preferência:
-            </p>
 
-            <div class="theme-selector-grid">
-                <div class="theme-card-option @(Theme.ThemePreference == "system" ? "active" : "")"
-                     @onclick='() => ChangeTheme("system")'>
-                    <div style="font-size: 1.3rem; margin-bottom: 0.2rem;">🌓</div>
-                    <div>Automático</div>
-                    <div style="font-size: 0.72rem; color: var(--adm-muted); font-weight: 500;">Segue o sistema</div>
+                <div style="display: flex; flex-direction: column; gap: 1.05rem;">
+                    <div>
+                        <label class="adm-label">Nome da Loja *</label>
+                        <input type="text"
+                               class="adm-input"
+                               @bind="_form.StoreName"
+                               @bind:event="oninput"
+                               @bind:after="SyncSlugFromStoreNameIfUnlocked"
+                               placeholder="Ex.: Minha Loja" />
+                    </div>
+
+                    <div>
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.35rem; gap: 0.5rem; flex-wrap: wrap;">
+                            <label class="adm-label" style="margin: 0;">Endereço do Link da Loja (Final da URL) *</label>
+                            <label style="font-size: 0.76rem; color: var(--adm-muted); display: flex; align-items: center; gap: 0.35rem; cursor: pointer;">
+                                <input type="checkbox" @bind="_autoSyncSlugWithName" />
+                                <span>Sincronizar com o nome</span>
+                            </label>
+                        </div>
+                        <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+                            <input type="text"
+                                   class="adm-input"
+                                   style="flex: 1 1 200px; min-width: 0;"
+                                   @bind="_form.StoreSlug"
+                                   @bind:after="ClearRenderCheckResult"
+                                   placeholder="minha-loja" />
+                            <button type="button"
+                                    class="adm-btn adm-btn-outline"
+                                    style="white-space: nowrap;"
+                                    disabled="@_isCheckingRenderLink"
+                                    @onclick="CheckRenderStoreLinkAsync">
+                                @(_isCheckingRenderLink ? "⏳ Verificando..." : "🔍 Verificar no Render")
+                            </button>
+                        </div>
+                        <span style="font-size: 0.78rem; color: var(--adm-muted); display: block; margin-top: 0.3rem;">
+                            Link oficial do catálogo: <strong style="color: var(--adm-accent);">@storeCatalogUrl</strong>
+                        </span>
+
+                        @if (_renderLinkCheck is not null)
+                        {
+                            var checkBg = !_renderLinkCheck.ServerOnline
+                                ? "rgba(245,158,11,0.12)"
+                                : _renderLinkCheck.IsAvailable
+                                    ? "rgba(22,163,74,0.12)"
+                                    : "rgba(220,38,38,0.12)";
+                            var checkBorder = !_renderLinkCheck.ServerOnline
+                                ? "var(--adm-warning)"
+                                : _renderLinkCheck.IsAvailable
+                                    ? "var(--adm-success)"
+                                    : "var(--adm-danger)";
+                            var checkColor = !_renderLinkCheck.ServerOnline
+                                ? "var(--adm-warning)"
+                                : _renderLinkCheck.IsAvailable
+                                    ? "var(--adm-success)"
+                                    : "var(--adm-danger)";
+                            <div style="margin-top: 0.5rem; padding: 0.65rem 0.85rem; border-radius: 10px; font-size: 0.84rem; background: @checkBg; border: 1px solid @checkBorder; color: @checkColor;">
+                                <div style="font-weight: 700;">
+                                    @(!_renderLinkCheck.ServerOnline ? "🟡 " : _renderLinkCheck.IsAvailable ? "🟢 " : "🔴 ")@_renderLinkCheck.Message
+                                </div>
+                                @if (_renderLinkCheck.IsAvailable)
+                                {
+                                    <div style="font-size: 0.78rem; margin-top: 0.2rem; color: var(--adm-text);">
+                                        Endereço confirmado: <strong>@_renderLinkCheck.StoreUrl</strong>
+                                    </div>
+                                }
+                                else if (_renderLinkCheck.Suggestions.Count > 0)
+                                {
+                                    <div style="font-size: 0.78rem; margin-top: 0.35rem; color: var(--adm-text);">Opções disponíveis no Render (toque para escolher):</div>
+                                    <div style="display: flex; gap: 0.4rem; flex-wrap: wrap; margin-top: 0.35rem;">
+                                        @foreach (var sug in _renderLinkCheck.Suggestions)
+                                        {
+                                            <button type="button"
+                                                    class="pill-badge pill-green"
+                                                    style="border: none; cursor: pointer; padding: 0.26rem 0.65rem; font-size: 0.78rem;"
+                                                    @onclick="() => ApplyRenderSlugSuggestionAsync(sug)">
+                                                ✓ /loja/@sug
+                                            </button>
+                                        }
+                                    </div>
+                                }
+                            </div>
+                        }
+                    </div>
+
+                    <div>
+                        <label class="adm-label">Número do WhatsApp (DDD + Celular) *</label>
+                        <input type="text" class="adm-input" @bind="_form.WhatsappNumber" placeholder="Ex.: 11999990000" />
+                        <span style="font-size: 0.78rem; color: var(--adm-muted);">
+                            Pode digitar apenas o DDD + número (ex.: <strong>11999990000</strong>). O código do Brasil (+55) é inserido automaticamente!
+                        </span>
+                    </div>
+
+                    <div>
+                        <label class="adm-label">Descrição e Bio da Loja *</label>
+                        <textarea class="adm-textarea" rows="3" @bind="_form.StoreDescription" placeholder="Apresentação exibida para os clientes no catálogo online..."></textarea>
+                    </div>
+
+                    <!-- Opcionais recolhidos: Logotipo & Alerta de Estoque Baixo -->
+                    <details style="background: var(--adm-input-bg); border: 1px solid var(--adm-border); border-radius: 10px; padding: 0.85rem 1rem;">
+                        <summary style="cursor: pointer; font-weight: 700; font-size: 0.88rem; color: var(--adm-text); user-select: none;">
+                            🖼️ Logotipo da Loja &amp; Alerta de Estoque (Opcional)
+                        </summary>
+                        <div style="margin-top: 0.9rem; display: flex; flex-direction: column; gap: 0.9rem;">
+                            <div>
+                                <label class="adm-label">Logotipo da Loja (Opcional)</label>
+                                @if (!string.IsNullOrWhiteSpace(_form.LogoPublicUrl))
+                                {
+                                    <div style="padding: 0.75rem; background: var(--adm-surface); border: 1px solid var(--adm-border); border-radius: 8px; display: flex; align-items: center; gap: 0.85rem; margin-bottom: 0.65rem;">
+                                        <img src="@_form.LogoPublicUrl" alt="Logotipo" style="height: 46px; max-width: 140px; object-fit: contain;" />
+                                        <span style="font-weight: 700; font-size: 0.95rem; color: var(--adm-text);">@_form.StoreName</span>
+                                    </div>
+                                }
+                                else
+                                {
+                                    <div style="padding: 0.75rem; background: var(--adm-surface); border: 1px dashed var(--adm-border); border-radius: 8px; color: var(--adm-muted); font-size: 0.82rem; margin-bottom: 0.65rem;">
+                                        Nenhum logotipo configurado (o catálogo exibirá o nome <strong>@_form.StoreName</strong> em destaque).
+                                    </div>
+                                }
+                                <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+                                    <button type="button" class="adm-btn adm-btn-outline" @onclick="PickAndUploadLogoAsync">
+                                        📷 Enviar Logotipo
+                                    </button>
+                                    @if (!string.IsNullOrWhiteSpace(_form.LogoPublicUrl))
+                                    {
+                                        <button type="button" class="adm-btn adm-btn-danger" @onclick="RemoveLogoAsync">
+                                            Remover Logotipo
+                                        </button>
+                                    }
+                                </div>
+                            </div>
+
+                            <div>
+                                <label class="adm-label">Alerta de Estoque Baixo (avisa quando restar menos de quantas unidades)</label>
+                                <input type="number" min="0" class="adm-input" @bind="_form.DefaultLowStockThreshold" />
+                            </div>
+                        </div>
+                    </details>
+
+                    <button type="button" class="adm-btn adm-btn-success" style="padding: 0.85rem; font-size: 0.95rem; font-weight: 700;" @onclick="SaveSettingsAsync">
+                        💾 Salvar Configurações da Loja
+                    </button>
+                </div>
+            </section>
+        </div>
+
+        <!-- Coluna Direita: Link Oficial da Loja, Visibilidade e Publicação 1 Clique -->
+        <div style="display: flex; flex-direction: column; gap: 1.15rem;">
+            <section class="adm-card" style="border-left: 4px solid @(_form.IsSiteActive ? "var(--adm-success)" : "var(--adm-danger)");">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem; flex-wrap: wrap; gap: 0.5rem;">
+                    <h2 style="font-size: 1.1rem; font-weight: 700; margin: 0; color: var(--adm-text);">
+                        @(isPlaceholderOrLocal ? "📱 Vitrine & Link da Sua Loja" : "🌐 Link Público & Visibilidade da Loja")
+                    </h2>
+                    <span class="pill-badge @(_form.IsSiteActive ? "pill-green" : "pill-red")" style="font-weight: 800;">
+                        @(_form.IsSiteActive ? "🟢 Visível para Clientes" : "🔴 Oculto / Pausado")
+                    </span>
                 </div>
 
-                <div class="theme-card-option @(Theme.ThemePreference == "light" ? "active" : "")"
-                     @onclick='() => ChangeTheme("light")'>
-                    <div style="font-size: 1.3rem; margin-bottom: 0.2rem;">☀️</div>
-                    <div>Modo Claro</div>
-                    <div style="font-size: 0.72rem; color: var(--adm-muted); font-weight: 500;">Fundo Branco</div>
+                @if (!_form.IsSiteActive)
+                {
+                    <div style="background: rgba(239, 68, 68, 0.1); border: 1px solid var(--adm-danger); border-radius: 8px; padding: 0.85rem; margin-bottom: 0.85rem; color: var(--adm-text);">
+                        <div style="font-weight: 800; color: var(--adm-danger); margin-bottom: 0.25rem;">
+                            ⚠️ Motivo da Desativação:
+                        </div>
+                        <div style="font-size: 0.84rem; line-height: 1.45;">
+                            @(_form.DeactivationReason ?? "O site foi pausado automaticamente.")
+                        </div>
+                    </div>
+                    <button type="button"
+                            class="adm-btn adm-btn-primary"
+                            style="width: 100%; padding: 0.75rem; font-weight: 800; font-size: 0.95rem; margin-bottom: 0.85rem;"
+                            @onclick="ActivateSiteNowAsync">
+                        🚀 Reativar e Publicar Meu Site Agora
+                    </button>
+                }
+
+                <div style="background: var(--adm-input-bg); border: 1.5px solid var(--adm-border); border-radius: 8px; padding: 0.85rem 1rem; font-family: monospace; font-size: 0.92rem; font-weight: 700; word-break: break-all; margin-bottom: 0.75rem; color: var(--adm-accent);">
+                    @(isPlaceholderOrLocal ? $"/loja/{effectiveSlug}" : storeCatalogUrl)
                 </div>
 
-                <div class="theme-card-option @(Theme.ThemePreference == "dark" ? "active" : "")"
-                     @onclick='() => ChangeTheme("dark")'>
-                    <div style="font-size: 1.3rem; margin-bottom: 0.2rem;">🌙</div>
-                    <div>Modo Escuro</div>
-                    <div style="font-size: 0.72rem; color: var(--adm-muted); font-weight: 500;">OLED / Alto Contraste</div>
-                </div>
-            </div>
+                <div style="display: flex; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 0.9rem;">
+                    <a href="/loja/@effectiveSlug" class="adm-btn adm-btn-primary" style="flex: 1; min-width: 150px;">
+                        👁️ Abrir Vitrine
+                    </a>
 
-            <div style="margin-top: 0.9rem; padding-top: 0.85rem; border-top: 1px solid var(--adm-border); display: flex; justify-content: space-between; align-items: center; gap: 0.6rem; flex-wrap: wrap;">
-                <div style="font-size: 0.8rem; color: var(--adm-muted);">
-                    Versão instalada: <strong style="color: var(--adm-text);">v@(UpdateService.CurrentVersion)</strong>
+                    <button type="button" class="adm-btn adm-btn-outline" style="flex: 1; min-width: 135px;" @onclick="() => CopyStoreUrlAsync(storeCatalogUrl)">
+                        @(_copiedUrl ? "✓ Link Copiado!" : "📋 Copiar Link")
+                    </button>
+
+                    <button type="button" class="adm-btn adm-btn-outline" style="min-width: 140px;" @onclick="() => ShareOnWhatsAppAsync(storeCatalogUrl)">
+                        💬 WhatsApp
+                    </button>
+
+                    @if (!isPlaceholderOrLocal)
+                    {
+                        <button type="button" class="adm-btn adm-btn-outline" @onclick="() => OpenBrowserAsync(storeCatalogUrl)">
+                            🌐 Navegador &nearr;
+                        </button>
+                    }
                 </div>
+
+                <!-- Opcionais recolhidos: QR Code e Pausar Visibilidade -->
+                <details style="background: var(--adm-input-bg); border: 1px solid var(--adm-border); border-radius: 10px; padding: 0.75rem 0.95rem;">
+                    <summary style="cursor: pointer; font-weight: 700; font-size: 0.85rem; color: var(--adm-muted); user-select: none;">
+                        📱 QR Code para Balcão &amp; Opções de Visibilidade (Opcional)
+                    </summary>
+                    <div style="margin-top: 0.85rem; display: flex; flex-direction: column; gap: 0.85rem;">
+                        <div style="display: flex; align-items: center; gap: 1rem; flex-wrap: wrap;">
+                            <img src="@qrCodeSvgUri" alt="QR Code da Loja" style="width: 96px; height: 96px; border-radius: 8px; background: #FFFFFF; padding: 4px;" />
+                            <div style="flex: 1; min-width: 160px;">
+                                <div style="font-weight: 800; font-size: 0.9rem; color: var(--adm-text);">QR Code do Balcão &amp; Sacolas</div>
+                                <div style="font-size: 0.78rem; color: var(--adm-muted); margin-top: 0.2rem; line-height: 1.4;">
+                                    Imprima para que seus clientes apontem a câmera do celular e abram o catálogo na hora.
+                                </div>
+                            </div>
+                        </div>
+
+                        @if (_form.IsSiteActive)
+                        {
+                            <div style="display: flex; justify-content: space-between; align-items: center; padding-top: 0.65rem; border-top: 1px solid var(--adm-border); font-size: 0.78rem; color: var(--adm-muted); flex-wrap: wrap; gap: 0.5rem;">
+                                <span>Última movimentação: <strong>@(_form.LastActivityAt?.ToLocalTime().ToString("dd/MM/yyyy HH:mm") ?? "Hoje")</strong></span>
+                                <button type="button" class="adm-btn adm-btn-outline" style="padding: 0.25rem 0.65rem; font-size: 0.76rem;" @onclick="DeactivateSiteNowAsync">
+                                    Ocultar / Pausar Site Temporariamente
+                                </button>
+                            </div>
+                        }
+                    </div>
+                </details>
+            </section>
+
+            <CloudPublishWizard CentralServerUrl="@_centralCatalogServerUrlInput"
+                                CentralServerUrlChanged="v => _centralCatalogServerUrlInput = v"
+                                IsCentralHostingMode="@string.Equals(_serverHostingMode, "PlatformShared", StringComparison.OrdinalIgnoreCase)"
+                                RenderUrl="@_wizardRenderUrl"
+                                RenderUrlChanged="v => _wizardRenderUrl = v"
+                                SyncSecret="@_ownServerSyncSecretInput"
+                                SyncSecretChanged="v => _ownServerSyncSecretInput = v"
+                                HasSavedSyncSecret="@_hasOwnServerSyncSecret"
+                                IsOnlineConfigured="@(!isPlaceholderOrLocal)"
+                                IsSiteActive="@_form.IsSiteActive"
+                                IsPublishing="@_publishingOneClick"
+                                IsLastActionSuccess="@_publishWizardSuccess"
+                                StatusMessage="@_publishWizardMessage"
+                                LastSyncedAt="@_form.LastOnlineSyncAt"
+                                OfficialCatalogUrl="@storeCatalogUrl"
+                                StoreNameHint="@_form.StoreName"
+                                OnCentralPublishRequested="PublishCentralOneClickAsync"
+                                OnPublishRequested="PublishOneClickAsync"
+                                OnClearSecretRequested="ClearOwnServerSyncSecretAsync"
+                                OnCopyCatalogUrl="() => CopyStoreUrlAsync(storeCatalogUrl)"
+                                OnShareWhatsApp="() => ShareOnWhatsAppAsync(storeCatalogUrl)"
+                                OnOpenCatalogUrl="() => OpenBrowserAsync(storeCatalogUrl)" />
+
+            <!-- Opcionais recolhidos: Sincronização na Nuvem e Servidor Central -->
+            <details style="background: var(--adm-surface); border: 1px dashed var(--adm-border); border-radius: 10px; padding: 0.85rem 1rem;">
+                <summary style="cursor: pointer; font-weight: 600; font-size: 0.85rem; color: var(--adm-muted); user-select: none;">
+                    ⚙️ Opções Avançadas de Sincronização &amp; Servidor (Opcional)
+                </summary>
+                <div style="margin-top: 1rem; display: flex; flex-direction: column; gap: 0.9rem; font-size: 0.85rem;">
+                    <label style="display: flex; align-items: center; gap: 0.5rem; font-weight: 600; cursor: pointer;">
+                        <input type="checkbox" @bind="_form.AutoSyncOnlineOnSave" />
+                        <span>Sincronizar dados automaticamente ao salvar produtos ou categorias</span>
+                    </label>
+
+                    @if (_form.LastOnlineSyncAt.HasValue)
+                    {
+                        <div style="font-size: 0.78rem; color: var(--adm-muted);">
+                            Última sincronização com nuvem: <strong>@_form.LastOnlineSyncAt.Value.ToLocalTime().ToString("dd/MM/yyyy HH:mm:ss")</strong>
+                        </div>
+                    }
+
+                    <div>
+                        <button type="button"
+                                class="adm-btn adm-btn-outline"
+                                style="font-size: 0.8rem; padding: 0.4rem 0.75rem;"
+                                disabled="@CloudSync.IsSyncing"
+                                @onclick="SyncToCloudNowAsync">
+                            @(CloudSync.IsSyncing ? "⏳ Sincronizando..." : "🔄 Forçar Sincronização com Nuvem")
+                        </button>
+                    </div>
+
+                    <div style="padding-top: 0.85rem; border-top: 1px solid var(--adm-border);">
+                        <div style="font-weight: 700; font-size: 0.88rem; margin-bottom: 0.35rem; color: var(--adm-text);">
+                            📡 Conectar Servidor Central Próprio (Avançado)
+                        </div>
+                        <div style="display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center;">
+                            <input type="url"
+                                   class="adm-input"
+                                   style="flex: 1; min-width: 200px;"
+                                   @bind="_centralServerUrlInput"
+                                   placeholder="Ex.: https://sua-api.onrender.com" />
+                            <button type="button"
+                                    class="adm-btn adm-btn-primary"
+                                    disabled="@_connectingCentralServer"
+                                    @onclick="ConnectCentralServerFromSettingsAsync">
+                                @(_connectingCentralServer ? "Testando..." : "⚡ Testar e Salvar Conexão")
+                            </button>
+                            @if (Gateway.HasCustomServerUrl)
+                            {
+                                <button type="button"
+                                        class="adm-btn adm-btn-outline"
+                                        disabled="@_connectingCentralServer"
+                                        @onclick="PushLocalAccountsNowFromSettingsAsync">
+                                    ⬆️ Enviar Contas p/ Servidor Agora
+                                </button>
+                                <button type="button" class="adm-btn adm-btn-outline" @onclick="DisconnectCentralServerFromSettingsAsync">
+                                    Usar padrão
+                                </button>
+                            }
+                        </div>
+                        @if (!string.IsNullOrWhiteSpace(_centralServerFeedback))
+                        {
+                            <div style="margin-top: 0.5rem; font-size: 0.8rem; color: @(_centralServerConnectedOk ? "var(--adm-success)" : "var(--adm-danger)");">
+                                @_centralServerFeedback
+                            </div>
+                        }
+                    </div>
+                </div>
+            </details>
+        </div>
+    </div>
+</div>
+
+<!-- ====================================================================== -->
+<!-- ABA 2: VISUAL & TEMAS (Temas da Vitrine Online + Tema Claro/Escuro App) -->
+<!-- ====================================================================== -->
+<div style="@(_activeSettingsTab == "visual" ? string.Empty : "display: none;")">
+    <section class="adm-card" style="border-left: 4px solid var(--adm-accent); margin-bottom: 1.25rem;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem; flex-wrap: wrap; gap: 0.5rem;">
+            <h2 style="font-size: 1.1rem; font-weight: 700; margin: 0; color: var(--adm-text);">
+                🎨 Tema do Aplicativo (Modo Claro &amp; Escuro)
+            </h2>
+            <div style="display: flex; align-items: center; gap: 0.5rem;">
+                <span class="pill-badge pill-slate">v@(UpdateService.CurrentVersion)</span>
                 <button type="button"
                         class="adm-btn adm-btn-outline"
-                        style="padding: 0.35rem 0.7rem; font-size: 0.78rem;"
+                        style="padding: 0.3rem 0.65rem; font-size: 0.78rem;"
                         disabled="@UpdateService.IsChecking"
                         @onclick="CheckUpdatesManuallyAsync">
                     @(UpdateService.IsChecking ? "⏳ Verificando..." : "🔄 Procurar Atualizações")
                 </button>
             </div>
-        </section>
+        </div>
+        <p style="font-size: 0.85rem; color: var(--adm-muted); margin-top: 0; margin-bottom: 0.75rem;">
+            Escolha a aparência do seu painel administrativo no computador ou celular:
+        </p>
 
-        <!-- Card 2: Dados da Loja e Contato -->
-        <section class="adm-card">
-            <h2 style="font-size: 1.1rem; font-weight: 700; margin-top: 0; margin-bottom: 1rem; color: var(--adm-text);">
-                🏪 Identidade da Loja &amp; WhatsApp
-            </h2>
-
-            <div style="display: flex; flex-direction: column; gap: 1.1rem;">
-                <div>
-                    <label class="adm-label">Nome da Loja *</label>
-                    <input type="text"
-                           class="adm-input"
-                           @bind="_form.StoreName"
-                           @bind:event="oninput"
-                           @bind:after="SyncSlugFromStoreNameIfUnlocked"
-                           placeholder="Ex.: Minha Loja" />
-                </div>
-
-                <div>
-                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.35rem; gap: 0.5rem; flex-wrap: wrap;">
-                        <label class="adm-label" style="margin: 0;">Endereço do Link da Loja (Final da URL) *</label>
-                        <label style="font-size: 0.76rem; color: var(--adm-muted); display: flex; align-items: center; gap: 0.35rem; cursor: pointer;">
-                            <input type="checkbox" @bind="_autoSyncSlugWithName" />
-                            <span>Sincronizar com o nome</span>
-                        </label>
-                    </div>
-                    <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
-                        <input type="text"
-                               class="adm-input"
-                               style="flex: 1 1 200px; min-width: 0;"
-                               @bind="_form.StoreSlug"
-                               @bind:after="ClearRenderCheckResult"
-                               placeholder="minha-loja" />
-                        <button type="button"
-                                class="adm-btn adm-btn-outline"
-                                style="white-space: nowrap;"
-                                disabled="@_isCheckingRenderLink"
-                                @onclick="CheckRenderStoreLinkAsync">
-                            @(_isCheckingRenderLink ? "⏳ Verificando..." : "🔍 Verificar no Render")
-                        </button>
-                    </div>
-                    <span style="font-size: 0.78rem; color: var(--adm-muted); display: block; margin-top: 0.3rem;">
-                        Link oficial do catálogo: <strong style="color: var(--adm-accent);">@storeCatalogUrl</strong>
-                    </span>
-
-                    @if (_renderLinkCheck is not null)
-                    {
-                        var checkBg = !_renderLinkCheck.ServerOnline
-                            ? "rgba(245,158,11,0.12)"
-                            : _renderLinkCheck.IsAvailable
-                                ? "rgba(22,163,74,0.12)"
-                                : "rgba(220,38,38,0.12)";
-                        var checkBorder = !_renderLinkCheck.ServerOnline
-                            ? "var(--adm-warning)"
-                            : _renderLinkCheck.IsAvailable
-                                ? "var(--adm-success)"
-                                : "var(--adm-danger)";
-                        var checkColor = !_renderLinkCheck.ServerOnline
-                            ? "var(--adm-warning)"
-                            : _renderLinkCheck.IsAvailable
-                                ? "var(--adm-success)"
-                                : "var(--adm-danger)";
-                        <div style="margin-top: 0.5rem; padding: 0.65rem 0.85rem; border-radius: 10px; font-size: 0.84rem; background: @checkBg; border: 1px solid @checkBorder; color: @checkColor;">
-                            <div style="font-weight: 700;">
-                                @(!_renderLinkCheck.ServerOnline ? "🟡 " : _renderLinkCheck.IsAvailable ? "🟢 " : "🔴 ")@_renderLinkCheck.Message
-                            </div>
-                            @if (_renderLinkCheck.IsAvailable)
-                            {
-                                <div style="font-size: 0.78rem; margin-top: 0.2rem; color: var(--adm-text);">
-                                    Endereço confirmado: <strong>@_renderLinkCheck.StoreUrl</strong>
-                                </div>
-                            }
-                            else if (_renderLinkCheck.Suggestions.Count > 0)
-                            {
-                                <div style="font-size: 0.78rem; margin-top: 0.35rem; color: var(--adm-text);">Opções disponíveis no Render (toque para escolher):</div>
-                                <div style="display: flex; gap: 0.4rem; flex-wrap: wrap; margin-top: 0.35rem;">
-                                    @foreach (var sug in _renderLinkCheck.Suggestions)
-                                    {
-                                        <button type="button"
-                                                class="pill-badge pill-green"
-                                                style="border: none; cursor: pointer; padding: 0.26rem 0.65rem; font-size: 0.78rem;"
-                                                @onclick="() => ApplyRenderSlugSuggestionAsync(sug)">
-                                            ✓ /loja/@sug
-                                        </button>
-                                    }
-                                </div>
-                            }
-                        </div>
-                    }
-                </div>
-
-                <div>
-                    <label class="adm-label">Número do WhatsApp (DDD + Celular) *</label>
-                    <input type="text" class="adm-input" @bind="_form.WhatsappNumber" placeholder="Ex.: 11999990000" />
-                    <span style="font-size: 0.78rem; color: var(--adm-muted);">
-                        Pode digitar apenas o DDD + número (ex.: <strong>11999990000</strong>). O código do Brasil (+55) é inserido automaticamente!
-                    </span>
-                </div>
-
-                <div>
-                    <label class="adm-label">Descrição e Bio da Loja *</label>
-                    <textarea class="adm-textarea" rows="3" @bind="_form.StoreDescription" placeholder="Apresentação exibida para os clientes no catálogo online..."></textarea>
-                </div>
-
-                <div>
-                    <label class="adm-label">Alerta de Estoque Baixo (avisa quando restar menos de quantas unidades)</label>
-                    <input type="number" min="0" class="adm-input" @bind="_form.DefaultLowStockThreshold" />
-                </div>
-
-                <button type="button" class="adm-btn adm-btn-success" style="padding: 0.85rem; font-size: 0.95rem; font-weight: 700;" @onclick="SaveSettingsAsync">
-                    💾 Salvar Configurações da Loja
-                </button>
-            </div>
-        </section>
-    </div>
-
-    <!-- Coluna Direita: Link Oficial da Loja + QR Code + Logotipo -->
-    <div style="display: flex; flex-direction: column; gap: 1.25rem;">
-        <!-- Card 2.5: Status do Site do Usuário (Ativo / Desativado por Nome ou Inatividade) -->
-        <section class="adm-card" style="border-left: 4px solid @(_form.IsSiteActive ? "var(--adm-success)" : "var(--adm-danger)");">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem; flex-wrap: wrap; gap: 0.5rem;">
-                <h2 style="font-size: 1.1rem; font-weight: 700; margin: 0; color: var(--adm-text);">
-                    🌍 Visibilidade do Site para o Público
-                </h2>
-                <span class="pill-badge @(_form.IsSiteActive ? "pill-green" : "pill-red")" style="font-weight: 800;">
-                    @(_form.IsSiteActive ? "🟢 Visível para Clientes" : "🔴 Oculto / Pausado")
-                </span>
+        <div class="theme-selector-grid">
+            <div class="theme-card-option @(Theme.ThemePreference == "system" ? "active" : "")"
+                 @onclick='() => ChangeTheme("system")'>
+                <div style="font-size: 1.3rem; margin-bottom: 0.2rem;">🌓</div>
+                <div>Automático</div>
+                <div style="font-size: 0.72rem; color: var(--adm-muted); font-weight: 500;">Segue o sistema</div>
             </div>
 
-            @if (_form.IsSiteActive)
-            {
-                <p style="font-size: 0.84rem; color: var(--adm-muted); margin: 0 0 0.75rem; line-height: 1.45;">
-                    Seu catálogo público está <strong>no ar e visível</strong> para qualquer cliente que acessar o link.
-                    <strong>Atenção:</strong> após 21 dias sem movimentação ou ao trocar o nome da loja, ele pausa automaticamente até você confirmar aqui.
-                </p>
-                <div style="display: flex; justify-content: space-between; align-items: center; font-size: 0.8rem; color: var(--adm-muted); flex-wrap: wrap; gap: 0.5rem;">
-                    <span>Última movimentação: <strong>@(_form.LastActivityAt?.ToLocalTime().ToString("dd/MM/yyyy HH:mm") ?? "Hoje")</strong></span>
-                    <div style="display: flex; gap: 0.45rem; flex-wrap: wrap;">
-                        <a href="/loja/@_form.StoreSlug" class="adm-btn adm-btn-outline" style="padding: 0.25rem 0.6rem; font-size: 0.76rem;">
-                            👁️ Ver como Cliente
-                        </a>
-                        <button type="button" class="adm-btn adm-btn-outline" style="padding: 0.25rem 0.6rem; font-size: 0.76rem;" @onclick="DeactivateSiteNowAsync">
-                            Ocultar Site
-                        </button>
-                    </div>
-                </div>
-            }
-            else
-            {
-                <div style="background: rgba(239, 68, 68, 0.1); border: 1px solid var(--adm-danger); border-radius: 8px; padding: 0.85rem; margin-bottom: 0.85rem; color: var(--adm-text);">
-                    <div style="font-weight: 800; color: var(--adm-danger); margin-bottom: 0.25rem;">
-                        ⚠️ Motivo da Desativação:
-                    </div>
-                    <div style="font-size: 0.84rem; line-height: 1.45;">
-                        @(_form.DeactivationReason ?? "O site foi pausado automaticamente.")
-                    </div>
-                </div>
-                <button type="button"
-                        class="adm-btn adm-btn-primary"
-                        style="width: 100%; padding: 0.75rem; font-weight: 800; font-size: 0.95rem;"
-                        @onclick="ActivateSiteNowAsync">
-                    🚀 Reativar e Publicar Meu Site Agora
-                </button>
-            }
-        </section>
-
-        <!-- Card 3: Vitrine no App / Link do Catálogo da Sua Loja -->
-        <section class="adm-card" style="border-left: 4px solid var(--adm-success);">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem; flex-wrap: wrap; gap: 0.5rem;">
-                <h2 style="font-size: 1.1rem; font-weight: 700; margin: 0; color: var(--adm-text);">
-                    @(isPlaceholderOrLocal ? "📱 Vitrine Pronta para Vender no Celular" : "🌐 Link Público do Catálogo da Sua Loja")
-                </h2>
-                <div style="display: flex; gap: 0.35rem; flex-wrap: wrap;">
-                    @if (isPlaceholderOrLocal)
-                    {
-                        <span class="pill-badge pill-green">🟢 Pronta no Celular</span>
-                        <span class="pill-badge pill-slate">Prévia Local</span>
-                    }
-                    else
-                    {
-                        <span class="pill-badge pill-green">🟢 Catálogo Online</span>
-                        <span class="pill-badge pill-blue">Link Público Ativo</span>
-                    }
-                </div>
+            <div class="theme-card-option @(Theme.ThemePreference == "light" ? "active" : "")"
+                 @onclick='() => ChangeTheme("light")'>
+                <div style="font-size: 1.3rem; margin-bottom: 0.2rem;">☀️</div>
+                <div>Modo Claro</div>
+                <div style="font-size: 0.72rem; color: var(--adm-muted); font-weight: 500;">Fundo Branco</div>
             </div>
 
-            <p style="font-size: 0.85rem; color: var(--adm-muted); margin-top: 0; margin-bottom: 0.85rem; line-height: 1.45;">
-                @if (isPlaceholderOrLocal)
-                {
-                    <span>
-                        Sua vitrine já funciona <strong>direto aqui no aplicativo</strong> para cadastrar produtos e vender no Pix pelo celular! Quando quiser divulgar um link na internet (Instagram/Bio), <a href="#publicar-site-24h" style="color: var(--adm-accent); font-weight: 700;">publique seu site online em 1 clique logo abaixo</a>.
-                    </span>
-                }
-                else
-                {
-                    <span>
-                        Seu servidor online está configurado! Compartilhe este link público com seus clientes para acessarem e comprarem direto no Pix:
-                    </span>
-                }
-            </p>
-
-            <div style="background: var(--adm-input-bg); border: 1.5px solid var(--adm-border); border-radius: 8px; padding: 0.85rem 1rem; font-family: monospace; font-size: 0.92rem; font-weight: 700; word-break: break-all; margin-bottom: 0.45rem; color: var(--adm-accent);">
-                @(isPlaceholderOrLocal ? $"/loja/{effectiveSlug}" : storeCatalogUrl)
+            <div class="theme-card-option @(Theme.ThemePreference == "dark" ? "active" : "")"
+                 @onclick='() => ChangeTheme("dark")'>
+                <div style="font-size: 1.3rem; margin-bottom: 0.2rem;">🌙</div>
+                <div>Modo Escuro</div>
+                <div style="font-size: 0.72rem; color: var(--adm-muted); font-weight: 500;">OLED / Alto Contraste</div>
             </div>
-            <div style="font-size: 0.76rem; color: var(--adm-muted); margin-bottom: 0.95rem; line-height: 1.4;">
-                @if (isPlaceholderOrLocal)
-                {
-                    <span>💡 <em>Toque em <strong>"Abrir Vitrine no Celular"</strong> para ver exatamente como o cliente compra pelo app.</em></span>
-                }
-                else
-                {
-                    <span>🌐 <em>Endereço oficial da loja hospedado automaticamente no servidor YouLink (Render).</em></span>
-                }
-            </div>
+        </div>
+    </section>
 
-            <div style="display: flex; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 1.25rem;">
-                <a href="/loja/@effectiveSlug" class="adm-btn adm-btn-primary" style="flex: 1; min-width: 165px;">
-                    👁️ Abrir Vitrine no Celular
-                </a>
-
-                <button type="button" class="adm-btn adm-btn-outline" style="flex: 1; min-width: 140px;" @onclick="() => CopyStoreUrlAsync(storeCatalogUrl)">
-                    @(_copiedUrl ? "✓ Link Copiado!" : "📋 Copiar Link")
-                </button>
-
-                @if (!isPlaceholderOrLocal)
-                {
-                    <button type="button" class="adm-btn adm-btn-outline" style="min-width: 140px;" @onclick="() => OpenBrowserAsync(storeCatalogUrl)">
-                        Abrir no Navegador &nearr;
-                    </button>
-                }
-
-                <button type="button" class="adm-btn adm-btn-outline" style="min-width: 145px;" @onclick="() => ShareOnWhatsAppAsync(storeCatalogUrl)">
-                    💬 Enviar no WhatsApp
-                </button>
-            </div>
-
-            <!-- QR Code do Balcão e Sacolas -->
-            <div style="display: flex; align-items: center; gap: 1.25rem; background: var(--adm-input-bg); border: 1px solid var(--adm-border); border-radius: 10px; padding: 1rem; flex-wrap: wrap;">
-                <img src="@qrCodeSvgUri" alt="QR Code da Loja" style="width: 110px; height: 110px; border-radius: 8px; background: #FFFFFF; padding: 4px;" />
-                <div style="flex: 1; min-width: 170px;">
-                    <div style="font-weight: 800; font-size: 0.95rem; color: var(--adm-text);">📱 QR Code do Balcão &amp; Sacolas</div>
-                    <div style="font-size: 0.8rem; color: var(--adm-muted); margin-top: 0.25rem; line-height: 1.4;">
-                        Imprima e coloque no balcão ou nas sacolas: seus clientes apontam a câmera do celular e abrem o catálogo na hora!
-                    </div>
-                </div>
-            </div>
-        </section>
-
-        <!-- Card 4: Logotipo da Loja -->
-        <section class="adm-card">
-            <h2 style="font-size: 1.1rem; font-weight: 700; margin-top: 0; margin-bottom: 0.75rem; color: var(--adm-text);">
-                🖼️ Logotipo da Loja (Opcional)
-            </h2>
-
-            @if (!string.IsNullOrWhiteSpace(_form.LogoPublicUrl))
-            {
-                <div style="padding: 1rem; background: var(--adm-input-bg); border: 1px solid var(--adm-border); border-radius: 8px; display: flex; align-items: center; gap: 1rem; margin-bottom: 1rem;">
-                    <img src="@_form.LogoPublicUrl" alt="Logotipo" style="height: 52px; max-width: 160px; object-fit: contain;" />
-                    <span style="font-weight: 700; font-size: 1.1rem; color: var(--adm-text);">@_form.StoreName</span>
-                </div>
-            }
-            else
-            {
-                <div style="padding: 1rem; background: var(--adm-input-bg); border: 1px dashed var(--adm-border); border-radius: 8px; color: var(--adm-muted); font-size: 0.88rem; margin-bottom: 1rem;">
-                    Nenhum logotipo configurado (o catálogo exibirá o nome <strong>@_form.StoreName</strong> em destaque).
-                </div>
-            }
-
-            <div style="display: flex; gap: 0.6rem; flex-wrap: wrap;">
-                <button type="button" class="adm-btn adm-btn-primary" @onclick="PickAndUploadLogoAsync">
-                    📷 Enviar Logotipo do Celular
-                </button>
-                @if (!string.IsNullOrWhiteSpace(_form.LogoPublicUrl))
-                {
-                    <button type="button" class="adm-btn adm-btn-danger" @onclick="RemoveLogoAsync">
-                        Remover Logotipo
-                    </button>
-                }
-            </div>
-        </section>
-
-        <!-- Card 5: Opções Avançadas (Sincronização) -->
-        <details style="background: var(--adm-surface); border: 1px solid var(--adm-border); border-radius: 10px; padding: 0.85rem 1rem;">
-            <summary style="cursor: pointer; font-weight: 600; font-size: 0.86rem; color: var(--adm-muted); user-select: none;">
-                ⚙️ Opções de Sincronização na Nuvem (Opcional)
-            </summary>
-            <div style="margin-top: 1rem; display: flex; flex-direction: column; gap: 0.85rem; font-size: 0.85rem;">
-                <div>
-                    <div style="display: flex; justify-content: space-between; align-items: center; gap: 0.45rem; flex-wrap: wrap; margin-bottom: 0.25rem;">
-                        <label class="adm-label" style="margin: 0;">Servidor Oficial da Vitrine</label>
-                        <span class="pill-badge pill-green">Incluso no Plano</span>
-                    </div>
-                    <div style="padding: 0.65rem 0.85rem; border-radius: 8px; background: var(--adm-surface-subtle); border: 1px solid var(--adm-border); font-size: 0.84rem; color: var(--adm-text); overflow-wrap: anywhere;">
-                        @storeCatalogUrl
-                    </div>
-                    <span style="font-size: 0.76rem; color: var(--adm-muted); display: block; margin-top: 0.25rem;">
-                        Sua loja usa automaticamente o domínio do servidor oficial YouLink — sem precisar configurar domínio separado.
-                    </span>
-                </div>
-
-                <label style="display: flex; align-items: center; gap: 0.5rem; font-weight: 600; cursor: pointer;">
-                    <input type="checkbox" @bind="_form.AutoSyncOnlineOnSave" />
-                    <span>Sincronizar dados automaticamente ao salvar produtos ou categorias</span>
-                </label>
-
-                @if (_form.LastOnlineSyncAt.HasValue)
-                {
-                    <div style="font-size: 0.78rem; color: var(--adm-muted);">
-                        Última sincronização com nuvem: <strong>@_form.LastOnlineSyncAt.Value.ToLocalTime().ToString("dd/MM/yyyy HH:mm:ss")</strong>
-                    </div>
-                }
-
-                <div>
-                    <button type="button"
-                            class="adm-btn adm-btn-outline"
-                            style="font-size: 0.8rem; padding: 0.4rem 0.75rem;"
-                            disabled="@CloudSync.IsSyncing"
-                            @onclick="SyncToCloudNowAsync">
-                        @(CloudSync.IsSyncing ? "⏳ Sincronizando..." : "🔄 Forçar Sincronização com Nuvem")
-                    </button>
-                </div>
-            </div>
-        </details>
-    </div>
+    <DesignStudioPanel PlanTier="@_planTier"
+                       PlanActivatedAt="@_planActivatedAt"
+                       PlanExpiresAt="@_planExpiresAt"
+                       ActiveGiftCardCode="@_activeGiftCardCode"
+                       BasicPrice="@_basicPlanPrice"
+                       IntermediaryPrice="@_intermediaryPlanPrice"
+                       PremiumPrice="@_premiumPlanPrice"
+                       Design="@_designDraft"
+                       StoreName="@_form.StoreName"
+                       StoreDescription="@_form.StoreDescription"
+                       IsSaving="@_savingDesign"
+                       OnDesignChanged="HandleDesignDraftChanged"
+                       OnSaveDesignRequested="SaveDesignSettingsAsync" />
 </div>
 
-<CloudPublishWizard CentralServerUrl="@_centralCatalogServerUrlInput"
-                    CentralServerUrlChanged="v => _centralCatalogServerUrlInput = v"
-                    IsCentralHostingMode="@string.Equals(_serverHostingMode, "PlatformShared", StringComparison.OrdinalIgnoreCase)"
-                    RenderUrl="@_wizardRenderUrl"
-                    RenderUrlChanged="v => _wizardRenderUrl = v"
-                    SyncSecret="@_ownServerSyncSecretInput"
-                    SyncSecretChanged="v => _ownServerSyncSecretInput = v"
-                    HasSavedSyncSecret="@_hasOwnServerSyncSecret"
-                    IsOnlineConfigured="@(!isPlaceholderOrLocal)"
-                    IsSiteActive="@_form.IsSiteActive"
-                    IsPublishing="@_publishingOneClick"
-                    IsLastActionSuccess="@_publishWizardSuccess"
-                    StatusMessage="@_publishWizardMessage"
-                    LastSyncedAt="@_form.LastOnlineSyncAt"
-                    OfficialCatalogUrl="@storeCatalogUrl"
-                    StoreNameHint="@_form.StoreName"
-                    OnCentralPublishRequested="PublishCentralOneClickAsync"
-                    OnPublishRequested="PublishOneClickAsync"
-                    OnClearSecretRequested="ClearOwnServerSyncSecretAsync"
-                    OnCopyCatalogUrl="() => CopyStoreUrlAsync(storeCatalogUrl)"
-                    OnShareWhatsApp="() => ShareOnWhatsAppAsync(storeCatalogUrl)"
-                    OnOpenCatalogUrl="() => OpenBrowserAsync(storeCatalogUrl)" />
-
-<!-- Bloco Técnico Opcional (Fechado por padrão para servidor central manual) -->
-<details class="adm-card" style="margin-top: 1.25rem; border: 1px dashed var(--adm-border);">
-    <summary style="cursor: pointer; font-weight: 700; font-size: 0.94rem; color: var(--adm-text); user-select: none;">
-        ⚙️ Sincronização Avançada com Servidor Central (Opcional)
-    </summary>
-    <p style="font-size: 0.82rem; color: var(--adm-muted); margin: 0.5rem 0 1rem; line-height: 1.45;">
-        Para publicar sua loja na internet, use apenas o botão em <strong>1 Clique</strong> acima. Abra esta seção somente se desejar apontar o aplicativo para um servidor central próprio.
-    </p>
-    <div style="display: flex; flex-direction: column; gap: 1rem;">
-        <section class="adm-card" style="margin: 0; border-left: 4px solid var(--adm-accent);">
-            <h2 style="font-size: 1.05rem; font-weight: 700; margin: 0 0 0.35rem; color: var(--adm-text);">
-                📡 Conectar Servidor Central Próprio
-            </h2>
-            <p style="font-size: 0.82rem; color: var(--adm-muted); margin: 0 0 0.75rem; line-height: 1.45;">
-                Informe a URL do seu servidor central próprio caso utilize infraestrutura dedicada separada.
-            </p>
-            <div style="display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center;">
-                <input type="url"
-                       class="adm-input"
-                       style="flex: 1; min-width: 220px;"
-                       @bind="_centralServerUrlInput"
-                       placeholder="Ex.: https://sua-api.onrender.com" />
-                <button type="button"
-                        class="adm-btn adm-btn-primary"
-                        disabled="@_connectingCentralServer"
-                        @onclick="ConnectCentralServerFromSettingsAsync">
-                    @(_connectingCentralServer ? "Testando..." : "⚡ Testar e Salvar Conexão")
-                </button>
-                @if (Gateway.HasCustomServerUrl)
-                {
-                    <button type="button"
-                            class="adm-btn adm-btn-outline"
-                            disabled="@_connectingCentralServer"
-                            @onclick="PushLocalAccountsNowFromSettingsAsync">
-                        ⬆️ Enviar Contas p/ Servidor Agora
-                    </button>
-                    <button type="button" class="adm-btn adm-btn-outline" @onclick="DisconnectCentralServerFromSettingsAsync">
-                        Usar padrão
-                    </button>
-                }
-            </div>
-            @if (!string.IsNullOrWhiteSpace(_centralServerFeedback))
-            {
-                <div style="margin-top: 0.6rem; font-size: 0.8rem; color: @(_centralServerConnectedOk ? "var(--adm-success)" : "var(--adm-danger)");">
-                    @_centralServerFeedback
-                </div>
-            }
-        </section>
-    </div>
-</details>
+<!-- ====================================================================== -->
+<!-- ABA 3: PIX, VENDAS & FRETE (Essencial visível + Frete/CEP em Opcional) -->
+<!-- ====================================================================== -->
+<div style="@(_activeSettingsTab == "vendas" ? string.Empty : "display: none;")">
 
 <!-- Card: Vendas por Pix no App, Raio de Distância e Calculadora Correios -->
 <section class="adm-card" style="margin-top: 1.25rem; border-left: 4px solid #16A34A;">
@@ -666,62 +646,116 @@
                 </div>
             </div>
 
-            <!-- CEP de Origem do Vendedor -->
-            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 0.75rem; align-items: end;">
-                <div>
-                    <label class="adm-label">Seu CEP de Origem (Ponto de Partida) *</label>
-                    <div style="display: flex; gap: 0.4rem;">
-                        <input type="text" class="adm-input" @bind="_originCep" placeholder="01310-100" />
-                        <button type="button" class="adm-btn adm-btn-outline" style="white-space: nowrap;" disabled="@_lookingUpCep" @onclick="LookupOriginCepAsync">
-                            @(_lookingUpCep ? "..." : "🔍 Buscar")
-                        </button>
-                    </div>
-                </div>
-                <div>
-                    <label class="adm-label">Sua Cidade</label>
-                    <input type="text" class="adm-input" @bind="_originCity" placeholder="São Paulo" />
-                </div>
-                <div>
-                    <label class="adm-label">Seu Estado (UF)</label>
-                    <input type="text" maxlength="2" class="adm-input" style="text-transform: uppercase;" @bind="_originState" placeholder="SP" />
-                </div>
-            </div>
-
-            <!-- Escolha de Distância / Alcance do Vendedor -->
-            <div style="background: var(--adm-input-bg); border: 1px solid var(--adm-border); border-radius: 10px; padding: 0.9rem;">
-                <div style="font-weight: 800; font-size: 0.9rem; margin-bottom: 0.6rem; color: var(--adm-text);">
-                    📍 Até onde você aceita mandar os itens da sua distância?
-                </div>
-                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(195px, 1fr)); gap: 0.75rem;">
-                    <div>
-                        <label class="adm-label">Área de Entrega</label>
-                        <select class="adm-select" @bind="_deliveryScopeMode">
-                            <option value="@ClothingStore.Shared.Helpers.BrazilShippingCalculator.DeliveryScopeModes.AllBrazil">Todo o Brasil</option>
-                            <option value="@ClothingStore.Shared.Helpers.BrazilShippingCalculator.DeliveryScopeModes.SameState">Apenas no Mesmo Estado (UF)</option>
-                            <option value="@ClothingStore.Shared.Helpers.BrazilShippingCalculator.DeliveryScopeModes.SameCity">Apenas na Mesma Cidade</option>
-                            <option value="@ClothingStore.Shared.Helpers.BrazilShippingCalculator.DeliveryScopeModes.RadiusKm">Limitar por Distância Exata (km)</option>
-                        </select>
-                    </div>
-                    <div>
-                        <label class="adm-label">Distância Máxima em KM (0 = sem limite)</label>
-                        <input type="number" min="0" max="5000" class="adm-input" @bind="_maxDeliveryDistanceKm" />
-                        <div style="display: flex; gap: 0.3rem; flex-wrap: wrap; margin-top: 0.35rem;">
-                            @foreach (var kmPreset in new[] { 15, 30, 50, 150, 500, 0 })
-                            {
-                                <button type="button" class="pill-badge pill-slate" style="border: none; cursor: pointer;"
-                                        @onclick="() => SetDistancePreset(kmPreset)">
-                                    @(kmPreset == 0 ? "Sem limite km" : $"{kmPreset} km")
+            <!-- Opcionais recolhidos: CEP de Origem, Limite de Distância e Simulador Correios -->
+            <details style="background: var(--adm-input-bg); border: 1px solid var(--adm-border); border-radius: 10px; padding: 0.85rem 1rem;">
+                <summary style="cursor: pointer; font-weight: 700; font-size: 0.88rem; color: var(--adm-text); user-select: none;">
+                    📍 CEP de Origem, Limite de Distância &amp; Frete Correios (Opcional)
+                </summary>
+                <div style="margin-top: 0.9rem; display: flex; flex-direction: column; gap: 0.85rem;">
+                    <!-- CEP de Origem do Vendedor -->
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 0.75rem; align-items: end;">
+                        <div>
+                            <label class="adm-label">Seu CEP de Origem (Ponto de Partida) *</label>
+                            <div style="display: flex; gap: 0.4rem;">
+                                <input type="text" class="adm-input" @bind="_originCep" placeholder="01310-100" />
+                                <button type="button" class="adm-btn adm-btn-outline" style="white-space: nowrap;" disabled="@_lookingUpCep" @onclick="LookupOriginCepAsync">
+                                    @(_lookingUpCep ? "..." : "🔍 Buscar")
                                 </button>
-                            }
+                            </div>
+                        </div>
+                        <div>
+                            <label class="adm-label">Sua Cidade</label>
+                            <input type="text" class="adm-input" @bind="_originCity" placeholder="São Paulo" />
+                        </div>
+                        <div>
+                            <label class="adm-label">Seu Estado (UF)</label>
+                            <input type="text" maxlength="2" class="adm-input" style="text-transform: uppercase;" @bind="_originState" placeholder="SP" />
                         </div>
                     </div>
-                    <div>
-                        <label class="adm-label">Peso Médio por Produto (g)</label>
-                        <input type="number" min="100" max="30000" class="adm-input" @bind="_defaultPackageWeightGrams" />
-                        <span style="font-size: 0.72rem; color: var(--adm-muted);">Usado na estimativa dos Correios (padrão 450 g).</span>
+
+                    <!-- Escolha de Distância / Alcance do Vendedor -->
+                    <div style="background: var(--adm-surface); border: 1px solid var(--adm-border); border-radius: 10px; padding: 0.9rem;">
+                        <div style="font-weight: 800; font-size: 0.9rem; margin-bottom: 0.6rem; color: var(--adm-text);">
+                            📍 Até onde você aceita mandar os itens da sua distância?
+                        </div>
+                        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(195px, 1fr)); gap: 0.75rem;">
+                            <div>
+                                <label class="adm-label">Área de Entrega</label>
+                                <select class="adm-select" @bind="_deliveryScopeMode">
+                                    <option value="@ClothingStore.Shared.Helpers.BrazilShippingCalculator.DeliveryScopeModes.AllBrazil">Todo o Brasil</option>
+                                    <option value="@ClothingStore.Shared.Helpers.BrazilShippingCalculator.DeliveryScopeModes.SameState">Apenas no Mesmo Estado (UF)</option>
+                                    <option value="@ClothingStore.Shared.Helpers.BrazilShippingCalculator.DeliveryScopeModes.SameCity">Apenas na Mesma Cidade</option>
+                                    <option value="@ClothingStore.Shared.Helpers.BrazilShippingCalculator.DeliveryScopeModes.RadiusKm">Limitar por Distância Exata (km)</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="adm-label">Distância Máxima em KM (0 = sem limite)</label>
+                                <input type="number" min="0" max="5000" class="adm-input" @bind="_maxDeliveryDistanceKm" />
+                                <div style="display: flex; gap: 0.3rem; flex-wrap: wrap; margin-top: 0.35rem;">
+                                    @foreach (var kmPreset in new[] { 15, 30, 50, 150, 500, 0 })
+                                    {
+                                        <button type="button" class="pill-badge pill-slate" style="border: none; cursor: pointer;"
+                                                @onclick="() => SetDistancePreset(kmPreset)">
+                                            @(kmPreset == 0 ? "Sem limite km" : $"{kmPreset} km")
+                                        </button>
+                                    }
+                                </div>
+                            </div>
+                            <div>
+                                <label class="adm-label">Peso Médio por Produto (g)</label>
+                                <input type="number" min="100" max="30000" class="adm-input" @bind="_defaultPackageWeightGrams" />
+                                <span style="font-size: 0.72rem; color: var(--adm-muted);">Usado na estimativa dos Correios (padrão 450 g).</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Simulador Rápido Correios & Distância -->
+                    <div style="border-top: 1px solid var(--adm-border); padding-top: 0.75rem;">
+                        <div style="font-weight: 700; font-size: 0.86rem; color: var(--adm-text); margin-bottom: 0.55rem;">
+                            📦 Simular quanto custará mandar pelos Correios (PAC &amp; SEDEX)
+                        </div>
+                        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 0.6rem;">
+                            <div>
+                                <label class="adm-label">CEP do Comprador (Teste)</label>
+                                <input type="text" class="adm-input" @bind="_simTestDestCep" placeholder="20040-020" />
+                            </div>
+                            <div>
+                                <label class="adm-label">Peso do Pacote (g)</label>
+                                <input type="number" min="100" max="30000" class="adm-input" @bind="_simTestWeightG" />
+                            </div>
+                            <div style="display: flex; align-items: flex-end;">
+                                <button type="button" class="adm-btn adm-btn-primary" style="width: 100%;" disabled="@_simulatingCorreios" @onclick="SimulateCorreiosSellerAsync">
+                                    @(_simulatingCorreios ? "Calculando..." : "📊 Simular Frete & Distância")
+                                </button>
+                            </div>
+                        </div>
+
+                        @if (_simTestEligibility is not null)
+                        {
+                            <div style="margin-top: 0.55rem; padding: 0.65rem 0.85rem; border-radius: 8px; font-size: 0.84rem; @(_simTestEligibility.IsAllowed ? "background: rgba(22,163,74,0.12); border: 1px solid #16A34A;" : "background: rgba(239,68,68,0.12); border: 1px solid var(--adm-danger);")">
+                                <strong>@(_simTestEligibility.IsAllowed ? "✓ Comprador dentro da sua área:" : "✕ Bloqueado pelo seu limite:")</strong>
+                                @_simTestEligibility.ReasonMessage
+                            </div>
+                        }
+
+                        @if (_simTestCorreiosQuote is not null)
+                        {
+                            <div style="margin-top: 0.55rem; display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 0.65rem;">
+                                <div style="background: var(--adm-surface); border: 1px solid var(--adm-border); border-radius: 8px; padding: 0.7rem;">
+                                    <div style="font-size: 0.72rem; color: var(--adm-muted); font-weight: 700;">CORREIOS PAC</div>
+                                    <div style="font-size: 1.1rem; font-weight: 800; color: var(--adm-success);">@_simTestCorreiosQuote.PacPrice.ToString("C", new System.Globalization.CultureInfo("pt-BR"))</div>
+                                    <div style="font-size: 0.76rem; color: var(--adm-muted);">@_simTestCorreiosQuote.PacDaysMin–@_simTestCorreiosQuote.PacDaysMax dias úteis · @_simTestCorreiosQuote.ZoneName</div>
+                                </div>
+                                <div style="background: var(--adm-surface); border: 1px solid var(--adm-border); border-radius: 8px; padding: 0.7rem;">
+                                    <div style="font-size: 0.72rem; color: var(--adm-muted); font-weight: 700;">CORREIOS SEDEX</div>
+                                    <div style="font-size: 1.1rem; font-weight: 800; color: var(--adm-accent);">@_simTestCorreiosQuote.SedexPrice.ToString("C", new System.Globalization.CultureInfo("pt-BR"))</div>
+                                    <div style="font-size: 0.76rem; color: var(--adm-muted);">@_simTestCorreiosQuote.SedexDaysMin–@_simTestCorreiosQuote.SedexDaysMax dias úteis · 📍 @_simTestCorreiosQuote.DistanceKm km</div>
+                                </div>
+                            </div>
+                        }
                     </div>
                 </div>
-            </div>
+            </details>
 
             <div style="display: flex; gap: 0.65rem; flex-wrap: wrap; align-items: center;">
                 <button type="button" class="adm-btn adm-btn-success" style="font-weight: 800; padding: 0.7rem 1.2rem;" disabled="@_savingPixShipping" @onclick="SavePixAndShippingSettingsAsync">
@@ -730,59 +764,16 @@
                 <a href="/vendas" class="adm-btn adm-btn-outline">💰 Ir para Vendas</a>
                 <a href="/estoque" class="adm-btn adm-btn-outline">📦 Movimentar Estoque</a>
             </div>
-
-            <!-- Simulador Rápido Correios & Distância -->
-            <details style="border-top: 1px solid var(--adm-border); padding-top: 0.75rem;">
-                <summary style="cursor: pointer; font-weight: 700; font-size: 0.86rem; color: var(--adm-text);">
-                    📦 Simular quanto custará mandar pelos Correios (PAC &amp; SEDEX)
-                </summary>
-                <div style="margin-top: 0.75rem; display: flex; flex-direction: column; gap: 0.65rem;">
-                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 0.6rem;">
-                        <div>
-                            <label class="adm-label">CEP do Comprador (Teste)</label>
-                            <input type="text" class="adm-input" @bind="_simTestDestCep" placeholder="20040-020" />
-                        </div>
-                        <div>
-                            <label class="adm-label">Peso do Pacote (g)</label>
-                            <input type="number" min="100" max="30000" class="adm-input" @bind="_simTestWeightG" />
-                        </div>
-                        <div style="display: flex; align-items: flex-end;">
-                            <button type="button" class="adm-btn adm-btn-primary" style="width: 100%;" disabled="@_simulatingCorreios" @onclick="SimulateCorreiosSellerAsync">
-                                @(_simulatingCorreios ? "Calculando..." : "📊 Simular Frete & Distância")
-                            </button>
-                        </div>
-                    </div>
-
-                    @if (_simTestEligibility is not null)
-                    {
-                        <div style="padding: 0.65rem 0.85rem; border-radius: 8px; font-size: 0.84rem; @(_simTestEligibility.IsAllowed ? "background: rgba(22,163,74,0.12); border: 1px solid #16A34A;" : "background: rgba(239,68,68,0.12); border: 1px solid var(--adm-danger);")">
-                            <strong>@(_simTestEligibility.IsAllowed ? "✓ Comprador dentro da sua área:" : "✕ Bloqueado pelo seu limite:")</strong>
-                            @_simTestEligibility.ReasonMessage
-                        </div>
-                    }
-
-                    @if (_simTestCorreiosQuote is not null)
-                    {
-                        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 0.65rem;">
-                            <div style="background: var(--adm-input-bg); border: 1px solid var(--adm-border); border-radius: 8px; padding: 0.7rem;">
-                                <div style="font-size: 0.72rem; color: var(--adm-muted); font-weight: 700;">CORREIOS PAC</div>
-                                <div style="font-size: 1.1rem; font-weight: 800; color: var(--adm-success);">@_simTestCorreiosQuote.PacPrice.ToString("C", new System.Globalization.CultureInfo("pt-BR"))</div>
-                                <div style="font-size: 0.76rem; color: var(--adm-muted);">@_simTestCorreiosQuote.PacDaysMin–@_simTestCorreiosQuote.PacDaysMax dias úteis · @_simTestCorreiosQuote.ZoneName</div>
-                            </div>
-                            <div style="background: var(--adm-input-bg); border: 1px solid var(--adm-border); border-radius: 8px; padding: 0.7rem;">
-                                <div style="font-size: 0.72rem; color: var(--adm-muted); font-weight: 700;">CORREIOS SEDEX</div>
-                                <div style="font-size: 1.1rem; font-weight: 800; color: var(--adm-accent);">@_simTestCorreiosQuote.SedexPrice.ToString("C", new System.Globalization.CultureInfo("pt-BR"))</div>
-                                <div style="font-size: 0.76rem; color: var(--adm-muted);">@_simTestCorreiosQuote.SedexDaysMin–@_simTestCorreiosQuote.SedexDaysMax dias úteis · 📍 @_simTestCorreiosQuote.DistanceKm km</div>
-                            </div>
-                        </div>
-                    }
-                </div>
-            </details>
         </div>
     }
 </section>
+</div>
 
-<section class="adm-card" style="margin-top: 1.25rem; border-left: 4px solid var(--brand-accent, #B69158);">
+<!-- ====================================================================== -->
+<!-- ABA 4: PLANO & GIFT CARD (Status do Plano, Resgate e Verificação VIP)  -->
+<!-- ====================================================================== -->
+<div style="@(_activeSettingsTab == "plano" ? string.Empty : "display: none;")">
+<section class="adm-card" style="border-left: 4px solid var(--brand-accent, #B69158);">
     <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; flex-wrap: wrap;">
         <div>
             <div style="font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.14em; color: var(--brand-accent, #B69158);">
@@ -792,7 +783,7 @@
                 🎁 Resgatar Código Gift Card do Plano
             </h2>
             <p style="font-size: 0.85rem; color: var(--adm-muted); margin: 0.25rem 0 0;">
-                Digite o código Gift Card recebido para ativar ou renovar seu plano <strong>Básico</strong>, <strong>Intermediário (5 Versões)</strong> ou <strong>Premium Moldável</strong>.
+                Digite o código Gift Card recebido para ativar ou renovar seu plano <strong>Básico</strong>, <strong>Intermediário (3 Temas)</strong> ou <strong>Premium (10 Temas + Estúdio Visual)</strong>.
             </p>
         </div>
 
@@ -807,7 +798,7 @@
         }
         <div style="display: flex; flex-direction: column; align-items: flex-end; gap: 0.25rem;">
             <span class="pill-badge @(BrandState.IsPremiumPlan ? "pill-gold" : BrandState.IsIntermediatePlan ? "pill-green" : "pill-slate")">
-                @(BrandState.IsPremiumPlan ? "✦ Plano Premium Ativo" : BrandState.IsIntermediatePlan ? "◈ Meia Versão (5 Temas)" : hasBasicActive ? "● Plano Básico Minimalista" : isPlanExpired ? "⚠ Plano Expirado" : "Sem Plano Ativo")
+                @(BrandState.IsPremiumPlan ? "✦ Plano Premium Ativo" : BrandState.IsIntermediatePlan ? "◈ Meia Versão (3 Temas)" : hasBasicActive ? "● Plano Básico Minimalista" : isPlanExpired ? "⚠ Plano Expirado" : "Sem Plano Ativo")
             </span>
             <span style="font-size: 0.78rem; color: var(--adm-muted);">
                 @if (activePlanTier is null && !_planExpiresAt.HasValue)
@@ -856,24 +847,15 @@
                 @onclick="VerifyCloudVipNowAsync">
             @(_isCheckingCloudVip ? "Verificando..." : "🔄 Verificar VIP Agora")
         </button>
+        <a href="/planos" class="adm-btn adm-btn-outline" style="white-space: nowrap;">
+            💎 Ver Todos os Planos &rarr;
+        </a>
     </div>
 </section>
-
-<DesignStudioPanel PlanTier="@_planTier"
-                   PlanActivatedAt="@_planActivatedAt"
-                   PlanExpiresAt="@_planExpiresAt"
-                   ActiveGiftCardCode="@_activeGiftCardCode"
-                   BasicPrice="@_basicPlanPrice"
-                   IntermediaryPrice="@_intermediaryPlanPrice"
-                   PremiumPrice="@_premiumPlanPrice"
-                   Design="@_designDraft"
-                   StoreName="@_form.StoreName"
-                   StoreDescription="@_form.StoreDescription"
-                   IsSaving="@_savingDesign"
-                   OnDesignChanged="HandleDesignDraftChanged"
-                   OnSaveDesignRequested="SaveDesignSettingsAsync" />
+</div>
 
 @code {
+    private string _activeSettingsTab = "loja";
     private string _planTier = StoreDesignPresets.PlanBasic;
     private DateTimeOffset? _planActivatedAt;
     private DateTimeOffset? _planExpiresAt;
