@@ -816,7 +816,6 @@
     };
 
     private bool _autoSyncSlugWithName = true;
-    private bool _copiedUrl;
     private bool _isCheckingRenderLink;
     private RenderStoreLinkAvailabilityDto? _renderLinkCheck;
     private string? _verifiedWhatsappNumber;
@@ -1210,14 +1209,8 @@
         try
         {
             await Clipboard.Default.SetTextAsync(url);
-            _copiedUrl = true;
             _success = "✓ Link copiado para a área de transferência! Cole onde quiser.";
             StateHasChanged();
-            _ = Task.Delay(3000).ContinueWith(_ =>
-            {
-                _copiedUrl = false;
-                InvokeAsync(StateHasChanged);
-            });
         }
         catch
         {
