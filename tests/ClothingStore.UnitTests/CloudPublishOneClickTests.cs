@@ -312,19 +312,21 @@ public sealed class CloudPublishOneClickTests
         Assert.IsFalse(settingsPage.Contains("ClothingStore.Api", StringComparison.Ordinal),
             "StoreSettingsPage não deve instruir usuário final sobre projeto ClothingStore.Api.");
 
-        Assert.IsTrue(wizardRazor.Contains("🌐 Criar Meu Site Grátis 24h", StringComparison.Ordinal));
-        Assert.IsTrue(wizardRazor.Contains(
-            "https://dashboard.render.com/blueprint/new?repo=https://github.com/giovannipieronisleal-pixel/yourlink",
-            StringComparison.Ordinal));
-        Assert.IsTrue(wizardRazor.Contains("YOULINK_SYNC_SECRET", StringComparison.Ordinal));
-        Assert.IsTrue(wizardRazor.Contains("Testar, Sincronizar e Ativar Link", StringComparison.Ordinal));
-        Assert.IsTrue(wizardRazor.Contains("📋 Colar", StringComparison.Ordinal));
+        Assert.IsTrue(wizardRazor.Contains("Publique Sua Loja Online em 1 Clique", StringComparison.Ordinal));
+        Assert.IsTrue(wizardRazor.Contains("Publicar Minha Loja Online (1 Clique)", StringComparison.Ordinal));
         Assert.IsTrue(wizardRazor.Contains("Atualizar Site Agora", StringComparison.Ordinal));
+        Assert.IsFalse(wizardRazor.Contains("YOULINK_SYNC_SECRET", StringComparison.Ordinal),
+            "Assistente 1 clique não deve expor tutorial manual de YOULINK_SYNC_SECRET ao lojista.");
         Assert.IsFalse(wizardRazor.Contains("/api/cloud/status", StringComparison.Ordinal),
             "Assistente simplificado não deve expor rotas técnicas /api/cloud/... ao lojista.");
         Assert.IsFalse(wizardRazor.Contains("style=\"", StringComparison.OrdinalIgnoreCase),
             "CloudPublishWizard.razor deve usar CSS isolado (.razor.css) e não estilos inline.");
         Assert.IsTrue(wizardCss.Contains("var(--adm-", StringComparison.Ordinal));
+
+        Assert.IsFalse(settingsPage.Contains("Conectar Servidor Central Próprio", StringComparison.Ordinal),
+            "StoreSettingsPage não deve expor campo manual para trocar servidor central.");
+        Assert.IsFalse(settingsPage.Contains("SimulateCorreiosSellerAsync", StringComparison.Ordinal),
+            "Simulador Correios não deve ficar duplicado nas Configurações da Loja (fica na tela de Pedidos).");
     }
 
     [TestMethod]

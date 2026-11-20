@@ -110,10 +110,10 @@ public sealed class AdminClientVipVerificationTests
         {
             // 1) Admin pre-grants VIP before user ever synced account from client
             var preGranted = await registry.ApplyOrCreatePlanEntitlementAsync(
-                targetEmail: "flavinhaasilva15@gmail.com",
-                targetUsername: "flavia",
-                storeName: "Loja flavia",
-                storeSlug: "loja-flavia",
+                targetEmail: "lojista.modelo@gmail.com",
+                targetUsername: "lojista",
+                storeName: "Loja Modelo",
+                storeSlug: "loja-modelo",
                 planTier: StoreSettings.PlanTierPremium,
                 durationDays: null,
                 extendExistingDuration: false,
@@ -126,29 +126,29 @@ public sealed class AdminClientVipVerificationTests
             Assert.IsTrue(preGranted.IsCourtesyVip);
 
             // Unclaimed entitlement must NOT authenticate with any password
-            var preVerify = await registry.VerifyLoginAsync(new LoginRequest("flavinhaasilva15@gmail.com", "Qualquer@123"));
+            var preVerify = await registry.VerifyLoginAsync(new LoginRequest("lojista.modelo@gmail.com", "Qualquer@123"));
             Assert.IsFalse(preVerify.Verified);
 
             // 2) Client registers and posts UpsertAccountAsync WITHOUT SyncKey and with PlanTier = Basico
-            var clientHash = hasher.HashPassword("SenhaFlavia@123");
+            var clientHash = hasher.HashPassword("SenhaLojista@123");
             var claim = await registry.UpsertAccountAsync(new CloudAccountCredentialSyncDto(
-                FullName: "Flavia Silva",
-                Username: "flavia",
-                Email: "flavinhaasilva15@gmail.com",
+                FullName: "Lojista Modelo",
+                Username: "lojista",
+                Email: "lojista.modelo@gmail.com",
                 PasswordHash: clientHash,
                 Phone: "41999991111",
-                StoreName: "Loja flavia",
-                StoreSlug: "loja-flavia",
+                StoreName: "Loja Modelo",
+                StoreSlug: "loja-modelo",
                 PlanTier: StoreSettings.PlanTierBasic));
 
             Assert.IsTrue(claim.Success);
-            var claimedMeta = await registry.GetPlanStatusWithAccountAsync("flavinhaasilva15@gmail.com", "flavia", "loja-flavia", "Loja flavia");
+            var claimedMeta = await registry.GetPlanStatusWithAccountAsync("lojista.modelo@gmail.com", "lojista", "loja-modelo", "Loja Modelo");
             Assert.IsNotNull(claimedMeta);
             Assert.AreEqual(StoreSettings.PlanTierPremium, claimedMeta!.Value.Account.PlanTier);
             Assert.IsTrue(claimedMeta.Value.Account.IsCourtesyVip);
 
             // Client can now authenticate AND receives the preserved Premium VIP
-            var postVerify = await registry.VerifyLoginAsync(new LoginRequest("flavia", "SenhaFlavia@123"));
+            var postVerify = await registry.VerifyLoginAsync(new LoginRequest("lojista", "SenhaLojista@123"));
             Assert.IsTrue(postVerify.Verified);
             Assert.AreEqual(StoreSettings.PlanTierPremium, postVerify.Account?.PlanTier);
 
@@ -181,12 +181,12 @@ public sealed class AdminClientVipVerificationTests
         try
         {
             var publish = await gateway.PublishStoreAsync(
-                BuildTenantPayload("Loja flavia", "loja-flavia", StoreSettings.PlanTierBasic),
-                requestedSlug: "loja-flavia",
+                BuildTenantPayload("Loja Modelo", "loja-modelo", StoreSettings.PlanTierBasic),
+                requestedSlug: "loja-modelo",
                 syncKeyHeader: "secret",
                 publishTokenHeader: null,
                 hasValidSyncKey: true,
-                authenticatedOwnerEmail: "flavinhaasilva15@gmail.com",
+                authenticatedOwnerEmail: "lojista.modelo@gmail.com",
                 publicServerOriginUrl: "https://youlink-loja.onrender.com");
             Assert.IsTrue(publish.Success);
 
@@ -197,9 +197,9 @@ public sealed class AdminClientVipVerificationTests
                     DurationDays: 30,
                     ExtendExistingDuration: false,
                     ActivateSite: true,
-                    StoreName: "Loja flavia",
-                    TargetUsername: "flavia",
-                    TargetEmail: "flavinhaasilva15@gmail.com",
+                    StoreName: "Loja Modelo",
+                    TargetUsername: "lojista",
+                    TargetEmail: "lojista.modelo@gmail.com",
                     IsCourtesyVip: true),
                 defaultRepo,
                 gateway,
@@ -215,9 +215,9 @@ public sealed class AdminClientVipVerificationTests
                     DurationDays: null,
                     ExtendExistingDuration: false,
                     ActivateSite: true,
-                    StoreName: "Loja flavia",
-                    TargetUsername: "flavia",
-                    TargetEmail: "flavinhaasilva15@gmail.com",
+                    StoreName: "Loja Modelo",
+                    TargetUsername: "lojista",
+                    TargetEmail: "lojista.modelo@gmail.com",
                     IsCourtesyVip: false),
                 defaultRepo,
                 gateway,
@@ -234,9 +234,9 @@ public sealed class AdminClientVipVerificationTests
                     DurationDays: null,
                     ExtendExistingDuration: false,
                     ActivateSite: true,
-                    StoreName: "Loja flavia",
-                    TargetUsername: "flavia",
-                    TargetEmail: "flavinhaasilva15@gmail.com",
+                    StoreName: "Loja Modelo",
+                    TargetUsername: "lojista",
+                    TargetEmail: "lojista.modelo@gmail.com",
                     IsCourtesyVip: true),
                 defaultRepo,
                 gateway,
@@ -246,11 +246,11 @@ public sealed class AdminClientVipVerificationTests
             Assert.AreEqual(StoreSettings.PlanTierPremium, regranted!.PlanTier);
             Assert.IsNull(regranted.PlanExpiresAt);
 
-            // Compact slug lookup ("lojaflavia" -> "loja-flavia") + check-in telemetry
+            // Compact slug lookup ("lojamodelo" -> "loja-modelo") + check-in telemetry
             var resolved = await CloudPlatformPlanSyncHelper.ResolveCloudPlanStatusAsync(
                 email: null,
                 username: null,
-                storeSlug: "lojaflavia",
+                storeSlug: "lojamodelo",
                 storeName: null,
                 clientPlanTier: StoreSettings.PlanTierBasic,
                 clientPlanExpiresAt: null,
@@ -264,7 +264,7 @@ public sealed class AdminClientVipVerificationTests
             Assert.IsTrue(resolved.IsCourtesyVip);
             Assert.IsNull(resolved.PlanRevokedAt);
 
-            var meta = await registry.GetPlanStatusWithAccountAsync("flavinhaasilva15@gmail.com", null, null, null);
+            var meta = await registry.GetPlanStatusWithAccountAsync("lojista.modelo@gmail.com", null, null, null);
             Assert.IsNotNull(meta);
             Assert.IsNotNull(meta!.Value.Account.LastClientCheckInAt);
             Assert.AreEqual(StoreSettings.PlanTierBasic, meta.Value.Account.LastReportedClientPlanTier);
@@ -283,21 +283,21 @@ public sealed class AdminClientVipVerificationTests
         try
         {
             await gateway.PublishStoreAsync(
-                BuildTenantPayload("Loja flavia", "loja-flavia", StoreSettings.PlanTierBasic),
-                requestedSlug: "loja-flavia",
+                BuildTenantPayload("Loja Modelo", "loja-modelo", StoreSettings.PlanTierBasic),
+                requestedSlug: "loja-modelo",
                 syncKeyHeader: "secret",
                 publishTokenHeader: null,
                 hasValidSyncKey: true,
-                authenticatedOwnerEmail: "flavinhaasilva15@gmail.com",
+                authenticatedOwnerEmail: "lojista.modelo@gmail.com",
                 publicServerOriginUrl: "https://youlink-loja.onrender.com");
 
             // Admin expects Premium, but server & tenant still show Basico -> AutoRepaired
             var repairedResult = await CloudPlatformPlanSyncHelper.VerifyAndRepairClientVipAsync(
                 new RemoteVerifyClientVipRequest(
-                    TargetEmail: "flavinhaasilva15@gmail.com",
-                    TargetUsername: "flavia",
-                    StoreName: "Loja flavia",
-                    StoreSlug: "loja-flavia",
+                    TargetEmail: "lojista.modelo@gmail.com",
+                    TargetUsername: "lojista",
+                    StoreName: "Loja Modelo",
+                    StoreSlug: "loja-modelo",
                     ExpectedAdminPlanTier: StoreSettings.PlanTierPremium,
                     ExpectedAdminExpiresAt: null,
                     AutoRepairIfDivergent: true,
@@ -316,20 +316,20 @@ public sealed class AdminClientVipVerificationTests
 
             // Client reports Basico on check-in -> ServerReadyAwaitingClient
             await registry.RecordClientCheckInAsync(
-                "flavinhaasilva15@gmail.com",
-                "flavia",
-                "loja-flavia",
-                "Loja flavia",
+                "lojista.modelo@gmail.com",
+                "lojista",
+                "loja-modelo",
+                "Loja Modelo",
                 StoreSettings.PlanTierBasic,
                 null,
                 "1.0.48");
 
             var awaitingResult = await CloudPlatformPlanSyncHelper.VerifyAndRepairClientVipAsync(
                 new RemoteVerifyClientVipRequest(
-                    TargetEmail: "flavinhaasilva15@gmail.com",
-                    TargetUsername: "flavia",
-                    StoreName: "Loja flavia",
-                    StoreSlug: "loja-flavia",
+                    TargetEmail: "lojista.modelo@gmail.com",
+                    TargetUsername: "lojista",
+                    StoreName: "Loja Modelo",
+                    StoreSlug: "loja-modelo",
                     ExpectedAdminPlanTier: StoreSettings.PlanTierPremium,
                     ExpectedAdminExpiresAt: null,
                     AutoRepairIfDivergent: true,
@@ -346,20 +346,20 @@ public sealed class AdminClientVipVerificationTests
 
             // Client applies Premium locally and sends client-vip-ack -> VerifiedSynced
             await registry.RecordClientCheckInAsync(
-                "flavinhaasilva15@gmail.com",
-                "flavia",
-                "loja-flavia",
-                "Loja flavia",
+                "lojista.modelo@gmail.com",
+                "lojista",
+                "loja-modelo",
+                "Loja Modelo",
                 StoreSettings.PlanTierPremium,
                 null,
                 "1.0.48");
 
             var verifiedResult = await CloudPlatformPlanSyncHelper.VerifyAndRepairClientVipAsync(
                 new RemoteVerifyClientVipRequest(
-                    TargetEmail: "flavinhaasilva15@gmail.com",
-                    TargetUsername: "flavia",
-                    StoreName: "Loja flavia",
-                    StoreSlug: "loja-flavia",
+                    TargetEmail: "lojista.modelo@gmail.com",
+                    TargetUsername: "lojista",
+                    StoreName: "Loja Modelo",
+                    StoreSlug: "loja-modelo",
                     ExpectedAdminPlanTier: StoreSettings.PlanTierPremium,
                     ExpectedAdminExpiresAt: null,
                     AutoRepairIfDivergent: true,

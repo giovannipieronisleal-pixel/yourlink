@@ -126,7 +126,7 @@ public sealed class PlatformEnhancementsTests
             ProductName: "Vestido Midi Seda",
             CategoryName: "Vestidos",
             Price: 349.90m,
-            StoreName: "Atelier Flavia",
+            StoreName: "Atelier Modelo",
             Tone: "Luxo"));
 
         Assert.IsTrue(live.UsedLiveGemini);
