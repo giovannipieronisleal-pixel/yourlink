@@ -247,6 +247,27 @@ app.UseRateLimiter();
 app.MapGet("/painel", () => Results.Redirect("/painel/index.html", permanent: false));
 app.MapGet("/painel/", () => Results.Redirect("/painel/index.html", permanent: false));
 
+app.MapGet("/api/platform/pwa-config", (HttpContext httpContext) =>
+{
+    var origin = GetPublicOrigin(httpContext).TrimEnd('/');
+    if (string.IsNullOrWhiteSpace(origin))
+        origin = AppUpdateCatalog.DefaultCentralPlatformServerUrl;
+
+    var cloudflarePanelUrl = Environment.GetEnvironmentVariable("YOULINK_CLOUDFLARE_PANEL_URL")?.Trim();
+    var panelUrl = !string.IsNullOrWhiteSpace(cloudflarePanelUrl)
+        ? cloudflarePanelUrl
+        : $"{origin}/painel/index.html";
+
+    httpContext.Response.Headers.CacheControl = "no-cache, must-revalidate";
+    return Results.Ok(new
+    {
+        panelUrl,
+        apiBase = origin,
+        version = AppUpdateCatalog.CurrentAppVersion,
+        edgeEnabled = !string.IsNullOrWhiteSpace(cloudflarePanelUrl)
+    });
+}).RequireCors("YouLinkPwaCors");
+
 app.MapMethods("/health", new[] { "GET", "HEAD" }, () => Results.Ok(new
 {
     status = "healthy",

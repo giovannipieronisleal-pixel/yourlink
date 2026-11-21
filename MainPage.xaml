@@ -3,14 +3,87 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
              xmlns:local="clr-namespace:appmaui.blazor"
              xmlns:components="clr-namespace:appmaui.blazor.Components"
-             x:Class="appmaui.blazor.MainPage">
+             x:Class="appmaui.blazor.MainPage"
+             BackgroundColor="#0B0E17">
 
-    <Grid RowDefinitions="*">
-        <BlazorWebView Grid.Row="0" x:Name="blazorWebView" HostPage="wwwroot/index.html">
+    <Grid RowDefinitions="Auto,*">
+        <!-- Barra discreta exibida somente se o celular ficar sem internet e cair no modo local -->
+        <Grid x:Name="offlineFallbackBar"
+              Grid.Row="0"
+              IsVisible="False"
+              BackgroundColor="#1E293B"
+              Padding="12,8"
+              ColumnDefinitions="*,Auto"
+              ColumnSpacing="10">
+            <Label x:Name="offlineStatusLabel"
+                   Grid.Column="0"
+                   Text="Modo local offline ativo"
+                   TextColor="#E2E8F0"
+                   FontSize="12"
+                   VerticalOptions="Center" />
+            <Button x:Name="retryCloudButton"
+                    Grid.Column="1"
+                    Text="Voltar p/ Nuvem"
+                    Clicked="OnRetryCloudClicked"
+                    BackgroundColor="#6366F1"
+                    TextColor="#FFFFFF"
+                    FontSize="12"
+                    Padding="10,4"
+                    CornerRadius="8"
+                    MinimumHeightRequest="30"
+                    HeightRequest="30" />
+        </Grid>
+
+        <!-- App local Blazor (padrão no Windows; fallback automático offline no Android) -->
+        <BlazorWebView Grid.Row="1" x:Name="blazorWebView" HostPage="wwwroot/index.html">
             <BlazorWebView.RootComponents>
                 <RootComponent Selector="#app" ComponentType="{x:Type components:Routes}" />
             </BlazorWebView.RootComponents>
         </BlazorWebView>
+
+        <!-- Painel Nuvem Instantâneo no Android: recebe atualizações sem baixar novo APK nem Play Protect -->
+        <WebView Grid.Row="1"
+                 x:Name="cloudPanelWebView"
+                 IsVisible="False"
+                 BackgroundColor="#0B0E17"
+                 Navigating="OnCloudWebViewNavigating"
+                 Navigated="OnCloudWebViewNavigated" />
+
+        <!-- Overlay leve enquanto o painel nuvem carrega pela primeira vez -->
+        <Grid x:Name="cloudLoadingOverlay"
+              Grid.Row="1"
+              IsVisible="False"
+              BackgroundColor="#0B0E17"
+              Padding="24">
+            <VerticalStackLayout VerticalOptions="Center"
+                                 HorizontalOptions="Center"
+                                 Spacing="14">
+                <ActivityIndicator IsRunning="True"
+                                   Color="#818CF8"
+                                   WidthRequest="36"
+                                   HeightRequest="36"
+                                   HorizontalOptions="Center" />
+                <Label Text="Abrindo YouLink atualizado..."
+                       TextColor="#F8FAFC"
+                       FontSize="16"
+                       FontAttributes="Bold"
+                       HorizontalTextAlignment="Center" />
+                <Label Text="Atualização automática na nuvem — sem precisar reinstalar."
+                       TextColor="#94A3B8"
+                       FontSize="12"
+                       HorizontalTextAlignment="Center" />
+                <Button Text="Usar modo offline local"
+                        Clicked="OnSwitchToLocalClicked"
+                        BackgroundColor="Transparent"
+                        BorderColor="#334155"
+                        BorderWidth="1"
+                        TextColor="#CBD5E1"
+                        FontSize="12"
+                        CornerRadius="10"
+                        Margin="0,8,0,0"
+                        HorizontalOptions="Center" />
+            </VerticalStackLayout>
+        </Grid>
     </Grid>
 
 </ContentPage>
