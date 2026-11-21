@@ -139,12 +139,13 @@ else
                         @foreach (var size in SizesForSelectedColor)
                         {
                             var active = string.Equals(_selectedSize, size, StringComparison.OrdinalIgnoreCase);
-                            var hasStock = HasStockFor(size);
+                            var qtyForSize = GetStockFor(_selectedColor, size);
+                            var hasStock = qtyForSize > 0;
                             <button type="button"
                                     class="lux-chip-btn @(active ? "active" : "")"
                                     disabled="@(!hasStock)"
                                     @onclick="() => _selectedSize = size">
-                                @size @(!hasStock ? "(esgotado)" : "")
+                                @size · @(hasStock ? $"{qtyForSize} un." : "Esgotado")
                             </button>
                         }
                     </div>
@@ -156,23 +157,23 @@ else
                 {
                     if (SelectedVariant.StockQuantity > 3)
                     {
-                        <strong>✓ Disponível agora para pedido</strong>
-                        <span>@(HasMeaningfulColors || HasMeaningfulSizes ? " — Pronta entrega na opção selecionada." : " — Produto à pronta entrega.")</span>
+                        <strong>✓ @SelectedVariant.StockQuantity unidades disponíveis</strong>
+                        <span>@(HasMeaningfulColors || HasMeaningfulSizes ? $" — Pronta entrega em {FormatSelectedVariantLabel()}." : " — Produto à pronta entrega.")</span>
                     }
                     else if (SelectedVariant.StockQuantity > 0)
                     {
-                        <strong>@(HasMeaningfulColors || HasMeaningfulSizes ? "🔥 Últimas unidades nesta opção" : "🔥 Últimas unidades em estoque")</strong>
-                        <span> — Garanta a sua unidade rapidamente pelo WhatsApp abaixo.</span>
+                        <strong>🔥 @(SelectedVariant.StockQuantity == 1 ? "Última 1 unidade disponível" : $"Últimas {SelectedVariant.StockQuantity} unidades disponíveis")</strong>
+                        <span>@(HasMeaningfulColors || HasMeaningfulSizes ? $" em {FormatSelectedVariantLabel()}." : " — Garanta a sua rapidamente.")</span>
                     }
                     else
                     {
-                        <strong>@(HasMeaningfulColors || HasMeaningfulSizes ? "Esta opção acabou no momento" : "Produto esgotado no momento")</strong>
-                        <span>@(HasMeaningfulColors || HasMeaningfulSizes ? " — Chame nossa equipe no WhatsApp para saber sobre reposição ou outra opção." : " — Chame nossa equipe no WhatsApp para saber sobre reposição.")</span>
+                        <strong>@(HasMeaningfulColors || HasMeaningfulSizes ? "Esta opção acabou no momento (0 un.)" : "Produto esgotado no momento (0 un.)")</strong>
+                        <span> — Chame nossa equipe no WhatsApp para saber sobre reposição.</span>
                     }
                 }
                 else if (_product.HasAvailableStock)
                 {
-                    <strong>✓ Disponível agora para pedido</strong>
+                    <strong>✓ @_product.TotalStockQuantity unidade(s) em estoque</strong>
                     <span> — Produto à pronta entrega.</span>
                 }
                 else
@@ -721,11 +722,24 @@ else
         _selectedSize = match?.Size;
     }
 
-    private bool HasStockFor(string size) =>
-        _product?.Variants.Any(v =>
-            (string.IsNullOrWhiteSpace(_selectedColor) || string.Equals(v.Color, _selectedColor, StringComparison.OrdinalIgnoreCase)) &&
-            string.Equals(v.Size, size, StringComparison.OrdinalIgnoreCase) &&
-            v.StockQuantity > 0) ?? false;
+    private bool HasStockFor(string size) => GetStockFor(_selectedColor, size) > 0;
+
+    private int GetStockFor(string? color, string size) =>
+        _product?.Variants
+            .Where(v =>
+                (string.IsNullOrWhiteSpace(color) || string.Equals(v.Color, color, StringComparison.OrdinalIgnoreCase)) &&
+                string.Equals(v.Size, size, StringComparison.OrdinalIgnoreCase))
+            .Sum(v => v.StockQuantity) ?? 0;
+
+    private string FormatSelectedVariantLabel()
+    {
+        var parts = new List<string>(2);
+        if (!WhatsAppLinkBuilder.IsPlaceholderColor(_selectedColor))
+            parts.Add(_selectedColor!.Trim());
+        if (!WhatsAppLinkBuilder.IsPlaceholderSize(_selectedSize))
+            parts.Add(_selectedSize!.Trim());
+        return parts.Count > 0 ? string.Join(" / ", parts) : "opção selecionada";
+    }
 
     private string _buyerCep = string.Empty;
     private int _orderQuantity = 1;

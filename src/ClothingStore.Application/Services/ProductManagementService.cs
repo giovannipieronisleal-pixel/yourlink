@@ -151,56 +151,198 @@ public sealed class ProductManagementService
         CancellationToken ct = default)
     {
         var category = await ResolveOrCreateCategoryAsync(request.CategoryId, request.CategoryName, ct);
+        var trimmedName = (request.Name ?? string.Empty).Trim();
 
-        var product = new Product(
-            category.Id,
-            request.Name,
-            request.Description,
-            request.BasePrice,
-            request.IsVisibleOnSite);
+        // Monta a lista de variantes solicitadas (grade múltipla ou variante inicial única)
+        var requestedVariants = new List<SaveProductVariantRequest>();
+        if (request.InitialVariants is { Count: > 0 })
+        {
+            foreach (var v in request.InitialVariants)
+            {
+                if (v is null) continue;
+                var hasAnyField = !string.IsNullOrWhiteSpace(v.Color) ||
+                                  !string.IsNullOrWhiteSpace(v.Size) ||
+                                  v.InitialStockQuantity > 0;
+                if (!hasAnyField) continue;
 
-        await _repository.AddProductAsync(product, ct);
-
-        var hasInitialVariantInput =
-            !string.IsNullOrWhiteSpace(request.InitialColor) ||
-            !string.IsNullOrWhiteSpace(request.InitialSize) ||
-            request.InitialStockQuantity > 0;
-
-        if (hasInitialVariantInput)
+                requestedVariants.Add(new SaveProductVariantRequest
+                {
+                    Color = string.IsNullOrWhiteSpace(v.Color) ? "Padrão" : v.Color.Trim(),
+                    ColorHex = v.ColorHex,
+                    Size = string.IsNullOrWhiteSpace(v.Size) ? "Único" : v.Size.Trim(),
+                    CustomSku = v.CustomSku,
+                    InitialStockQuantity = Math.Max(0, v.InitialStockQuantity),
+                    LowStockThreshold = v.LowStockThreshold > 0 ? v.LowStockThreshold : 3,
+                    IsActive = v.IsActive
+                });
+            }
+        }
+        else if (!string.IsNullOrWhiteSpace(request.InitialColor) ||
+                 !string.IsNullOrWhiteSpace(request.InitialSize) ||
+                 request.InitialStockQuantity > 0)
         {
             var resolvedColor = string.IsNullOrWhiteSpace(request.InitialColor) ? "Padrão" : request.InitialColor.Trim();
             var resolvedSize = string.IsNullOrWhiteSpace(request.InitialSize) ? "Único" : request.InitialSize.Trim();
-
-            var variant = product.AddVariant(
-                resolvedColor,
-                resolvedSize,
-                ProductVariant.ResolveDefaultColorHex(resolvedColor),
-                customSku: null,
-                lowStockThreshold: 3);
-
-            await _repository.UpdateProductAsync(product, ct);
-
-            if (request.InitialStockQuantity > 0)
+            requestedVariants.Add(new SaveProductVariantRequest
             {
-                var effectiveEmpId = employeeId.HasValue && employeeId.Value != Guid.Empty
-                    ? employeeId.Value
-                    : (await _repository.GetEmployeesAsync(ct)).FirstOrDefault()?.Id ?? Guid.Empty;
+                Color = resolvedColor,
+                ColorHex = ProductVariant.ResolveDefaultColorHex(resolvedColor),
+                Size = resolvedSize,
+                InitialStockQuantity = Math.Max(0, request.InitialStockQuantity),
+                LowStockThreshold = 3,
+                IsActive = true
+            });
+        }
 
-                if (effectiveEmpId != Guid.Empty)
+        // Evita duplicação acidental: se já existir produto ativo com exatamente o mesmo nome na mesma categoria
+        // e o usuário estiver cadastrando variantes/modelos, junta as variantes dentro do mesmo produto!
+        var existingProducts = await _repository.GetProductsAsync(includeArchived: false, ct);
+        var existingMatch = existingProducts.FirstOrDefault(p =>
+            p.CategoryId == category.Id &&
+            string.Equals(p.Name.Trim(), trimmedName, StringComparison.OrdinalIgnoreCase));
+
+        Product product;
+        if (existingMatch is not null && requestedVariants.Count > 0)
+        {
+            product = existingMatch;
+            if (request.BasePrice > 0 && product.BasePrice != request.BasePrice)
+            {
+                product.UpdateDetails(
+                    category.Id,
+                    product.Name,
+                    string.IsNullOrWhiteSpace(request.Description) ? product.Description : request.Description,
+                    request.BasePrice,
+                    request.IsVisibleOnSite);
+            }
+        }
+        else
+        {
+            product = new Product(
+                category.Id,
+                trimmedName,
+                request.Description,
+                request.BasePrice,
+                request.IsVisibleOnSite);
+
+            await _repository.AddProductAsync(product, ct);
+        }
+
+        if (requestedVariants.Count > 0)
+        {
+            var effectiveEmpId = employeeId.HasValue && employeeId.Value != Guid.Empty
+                ? employeeId.Value
+                : (await _repository.GetEmployeesAsync(ct)).FirstOrDefault()?.Id ?? Guid.Empty;
+
+            foreach (var rv in requestedVariants)
+            {
+                var existingVar = product.Variants.FirstOrDefault(v =>
+                    string.Equals(v.Color, rv.Color, StringComparison.OrdinalIgnoreCase) &&
+                    string.Equals(v.Size, rv.Size, StringComparison.OrdinalIgnoreCase));
+
+                ProductVariant targetVariant;
+                if (existingVar is not null)
                 {
-                    var movement = variant.ApplyStockMovement(
+                    targetVariant = existingVar;
+                }
+                else
+                {
+                    var colorHex = string.IsNullOrWhiteSpace(rv.ColorHex)
+                        ? ProductVariant.ResolveDefaultColorHex(rv.Color)
+                        : rv.ColorHex;
+                    targetVariant = product.AddVariant(
+                        rv.Color,
+                        rv.Size,
+                        colorHex,
+                        rv.CustomSku,
+                        rv.LowStockThreshold);
+                }
+
+                await _repository.UpdateProductAsync(product, ct);
+
+                if (rv.InitialStockQuantity > 0 && effectiveEmpId != Guid.Empty)
+                {
+                    var movement = targetVariant.ApplyStockMovement(
                         effectiveEmpId,
                         StockMovementType.In,
-                        request.InitialStockQuantity,
-                        "Estoque inicial no cadastro do produto");
+                        rv.InitialStockQuantity,
+                        existingMatch is not null
+                            ? "Entrada ao juntar modelo/variante no produto"
+                            : "Estoque inicial no cadastro do produto");
 
-                    await _repository.RecordStockMovementAsync(variant, movement, ct);
+                    await _repository.RecordStockMovementAsync(targetVariant, movement, ct);
                     await _repository.UpdateProductAsync(product, ct);
                 }
             }
         }
 
         return CatalogService.MapToProductDetailDto(product, category);
+    }
+
+    public async Task<int> MergeDuplicateProductsByNameAsync(Guid? employeeId = null, CancellationToken ct = default)
+    {
+        var products = (await _repository.GetProductsAsync(includeArchived: false, ct)).ToList();
+        var groups = products
+            .GroupBy(p => $"{p.CategoryId:N}|{p.Name.Trim().ToLowerInvariant()}")
+            .Where(g => g.Count() > 1)
+            .ToList();
+
+        if (groups.Count == 0)
+            return 0;
+
+        var effectiveEmpId = employeeId.HasValue && employeeId.Value != Guid.Empty
+            ? employeeId.Value
+            : (await _repository.GetEmployeesAsync(ct)).FirstOrDefault()?.Id ?? Guid.Empty;
+
+        var mergedCount = 0;
+        foreach (var group in groups)
+        {
+            var ordered = group
+                .OrderByDescending(p => p.Images.Count)
+                .ThenByDescending(p => p.Variants.Count)
+                .ThenBy(p => p.CreatedAt)
+                .ToList();
+
+            var primary = ordered[0];
+            foreach (var dup in ordered.Skip(1))
+            {
+                foreach (var dupImg in dup.Images)
+                {
+                    if (!primary.Images.Any(i => string.Equals(i.PublicUrl, dupImg.PublicUrl, StringComparison.OrdinalIgnoreCase)))
+                    {
+                        await AttachImageToProductAsync(primary, dupImg.StoragePath, dupImg.PublicUrl, dupImg.AltText, primary.Images.Count == 0, ct);
+                    }
+                }
+
+                foreach (var dupVar in dup.Variants)
+                {
+                    var matchVar = primary.Variants.FirstOrDefault(v =>
+                        string.Equals(v.Color, dupVar.Color, StringComparison.OrdinalIgnoreCase) &&
+                        string.Equals(v.Size, dupVar.Size, StringComparison.OrdinalIgnoreCase));
+
+                    if (matchVar is null)
+                    {
+                        var added = primary.AddVariant(dupVar.Color, dupVar.Size, dupVar.ColorHex, customSku: null, lowStockThreshold: dupVar.LowStockThreshold);
+                        await _repository.UpdateProductAsync(primary, ct);
+                        if (dupVar.StockQuantity > 0 && effectiveEmpId != Guid.Empty)
+                        {
+                            var mov = added.ApplyStockMovement(effectiveEmpId, StockMovementType.In, dupVar.StockQuantity, "Unificação de produto duplicado");
+                            await _repository.RecordStockMovementAsync(added, mov, ct);
+                        }
+                    }
+                    else if (dupVar.StockQuantity > 0 && effectiveEmpId != Guid.Empty)
+                    {
+                        var mov = matchVar.ApplyStockMovement(effectiveEmpId, StockMovementType.In, dupVar.StockQuantity, "Soma de estoque na unificação de produto duplicado");
+                        await _repository.RecordStockMovementAsync(matchVar, mov, ct);
+                    }
+                }
+
+                await _repository.UpdateProductAsync(primary, ct);
+                await _repository.DeleteOrArchiveProductAsync(dup.Id, ct);
+                mergedCount++;
+            }
+        }
+
+        return mergedCount;
     }
 
     public async Task<ProductDetailDto> UpdateProductAsync(Guid productId, SaveProductRequest request, CancellationToken ct = default)

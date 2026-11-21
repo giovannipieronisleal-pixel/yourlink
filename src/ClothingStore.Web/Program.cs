@@ -1388,6 +1388,30 @@ app.MapPost("/api/cloud/accounts/verify-login", async (
     return Results.Ok(res);
 });
 
+app.MapPost("/api/cloud/pull-store", async (
+    CloudPullStoreRequest request,
+    CloudAccountRegistryService accountRegistry,
+    MultiTenantGatewayService gateway,
+    CancellationToken ct) =>
+{
+    var auth = await accountRegistry.VerifyPasswordHashAsync(
+        request.Email,
+        request.Username,
+        request.PasswordHash,
+        ct);
+
+    if (!auth.Verified)
+        return Results.Unauthorized();
+
+    var response = await gateway.PullStoreSnapshotForOwnerAsync(
+        auth.Email,
+        request.StoreSlug,
+        auth.StoreSlug,
+        ct);
+
+    return Results.Ok(response);
+}).DisableAntiforgery();
+
 app.MapGet("/api/cloud/plan-status", async (
     string? email,
     string? username,

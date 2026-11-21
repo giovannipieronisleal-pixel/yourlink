@@ -64,6 +64,98 @@ public sealed class MultiTenantGatewayService
         CancellationToken ct = default) =>
         await _storeResolver.ResolveReadRepositoryAsync(storeSlug, ct);
 
+    public async Task<CloudPullStoreResponse> PullStoreSnapshotForOwnerAsync(
+        string? ownerEmail,
+        string? requestedSlug,
+        string? accountSlug,
+        CancellationToken ct = default)
+    {
+        var candidateSlugs = new List<string>(3);
+        void TryAddSlug(string? raw)
+        {
+            if (string.IsNullOrWhiteSpace(raw))
+                return;
+            var norm = _storeResolver.NormalizeStoreSlug(raw);
+            if (!string.IsNullOrWhiteSpace(norm) &&
+                !string.Equals(norm, "minha-loja", StringComparison.OrdinalIgnoreCase) &&
+                !candidateSlugs.Contains(norm, StringComparer.OrdinalIgnoreCase))
+            {
+                candidateSlugs.Add(norm);
+            }
+        }
+
+        TryAddSlug(requestedSlug);
+        TryAddSlug(accountSlug);
+
+        string? matchedSlug = null;
+        string? publishToken = null;
+        var cleanEmail = string.IsNullOrWhiteSpace(ownerEmail) ? null : ownerEmail.Trim();
+
+        foreach (var slug in candidateSlugs)
+        {
+            var creds = await _storeResolver.GetTenantCredentialsAsync(slug, ct);
+            if (creds is not null &&
+                (string.IsNullOrWhiteSpace(creds.OwnerEmail) ||
+                 string.IsNullOrWhiteSpace(cleanEmail) ||
+                 string.Equals(creds.OwnerEmail.Trim(), cleanEmail, StringComparison.OrdinalIgnoreCase)))
+            {
+                matchedSlug = slug;
+                break;
+            }
+        }
+
+        if (matchedSlug is null && !string.IsNullOrWhiteSpace(cleanEmail))
+        {
+            var allSlugs = await _storeResolver.ListTenantSlugsAsync(ct);
+            foreach (var slug in allSlugs)
+            {
+                if (string.IsNullOrWhiteSpace(slug) || string.Equals(slug, "__root__", StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                var creds = await _storeResolver.GetTenantCredentialsAsync(slug, ct);
+                if (creds is not null &&
+                    !string.IsNullOrWhiteSpace(creds.OwnerEmail) &&
+                    string.Equals(creds.OwnerEmail.Trim(), cleanEmail, StringComparison.OrdinalIgnoreCase))
+                {
+                    matchedSlug = slug;
+                    break;
+                }
+            }
+        }
+
+        if (string.IsNullOrWhiteSpace(matchedSlug))
+        {
+            return new CloudPullStoreResponse(
+                Found: false,
+                StoreSlug: null,
+                PublishToken: null,
+                SyncedAt: null,
+                Payload: null,
+                Message: "Nenhuma loja publicada na nuvem foi encontrada para esta conta ainda.");
+        }
+
+        var repo = await _storeResolver.ResolveReadRepositoryAsync(matchedSlug, ct);
+        if (repo is null)
+        {
+            return new CloudPullStoreResponse(
+                Found: false,
+                StoreSlug: matchedSlug,
+                PublishToken: publishToken,
+                SyncedAt: null,
+                Payload: null,
+                Message: "Repositório da loja não encontrado na nuvem.");
+        }
+
+        var payload = await CreateSyncService(repo).ExportSyncPayloadAsync(ct);
+        return new CloudPullStoreResponse(
+            Found: true,
+            StoreSlug: matchedSlug,
+            PublishToken: publishToken,
+            SyncedAt: payload.Settings.LastOnlineSyncAt ?? DateTimeOffset.UtcNow,
+            Payload: payload,
+            Message: $"Loja '{payload.Settings.StoreName}' carregada da nuvem com {payload.CatalogSnapshot?.Count ?? 0} produto(s)!");
+    }
+
     public async Task<CloudStorePublishResponse> PublishStoreAsync(
         CloudCatalogSyncPayload payload,
         string? requestedSlug,

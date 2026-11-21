@@ -99,3 +99,21 @@ public sealed record RenderStoreLinkAvailabilityDto(
     bool OwnedByCurrentAccount,
     string Message,
     IReadOnlyList<string> Suggestions);
+
+/// <summary>
+/// Requisição autenticada pelo hash de senha da conta para baixar a loja completa (configurações,
+/// categorias, produtos, variantes e fotos) do servidor central para outro dispositivo (Windows <-> Android).
+/// </summary>
+public sealed record CloudPullStoreRequest(
+    string? Email,
+    string? Username,
+    string PasswordHash,
+    string? StoreSlug = null);
+
+public sealed record CloudPullStoreResponse(
+    bool Found,
+    string? StoreSlug,
+    string? PublishToken,
+    DateTimeOffset? SyncedAt,
+    CloudCatalogSyncPayload? Payload,
+    string? Message = null);

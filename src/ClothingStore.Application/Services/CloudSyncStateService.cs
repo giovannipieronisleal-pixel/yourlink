@@ -60,6 +60,111 @@ public sealed class CloudSyncStateService
             AppliedSettings: appliedSettings);
     }
 
+    public async Task<CloudCatalogSyncPayload> ExportSyncPayloadAsync(CancellationToken ct = default)
+    {
+        var settings = await _repository.GetStoreSettingsAsync(ct);
+        var categories = await _repository.GetCategoriesAsync(onlyActive: false, ct);
+        var products = await _repository.GetProductsAsync(includeArchived: false, ct);
+        var categoriesById = categories.ToDictionary(c => c.Id, c => c);
+
+        return new CloudCatalogSyncPayload
+        {
+            Settings = new UpdateStoreSettingsRequest
+            {
+                StoreName = settings.StoreName,
+                StoreSlug = settings.StoreSlug,
+                WhatsappNumber = settings.WhatsappNumber,
+                StoreDescription = settings.StoreDescription,
+                LogoPublicUrl = settings.LogoPublicUrl,
+                DefaultLowStockThreshold = settings.DefaultLowStockThreshold,
+                OnlineBaseUrl = settings.OnlineBaseUrl,
+                AutoSyncOnlineOnSave = settings.AutoSyncOnlineOnSave,
+                IsSiteActive = settings.IsSiteActive,
+                DeactivationReason = settings.DeactivationReason,
+                LastOnlineSyncAt = settings.LastOnlineSyncAt ?? DateTimeOffset.UtcNow,
+                PlanTier = settings.PlanTier,
+                BasicPlanMonthlyPrice = settings.BasicPlanMonthlyPrice,
+                IntermediaryPlanMonthlyPrice = settings.IntermediaryPlanMonthlyPrice,
+                PremiumPlanMonthlyPrice = settings.PremiumPlanMonthlyPrice,
+                PicpayPixKey = settings.PicpayPixKey,
+                Design = StoreDesignMapper.ToDto(settings.GetEffectivePublicDesign()),
+                DirectPixSalesEnabled = settings.DirectPixSalesEnabled,
+                ManualSalesEnabled = settings.ManualSalesEnabled,
+                PixGatewayMode = settings.PixGatewayMode,
+                StorePixKey = settings.StorePixKey,
+                StorePixReceiverName = settings.StorePixReceiverName,
+                OriginCep = settings.OriginCep,
+                OriginCity = settings.OriginCity,
+                OriginState = settings.OriginState,
+                DeliveryScopeMode = settings.DeliveryScopeMode,
+                MaxDeliveryDistanceKm = settings.MaxDeliveryDistanceKm,
+                DefaultPackageWeightGrams = settings.DefaultPackageWeightGrams,
+                ServerHostingMode = settings.ServerHostingMode,
+                OwnServerProvider = settings.OwnServerProvider,
+                CentralCatalogBaseUrl = settings.CentralCatalogBaseUrl
+            },
+            Categories = categories.Select(c => new SaveCategoryRequest
+            {
+                Name = c.Name,
+                Description = c.Description,
+                DisplayOrder = c.DisplayOrder,
+                IsActive = c.IsActive
+            }).ToList(),
+            Products = products.Select(p =>
+            {
+                categoriesById.TryGetValue(p.CategoryId, out var cat);
+                return new SaveProductRequest
+                {
+                    CategoryId = p.CategoryId,
+                    CategoryName = cat?.Name ?? p.Category?.Name,
+                    Name = p.Name,
+                    Description = p.Description,
+                    BasePrice = p.BasePrice,
+                    IsVisibleOnSite = p.IsVisibleOnSite
+                };
+            }).ToList(),
+            CatalogSnapshot = products.Select(p =>
+            {
+                categoriesById.TryGetValue(p.CategoryId, out var cat);
+                return new CloudProductSyncDto
+                {
+                    SourceId = p.Id,
+                    CategoryName = cat?.Name ?? p.Category?.Name ?? "Geral",
+                    CategorySlug = cat?.Slug ?? p.Category?.Slug,
+                    Name = p.Name,
+                    Slug = p.Slug,
+                    Description = p.Description,
+                    BasePrice = p.BasePrice,
+                    IsVisibleOnSite = p.IsVisibleOnSite,
+                    Variants = p.Variants
+                        .Where(v => v.IsActive)
+                        .Select(v => new CloudProductVariantSyncDto
+                        {
+                            Color = v.Color,
+                            ColorHex = v.ColorHex,
+                            Size = v.Size,
+                            Sku = v.Sku,
+                            StockQuantity = v.StockQuantity,
+                            LowStockThreshold = v.LowStockThreshold,
+                            IsActive = v.IsActive
+                        })
+                        .ToList(),
+                    Images = p.Images
+                        .OrderBy(i => i.DisplayOrder)
+                        .Select(i => new CloudProductImageSyncDto
+                        {
+                            PublicUrl = i.PublicUrl,
+                            StoragePath = i.StoragePath,
+                            AltText = i.AltText,
+                            DisplayOrder = i.DisplayOrder,
+                            IsPrimary = i.IsPrimary
+                        })
+                        .ToList()
+                };
+            }).ToList()
+        };
+    }
+
     private async Task<AdminStoreSettingsDto> ApplySettingsAsync(
         UpdateStoreSettingsRequest settingsRequest,
         CancellationToken ct)

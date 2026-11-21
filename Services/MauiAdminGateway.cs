@@ -469,6 +469,7 @@ public sealed class MauiAdminGateway
             }
 
             _ = RefreshPlanFromCentralCloudBestEffortAsync(forceRefresh: false);
+            _ = PullStoreSnapshotFromCentralCloudBestEffortAsync(forceOverwriteLocal: false);
         }
         catch
         {
@@ -1061,6 +1062,17 @@ public sealed class MauiAdminGateway
             () => _apiClient.DeleteOrArchiveProductAsync(productId),
             () => _productService.DeleteOrArchiveProductAsync(productId));
         _cloudSyncService?.TriggerAutoSyncIfEnabled();
+    }
+
+    public async Task<int> MergeDuplicateProductsByNameAsync()
+    {
+        EnsureProductPermission();
+        var merged = await _productService.MergeDuplicateProductsByNameAsync(CurrentEmployee?.EmployeeId);
+        if (merged > 0)
+        {
+            _cloudSyncService?.TriggerAutoSyncIfEnabled();
+        }
+        return merged;
     }
 
     // Imagens do Produto
@@ -2562,12 +2574,58 @@ public sealed class MauiAdminGateway
         return true;
     }
 
+    public async Task<(bool Pulled, string Message)> PullStoreSnapshotFromCentralCloudBestEffortAsync(
+        bool forceOverwriteLocal = false,
+        CancellationToken ct = default)
+    {
+        if (!IsAuthenticated || _cloudSyncService is null || CurrentEmployee is null)
+            return (false, "Faça login para sincronizar sua loja da nuvem.");
+
+        try
+        {
+            string? passwordHash = null;
+            if (_workspaceRepository is not null)
+            {
+                var user = await _workspaceRepository.GetUserByIdAsync(CurrentEmployee.UserId, ct);
+                passwordHash = user?.PasswordHash;
+            }
+
+            if (string.IsNullOrWhiteSpace(passwordHash))
+                return (false, "Credenciais locais indisponíveis para puxar da nuvem.");
+
+            var settings = await _employeeAndSettingsService.GetAdminStoreSettingsAsync(ct);
+            var (pulled, message) = await _cloudSyncService.PullStoreSnapshotFromCloudAsync(
+                _employeeAndSettingsService,
+                CurrentEmployee.Email,
+                CurrentEmployee.EffectiveUsername,
+                passwordHash,
+                settings.StoreSlug,
+                forceOverwriteLocal,
+                ct);
+
+            if (pulled)
+            {
+                var refreshed = await _employeeAndSettingsService.GetAdminStoreSettingsAsync(ct);
+                PlanEntitlementActivated?.Invoke(refreshed);
+                AuthStateChanged?.Invoke();
+            }
+
+            return (pulled, message);
+        }
+        catch (Exception ex)
+        {
+            return (false, ex.Message);
+        }
+    }
+
     private async Task WaitBrieflyForPlanSyncOnLoginAsync()
     {
         try
         {
-            var refreshTask = RefreshPlanFromCentralCloudBestEffortAsync(forceRefresh: true);
-            await Task.WhenAny(refreshTask, Task.Delay(TimeSpan.FromMilliseconds(2200)));
+            var refreshTask = Task.WhenAll(
+                RefreshPlanFromCentralCloudBestEffortAsync(forceRefresh: true),
+                PullStoreSnapshotFromCentralCloudBestEffortAsync(forceOverwriteLocal: false));
+            await Task.WhenAny(refreshTask, Task.Delay(TimeSpan.FromMilliseconds(3500)));
         }
         catch
         {

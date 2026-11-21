@@ -170,6 +170,46 @@ public sealed class CloudAccountRegistryService
         }
     }
 
+    public async Task<(bool Verified, string? Email, string? Username, string? StoreSlug)> VerifyPasswordHashAsync(
+        string? email,
+        string? username,
+        string? passwordHash,
+        CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(passwordHash) ||
+            (string.IsNullOrWhiteSpace(email) && string.IsNullOrWhiteSpace(username)))
+        {
+            return (false, null, null, null);
+        }
+
+        var normEmail = NormalizeIdentifier(email);
+        var normUser = NormalizeIdentifier(username);
+        var providedBytes = System.Text.Encoding.UTF8.GetBytes(passwordHash.Trim());
+
+        await _lock.WaitAsync(ct);
+        try
+        {
+            ReloadFromDiskIfModifiedUnsafe();
+            var match = _state.Accounts.FirstOrDefault(a =>
+                (!string.IsNullOrWhiteSpace(normEmail) && string.Equals(NormalizeIdentifier(a.Email), normEmail, StringComparison.OrdinalIgnoreCase)) ||
+                (!string.IsNullOrWhiteSpace(normUser) && string.Equals(NormalizeIdentifier(a.Username), normUser, StringComparison.OrdinalIgnoreCase)));
+
+            if (match is null || string.IsNullOrWhiteSpace(match.PasswordHash))
+                return (false, null, null, null);
+
+            var expectedBytes = System.Text.Encoding.UTF8.GetBytes(match.PasswordHash.Trim());
+            var ok = expectedBytes.Length == providedBytes.Length &&
+                     System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(expectedBytes, providedBytes);
+            return ok
+                ? (true, match.Email, match.Username, match.StoreSlug)
+                : (false, null, null, null);
+        }
+        finally
+        {
+            _lock.Release();
+        }
+    }
+
     public async Task<CloudVerifyLoginResponseDto> VerifyLoginAsync(
         LoginRequest request,
         CancellationToken ct = default)

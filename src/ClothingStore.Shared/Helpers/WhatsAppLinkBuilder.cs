@@ -114,6 +114,56 @@ public static class WhatsAppLinkBuilder
     public static string GenerateWhatsAppVerificationCode() =>
         RandomNumberGenerator.GetInt32(1000, 10000).ToString(CultureInfo.InvariantCulture);
 
+    /// <summary>
+    /// Gera um código determinístico de 4 dígitos (1000–9999) vinculado ao número de WhatsApp informado.
+    /// O cliente solicita o código no WhatsApp oficial de Suporte e o administrador gera/envia o mesmo código no YouLink Admin.
+    /// </summary>
+    public static string GenerateSupportWhatsAppVerificationCode(string? rawPhone)
+    {
+        var validation = ValidateBrazilianWhatsAppNumber(rawPhone);
+        var normalized = validation.IsValid ? validation.NormalizedNumber : SanitizePhoneNumber(rawPhone);
+        if (string.IsNullOrWhiteSpace(normalized))
+            return string.Empty;
+
+        var keyBytes = Encoding.UTF8.GetBytes("YouLink.SupportWhatsAppVerify.Key.v1");
+        var dataBytes = Encoding.UTF8.GetBytes($"wa-verify:{normalized}");
+        using var hmac = new HMACSHA256(keyBytes);
+        var hash = hmac.ComputeHash(dataBytes);
+        var value = BitConverter.ToUInt32(hash, 0) % 9000u + 1000u;
+        return value.ToString("0000", CultureInfo.InvariantCulture);
+    }
+
+    public static string? BuildSupportVerificationRequestLink(
+        string? supportPhone,
+        string? merchantPhone,
+        string? storeName = null)
+    {
+        var cleanSupport = SanitizeSupportPhone(supportPhone);
+        if (string.IsNullOrWhiteSpace(cleanSupport))
+            return null;
+
+        var validation = ValidateBrazilianWhatsAppNumber(merchantPhone);
+        var displayPhone = validation.IsValid ? validation.FormattedDisplay : (merchantPhone ?? string.Empty).Trim();
+        var storeLabel = string.IsNullOrWhiteSpace(storeName) ? "minha loja" : $"a loja *{storeName.Trim()}*";
+        var message = $"Olá Suporte YouLink! Quero confirmar o WhatsApp d{storeLabel}: *{displayPhone}*.\nPode me enviar meu código de verificação de 4 dígitos?";
+        return $"https://wa.me/{cleanSupport}?text={Uri.EscapeDataString(message)}";
+    }
+
+    public static string? BuildSupportVerificationReplyLink(
+        string? merchantPhone,
+        string verificationCode,
+        string? storeName = null)
+    {
+        var validation = ValidateBrazilianWhatsAppNumber(merchantPhone);
+        if (!validation.IsValid)
+            return null;
+
+        var cleanCode = (verificationCode ?? string.Empty).Trim();
+        var storeLabel = string.IsNullOrWhiteSpace(storeName) ? "YouLink" : $"YouLink ({storeName.Trim()})";
+        var message = $"✅ Seu código de verificação do WhatsApp no {storeLabel} é: *{cleanCode}*\n\nDigite esses 4 números no aplicativo para concluir a autenticação.";
+        return $"https://wa.me/{validation.NormalizedNumber}?text={Uri.EscapeDataString(message)}";
+    }
+
     public static string BuildWhatsAppVerificationLink(string? rawPhone, string verificationCode, string? storeName = null)
     {
         var validation = ValidateBrazilianWhatsAppNumber(rawPhone);

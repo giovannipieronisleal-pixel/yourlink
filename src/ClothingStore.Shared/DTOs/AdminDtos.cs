@@ -74,6 +74,11 @@ public sealed class SaveProductRequest
     public string? InitialColor { get; set; }
     public string? InitialSize { get; set; }
     public int InitialStockQuantity { get; set; }
+
+    /// <summary>
+    /// Lista opcional de variantes (Cor/Modelo + Tamanho/Opção + Estoque) para cadastrar tudo junto dentro do mesmo produto.
+    /// </summary>
+    public List<SaveProductVariantRequest>? InitialVariants { get; set; }
 }
 
 public sealed class SaveProductVariantRequest

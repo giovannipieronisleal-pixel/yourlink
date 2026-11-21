@@ -1484,9 +1484,25 @@ public sealed class GoogleCloudSyncService
                     return;
 
                 var settings = await _repository.GetStoreSettingsAsync(debounceCts.Token);
-                if (settings.AutoSyncOnlineOnSave && !string.IsNullOrWhiteSpace(settings.OnlineBaseUrl))
+                if (!settings.AutoSyncOnlineOnSave)
+                    return;
+
+                var hasConfiguredStore =
+                    (!string.IsNullOrWhiteSpace(settings.StoreName) &&
+                     !string.Equals(settings.StoreName.Trim(), "Minha Loja", StringComparison.OrdinalIgnoreCase)) ||
+                    (await _repository.GetProductsAsync(includeArchived: false, debounceCts.Token)).Count > 0;
+
+                if (!string.IsNullOrWhiteSpace(settings.OnlineBaseUrl))
                 {
                     await SyncCatalogToCloudAsync(debounceCts.Token);
+                }
+                else if (hasConfiguredStore)
+                {
+                    var centralUrl = ResolveCentralServerBaseUrl(settings, workspaceId: CurrentWorkspaceId);
+                    if (!string.IsNullOrWhiteSpace(centralUrl))
+                    {
+                        await PublishToCentralServerAsync(centralUrl, ct: debounceCts.Token);
+                    }
                 }
             }
             catch (OperationCanceledException)
@@ -1496,6 +1512,120 @@ public sealed class GoogleCloudSyncService
             {
             }
         });
+    }
+
+    /// <summary>
+    /// Baixa o snapshot completo da loja (configurações, visual, categorias, produtos, variantes e fotos)
+    /// do servidor central para manter Windows e Android interligados na mesma conta.
+    /// </summary>
+    public async Task<(bool Pulled, string Message)> PullStoreSnapshotFromCloudAsync(
+        EmployeeAndSettingsService settingsService,
+        string? email,
+        string? username,
+        string? passwordHash,
+        string? storeSlugHint = null,
+        bool forceOverwriteLocal = false,
+        CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(passwordHash) ||
+            (string.IsNullOrWhiteSpace(email) && string.IsNullOrWhiteSpace(username)))
+        {
+            return (false, "Conta local sem credenciais prontas para sincronizar da nuvem.");
+        }
+
+        await _syncLock.WaitAsync(ct);
+        try
+        {
+            var localSettings = await _repository.GetStoreSettingsAsync(ct);
+            var localProducts = await _repository.GetProductsAsync(includeArchived: false, ct);
+            var isLocalDefaultOrEmpty =
+                (string.IsNullOrWhiteSpace(localSettings.StoreName) ||
+                 string.Equals(localSettings.StoreName.Trim(), "Minha Loja", StringComparison.OrdinalIgnoreCase)) &&
+                localProducts.Count == 0;
+
+            var targetBase = ResolveCentralServerBaseUrl(localSettings, workspaceId: CurrentWorkspaceId);
+            if (string.IsNullOrWhiteSpace(targetBase))
+                return (false, "Servidor central indisponível.");
+
+            var slugToQuery = !string.IsNullOrWhiteSpace(storeSlugHint) &&
+                              !string.Equals(storeSlugHint.Trim(), "minha-loja", StringComparison.OrdinalIgnoreCase)
+                ? storeSlugHint.Trim()
+                : (!string.IsNullOrWhiteSpace(localSettings.StoreSlug) &&
+                   !string.Equals(localSettings.StoreSlug.Trim(), "minha-loja", StringComparison.OrdinalIgnoreCase)
+                    ? localSettings.StoreSlug.Trim()
+                    : null);
+
+            var req = new CloudPullStoreRequest(
+                Email: email?.Trim(),
+                Username: username?.Trim(),
+                PasswordHash: passwordHash.Trim(),
+                StoreSlug: slugToQuery);
+
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            cts.CancelAfter(TimeSpan.FromSeconds(25));
+
+            var endpoint = $"{targetBase.TrimEnd('/')}/api/cloud/pull-store";
+            using var resp = await _externalHttpClient.PostAsJsonAsync(endpoint, req, SyncPayloadJsonOptions, cts.Token);
+            if (!resp.IsSuccessStatusCode)
+                return (false, $"Servidor respondeu HTTP {(int)resp.StatusCode} ao buscar loja na nuvem.");
+
+            var pulled = await resp.Content.ReadFromJsonAsync<CloudPullStoreResponse>(SyncPayloadJsonOptions, cts.Token);
+            if (pulled is null || !pulled.Found || pulled.Payload is null)
+                return (false, pulled?.Message ?? "Nenhuma loja publicada na nuvem encontrada para esta conta.");
+
+            var remoteProductsCount = pulled.Payload.CatalogSnapshot?.Count ?? pulled.Payload.Products.Count;
+            var remoteIsConfigured =
+                !string.IsNullOrWhiteSpace(pulled.Payload.Settings.StoreName) &&
+                !string.Equals(pulled.Payload.Settings.StoreName.Trim(), "Minha Loja", StringComparison.OrdinalIgnoreCase);
+
+            var remoteIsNewer =
+                pulled.SyncedAt.HasValue &&
+                (!localSettings.LastOnlineSyncAt.HasValue || pulled.SyncedAt.Value > localSettings.LastOnlineSyncAt.Value.AddSeconds(2));
+
+            if (!forceOverwriteLocal && !isLocalDefaultOrEmpty && !remoteIsNewer)
+            {
+                return (false, "Os dados locais já estão atualizados em relação à nuvem.");
+            }
+
+            if (!remoteIsConfigured && remoteProductsCount == 0 && !forceOverwriteLocal)
+            {
+                return (false, "A loja na nuvem ainda está vazia.");
+            }
+
+            var syncApplier = new CloudSyncStateService(_repository, settingsService);
+            var applied = await syncApplier.ApplySyncPayloadAsync(pulled.Payload, ct);
+
+            var updatedSettings = await _repository.GetStoreSettingsAsync(ct);
+            var effectiveSlug = !string.IsNullOrWhiteSpace(pulled.StoreSlug)
+                ? pulled.StoreSlug.Trim()
+                : applied.StoreSlug;
+
+            if (!string.IsNullOrWhiteSpace(pulled.PublishToken))
+            {
+                SaveCachedPublishToken(effectiveSlug, pulled.PublishToken);
+            }
+
+            updatedSettings.OnlineBaseUrl = targetBase.TrimEnd('/');
+            updatedSettings.ServerHostingMode = HostingModePlatformShared;
+            updatedSettings.AutoSyncOnlineOnSave = true;
+            updatedSettings.LastOnlineSyncAt = pulled.SyncedAt ?? DateTimeOffset.UtcNow;
+            updatedSettings.ConfigureCentralPublishing(targetBase.TrimEnd('/'), pulled.PublishToken, preserveExistingToken: true);
+            await _repository.UpdateStoreSettingsAsync(updatedSettings, ct);
+
+            LastSyncTime = updatedSettings.LastOnlineSyncAt;
+            IsCloudOnline = true;
+            OnSyncStatusChanged?.Invoke();
+
+            return (true, $"✓ Loja '{applied.StoreName}' sincronizada da nuvem ({applied.ProductsCount} produto(s), {applied.CategoriesCount} categoria(s))!");
+        }
+        catch (Exception ex)
+        {
+            return (false, $"Não foi possível baixar a loja da nuvem: {ex.Message}");
+        }
+        finally
+        {
+            _syncLock.Release();
+        }
     }
 
     /// <summary>

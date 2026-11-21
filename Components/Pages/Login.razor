@@ -1021,16 +1021,26 @@
         }
 
         _initStoreWhatsapp = check.NormalizedNumber;
-        _initPendingWhatsappCode = WhatsAppLinkBuilder.GenerateWhatsAppVerificationCode();
+        _initPendingWhatsappCode = WhatsAppLinkBuilder.GenerateSupportWhatsAppVerificationCode(check.NormalizedNumber);
         _initWhatsappCodeInput = string.Empty;
 
-        var waUrl = WhatsAppLinkBuilder.BuildWhatsAppVerificationLink(
+        var catalog = await Gateway.TryLoadPublicPlatformCatalogAsync();
+        var supportUrl = WhatsAppLinkBuilder.BuildSupportVerificationRequestLink(
+            catalog?.SupportWhatsappNumber,
             check.NormalizedNumber,
-            _initPendingWhatsappCode,
             _initStoreName);
-        await Gateway.OpenExternalUrlSafeAsync(waUrl);
-        _initWhatsappFeedbackOk = true;
-        _initWhatsappFeedback = $"📲 Abrimos seu WhatsApp ({check.FormattedDisplay}) com o código de 4 dígitos.";
+
+        if (!string.IsNullOrWhiteSpace(supportUrl))
+        {
+            await Gateway.OpenExternalUrlSafeAsync(supportUrl);
+            _initWhatsappFeedbackOk = true;
+            _initWhatsappFeedback = $"📲 Abrimos o WhatsApp do Suporte! Envie a mensagem pelo seu número {check.FormattedDisplay} para receber seu código de 4 dígitos.";
+        }
+        else
+        {
+            _initWhatsappFeedbackOk = false;
+            _initWhatsappFeedback = "⚠️ Peça o código de 4 dígitos no WhatsApp do Suporte YouLink e digite abaixo.";
+        }
     }
 
     private void ConfirmInitWhatsappCode()

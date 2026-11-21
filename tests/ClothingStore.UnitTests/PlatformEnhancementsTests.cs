@@ -319,4 +319,101 @@ public sealed class PlatformEnhancementsTests
         Assert.IsTrue(manual.Contains("Estúdio IA Gemini", StringComparison.Ordinal));
         Assert.IsTrue(manual.Contains("Cloudflare Turnstile", StringComparison.Ordinal));
     }
+
+    [TestMethod]
+    public async Task ProductVariantMerge_SupportWhatsappCode_And_CloudPullStore_ShouldWorkEndToEnd()
+    {
+        // 1. Support-issued WhatsApp verification code (deterministic 4 digits, request goes to Support number without leaking code)
+        var code1 = WhatsAppLinkBuilder.GenerateSupportWhatsAppVerificationCode("(41) 98877-6655");
+        var code2 = WhatsAppLinkBuilder.GenerateSupportWhatsAppVerificationCode("5541988776655");
+        Assert.AreEqual(4, code1.Length);
+        Assert.AreEqual(code1, code2);
+
+        var reqLink = WhatsAppLinkBuilder.BuildSupportVerificationRequestLink("5511977776666", "41988776655", "Loja Modelo");
+        Assert.IsNotNull(reqLink);
+        Assert.IsTrue(reqLink!.StartsWith("https://wa.me/5511977776666?text=", StringComparison.Ordinal));
+        Assert.IsFalse(reqLink.Contains(code1, StringComparison.Ordinal), "A solicitação ao suporte não deve vazar o código para o usuário.");
+
+        var replyLink = WhatsAppLinkBuilder.BuildSupportVerificationReplyLink("41988776655", code1, "Loja Modelo");
+        Assert.IsNotNull(replyLink);
+        Assert.IsTrue(replyLink!.StartsWith("https://wa.me/5541988776655?text=", StringComparison.Ordinal));
+        Assert.IsTrue(replyLink.Contains(code1, StringComparison.Ordinal));
+
+        // 2. Product creation with multiple variants + same-name merge (no duplicate product!)
+        var tempDir = Path.Combine(Path.GetTempPath(), $"youlink_variant_merge_{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+        try
+        {
+            var hasher = new ClothingStore.Infrastructure.Security.Pbkdf2PasswordHasher();
+            var repo = new ClothingStoreRepository(hasher, Path.Combine(tempDir, "db.json"));
+            var storage = new ClothingStore.Infrastructure.Storage.SupabaseImageStorageService(
+                new HttpClient(),
+                new Microsoft.Extensions.Configuration.ConfigurationBuilder().Build(),
+                Path.Combine(tempDir, "wwwroot"));
+            var auth = new AuthService(repo, hasher, new ClothingStore.Infrastructure.Security.JwtTokenService(new Microsoft.Extensions.Configuration.ConfigurationBuilder().Build()));
+            var reg = await auth.RegisterUserAccountAsync(new RegisterUserAccountRequest("Lojista Modelo", "lojista@modelo.com", "Senha@123", "lojista"));
+
+            var productService = new ProductManagementService(repo, storage);
+            var cat = await productService.CreateCategoryAsync(new SaveCategoryRequest { Name = "Camisas" });
+
+            var created = await productService.CreateProductAsync(new SaveProductRequest
+            {
+                CategoryId = cat.Id,
+                Name = "Camisa social malha fina",
+                BasePrice = 60.00m,
+                InitialVariants =
+                [
+                    new SaveProductVariantRequest { Color = "Preta", Size = "M", InitialStockQuantity = 5 },
+                    new SaveProductVariantRequest { Color = "Preta", Size = "GG", InitialStockQuantity = 2 }
+                ]
+            }, reg.Employee.EmployeeId);
+
+            Assert.AreEqual(2, created.Variants.Count);
+            Assert.AreEqual(7, created.TotalStockQuantity);
+
+            // Adding another model/color with same product name must MERGE into the same product
+            var merged = await productService.CreateProductAsync(new SaveProductRequest
+            {
+                CategoryId = cat.Id,
+                Name = "Camisa social malha fina",
+                BasePrice = 60.00m,
+                InitialVariants =
+                [
+                    new SaveProductVariantRequest { Color = "Branca", Size = "M", InitialStockQuantity = 4 }
+                ]
+            }, reg.Employee.EmployeeId);
+
+            Assert.AreEqual(created.Id, merged.Id, "Não deve criar produto duplicado ao adicionar nova variante com o mesmo nome.");
+            Assert.AreEqual(3, merged.Variants.Count);
+            Assert.AreEqual(11, merged.TotalStockQuantity);
+
+            var allProducts = await productService.GetAdminProductsAsync();
+            Assert.AreEqual(1, allProducts.Count);
+
+            // 3. Cross-device Cloud Pull Store endpoint & export/import roundtrip
+            var settingsSvc = new EmployeeAndSettingsService(repo, hasher, storage);
+            var syncSvc = new CloudSyncStateService(repo, settingsSvc);
+            var exported = await syncSvc.ExportSyncPayloadAsync();
+            Assert.AreEqual(1, exported.CatalogSnapshot!.Count);
+            Assert.AreEqual(3, exported.CatalogSnapshot[0].Variants.Count);
+
+            var secondDeviceRepo = new ClothingStoreRepository(hasher, Path.Combine(tempDir, "device2.json"));
+            var secondDeviceSettingsSvc = new EmployeeAndSettingsService(secondDeviceRepo, hasher, storage);
+            var secondDeviceSyncSvc = new CloudSyncStateService(secondDeviceRepo, secondDeviceSettingsSvc);
+            var applied = await secondDeviceSyncSvc.ApplySyncPayloadAsync(exported);
+            Assert.AreEqual(1, applied.ProductsCount);
+
+            var pulledProducts = await secondDeviceRepo.GetProductsAsync();
+            Assert.AreEqual(1, pulledProducts.Count);
+            Assert.AreEqual(3, pulledProducts[0].Variants.Count);
+
+            var root = ResolveRepoRoot();
+            var webProgram = File.ReadAllText(Path.Combine(root, "src", "ClothingStore.Web", "Program.cs"));
+            Assert.IsTrue(webProgram.Contains("/api/cloud/pull-store", StringComparison.Ordinal));
+        }
+        finally
+        {
+            try { Directory.Delete(tempDir, recursive: true); } catch { }
+        }
+    }
 }

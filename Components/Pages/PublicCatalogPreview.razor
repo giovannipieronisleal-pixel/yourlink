@@ -401,7 +401,7 @@
                                                 @onclick="() => _detailSize = v.Size">
                                             <span>@v.Size</span>
                                             <span style="font-size: 0.75rem; opacity: 0.85;">
-                                                (@(v.StockQuantity > 3 ? "Disponível" : v.StockQuantity > 0 ? "Últimas" : "Esgotado"))
+                                                · @(v.StockQuantity > 0 ? $"{v.StockQuantity} un." : "Esgotado")
                                             </span>
                                         </button>
                                     }

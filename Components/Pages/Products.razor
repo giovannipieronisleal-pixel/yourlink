@@ -59,14 +59,27 @@
     </div>
 }
 
-<!-- Formulário de Edição Rápida de Item Existente -->
+<!-- Aviso automático para unir produtos duplicados com mesmo nome -->
+@if (HasDuplicateNamedProducts && Gateway.CanManageProducts)
+{
+    <div class="adm-card" style="border-left: 4px solid var(--adm-accent); display: flex; justify-content: space-between; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
+        <div style="font-size: 0.88rem; color: var(--adm-text);">
+            <strong>🔗 Produtos com o mesmo nome detectados:</strong> você possui itens repetidos na mesma categoria. Clique ao lado para juntar todas as cores, tamanhos, estoques e fotos em um único produto.
+        </div>
+        <button type="button" class="adm-btn adm-btn-accent" style="white-space: nowrap; font-weight: 700;" @onclick="MergeDuplicatesAsync">
+            🔗 Unir Produtos Duplicados
+        </button>
+    </div>
+}
+
+<!-- Formulário de Edição Completa do Produto (com Variantes de Cor/Tamanho/Estoque dentro do Produto) -->
 @if (_editingProductId.HasValue && Gateway.CanManageProducts)
 {
     <div class="adm-card" style="border-left: 4px solid var(--adm-primary); background: var(--adm-input-bg);">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.85rem; flex-wrap: wrap; gap: 0.5rem;">
-            <h3 style="margin: 0; font-size: 1.08rem;">Editar Item: @_editProductForm.Name</h3>
+            <h3 style="margin: 0; font-size: 1.08rem;">✏️ Editar Produto &amp; Variantes: @_editProductForm.Name</h3>
             <a href="/produtos/@_editingProductId.Value" class="adm-btn adm-btn-outline" style="padding: 0.35rem 0.75rem; font-size: 0.82rem;">
-                Abrir Editor Completo (Fotos &amp; Variantes) &rarr;
+                📷 Gerenciar Fotos do Produto &rarr;
             </a>
         </div>
 
@@ -113,26 +126,114 @@
 
                 <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
                     <button type="button" class="adm-btn adm-btn-success" @onclick="SaveQuickEditProductAsync">
-                        Salvar Alterações
+                        💾 Salvar Dados do Produto
                     </button>
                     <button type="button" class="adm-btn adm-btn-outline" @onclick="CancelQuickEditProduct">
-                        Cancelar
+                        Fechar
                     </button>
                 </div>
             </div>
         </div>
+
+        <!-- Variantes (Cor/Modelo + Tamanho/Opção + Quantidade) diretamente dentro do produto -->
+        @if (_editingProductDetail is not null)
+        {
+            <div style="margin-top: 1.15rem; padding-top: 1rem; border-top: 1px solid var(--adm-border);">
+                <div style="font-weight: 800; font-size: 0.95rem; margin-bottom: 0.65rem; color: var(--adm-text);">
+                    🎨 Variantes deste Produto (Cor/Modelo, Tamanho/Opção e Quantidade por combinação)
+                </div>
+
+                <div style="background: var(--adm-surface); border: 1px solid var(--adm-border); border-radius: 10px; padding: 0.85rem; margin-bottom: 0.85rem;">
+                    <div style="font-size: 0.82rem; font-weight: 700; margin-bottom: 0.55rem; color: var(--adm-muted);">
+                        @(_inlineEditingVariantId.HasValue ? "✏️ Editando variante selecionada" : "+ Adicionar nova Cor / Modelo / Tamanho neste produto")
+                    </div>
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 135px), 1fr)); gap: 0.6rem; align-items: end;">
+                        <div>
+                            <label class="adm-label">Cor / Modelo</label>
+                            <input type="text"
+                                   class="adm-input"
+                                   @bind="_inlineVariantForm.Color"
+                                   @bind:event="oninput"
+                                   @bind:after="OnInlineVariantColorChanged"
+                                   placeholder="Ex.: Preta, Branca..." />
+                        </div>
+                        <div>
+                            <label class="adm-label">Cor (Visual)</label>
+                            <input type="color" class="adm-input" style="height: 38px; padding: 0.2rem;" @bind="_inlineVariantForm.ColorHex" />
+                        </div>
+                        <div>
+                            <label class="adm-label">Tamanho / Opção</label>
+                            <input type="text" class="adm-input" @bind="_inlineVariantForm.Size" placeholder="Ex.: P, M, G, GG, 100ml..." />
+                        </div>
+                        <div>
+                            <label class="adm-label">Quantidade (un.)</label>
+                            <input type="number" min="0" class="adm-input" @bind="_inlineVariantForm.InitialStockQuantity" />
+                        </div>
+                        <div style="display: flex; gap: 0.4rem;">
+                            <button type="button" class="adm-btn adm-btn-success" style="flex: 1;" @onclick="SaveInlineVariantAsync">
+                                @(_inlineEditingVariantId.HasValue ? "✓ Atualizar" : "+ Adicionar")
+                            </button>
+                            @if (_inlineEditingVariantId.HasValue)
+                            {
+                                <button type="button" class="adm-btn adm-btn-outline" @onclick="CancelInlineVariantEdit">Cancelar</button>
+                            }
+                        </div>
+                    </div>
+                </div>
+
+                @if (_editingProductDetail.Variants.Count == 0)
+                {
+                    <div style="font-size: 0.84rem; color: var(--adm-muted); padding: 0.5rem 0;">
+                        Nenhuma variante cadastrada ainda. Adicione acima a cor/modelo, tamanho e quantidade.
+                    </div>
+                }
+                else
+                {
+                    <div style="display: flex; flex-direction: column; gap: 0.45rem;">
+                        @foreach (var v in _editingProductDetail.Variants)
+                        {
+                            <div style="display: flex; justify-content: space-between; align-items: center; gap: 0.6rem; flex-wrap: wrap; padding: 0.55rem 0.75rem; background: var(--adm-surface); border: 1px solid var(--adm-border); border-radius: 8px;">
+                                <div style="display: flex; align-items: center; gap: 0.55rem; flex-wrap: wrap;">
+                                    <span style="width: 14px; height: 14px; border-radius: 50%; background: @v.ColorHex; border: 1px solid rgba(0,0,0,0.25); display: inline-block;"></span>
+                                    <strong>@v.Color</strong>
+                                    <span style="color: var(--adm-muted);">/</span>
+                                    <span class="pill-badge pill-slate">@v.Size</span>
+                                    <span class="pill-badge @(v.StockQuantity > 0 ? "pill-green" : "pill-red")">@v.StockQuantity un.</span>
+                                </div>
+                                <div style="display: flex; gap: 0.35rem; flex-wrap: wrap;">
+                                    @if (Gateway.CanManageStock)
+                                    {
+                                        <button type="button" class="adm-btn adm-btn-outline" style="padding: 0.2rem 0.5rem; font-size: 0.78rem;" disabled="@(v.StockQuantity <= 0)" @onclick='() => QuickMoveInlineVariantAsync(v, "OUT", 1)'>−1</button>
+                                        <button type="button" class="adm-btn adm-btn-outline" style="padding: 0.2rem 0.5rem; font-size: 0.78rem;" @onclick='() => QuickMoveInlineVariantAsync(v, "IN", 1)'>+1</button>
+                                    }
+                                    <button type="button" class="adm-btn adm-btn-outline" style="padding: 0.2rem 0.55rem; font-size: 0.78rem;" @onclick="() => StartInlineVariantEdit(v)">✏️ Editar</button>
+                                    <button type="button" class="adm-btn adm-btn-danger" style="padding: 0.2rem 0.55rem; font-size: 0.78rem;" @onclick="() => DeleteInlineVariantAsync(v)">🗑️</button>
+                                </div>
+                            </div>
+                        }
+                    </div>
+                }
+            </div>
+        }
     </div>
 }
 
-<!-- Formulário de Novo Produto -->
+<!-- Formulário de Novo Produto (com Grade de Variantes Cor/Tamanho/Quantidade integrada) -->
 @if (_showNewProductModal && Gateway.CanManageProducts)
 {
+    var matchingExistingProduct = FindMatchingExistingProductForNewForm();
     <div class="adm-card" style="border-left: 4px solid var(--adm-success);">
         <h3 style="margin-top: 0; font-size: 1.05rem;">Cadastrar Novo Produto</h3>
+        @if (matchingExistingProduct is not null)
+        {
+            <div style="margin-bottom: 0.85rem; padding: 0.65rem 0.85rem; border-radius: 8px; background: rgba(22, 163, 74, 0.1); border: 1px solid var(--adm-success); font-size: 0.84rem; color: var(--adm-text);">
+                ✓ O produto <strong>@matchingExistingProduct.Name</strong> já existe nesta categoria: ao salvar, os modelos/tamanhos abaixo serão <strong>adicionados dentro dele</strong> (sem criar produto duplicado!).
+            </div>
+        }
         <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr)); gap: 1rem;">
             <div>
                 <label class="adm-label">Nome do Produto *</label>
-                <input type="text" class="adm-input" @bind="_newProduct.Name" placeholder="Ex.: Fone Bluetooth, Kit Skincare, Mochila..." />
+                <input type="text" class="adm-input" @bind="_newProduct.Name" @bind:event="oninput" placeholder="Ex.: Camisa social, Fone Bluetooth, Kit..." />
             </div>
 
             <div>
@@ -150,7 +251,7 @@
                            class="adm-input"
                            style="margin-top: 0.45rem;"
                            @bind="_newProduct.CategoryName"
-                           placeholder="Digite o nome da nova categoria (ex.: Acessórios, Casa...)..." />
+                           placeholder="Digite o nome da nova categoria (ex.: Camisas, Acessórios...)..." />
                 }
             </div>
 
@@ -159,19 +260,54 @@
                 <input type="number" step="0.01" class="adm-input" @bind="_newProduct.BasePrice" />
             </div>
 
-            <div>
-                <label class="adm-label">Cor / Modelo Inicial (Opcional)</label>
-                <input type="text" class="adm-input" @bind="_newProduct.InitialColor" placeholder="Ex.: Preto, Branco, Padrão" />
-            </div>
+            <!-- Grade de Variantes dentro do cadastro de produto -->
+            <div style="grid-column: 1 / -1; background: var(--adm-input-bg); border: 1px solid var(--adm-border); border-radius: 10px; padding: 0.9rem;">
+                <div style="display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 0.65rem;">
+                    <div>
+                        <strong style="font-size: 0.9rem; color: var(--adm-text);">🎨 Modelos / Cores, Tamanhos e Quantidade em Estoque</strong>
+                        <div style="font-size: 0.78rem; color: var(--adm-muted);">Adicione quantas combinações de cor e tamanho quiser para este mesmo produto.</div>
+                    </div>
+                    <button type="button" class="adm-btn adm-btn-outline" style="font-size: 0.8rem; padding: 0.35rem 0.75rem;" @onclick="AddNewProductVariantRow">
+                        + Adicionar outra Cor / Tamanho
+                    </button>
+                </div>
 
-            <div>
-                <label class="adm-label">Tamanho / Opção Inicial (Opcional)</label>
-                <input type="text" class="adm-input" @bind="_newProduct.InitialSize" placeholder="Ex.: Único, 100ml, P, M, G..." />
-            </div>
-
-            <div>
-                <label class="adm-label">Estoque Inicial (Opcional)</label>
-                <input type="number" min="0" class="adm-input" @bind="_newProduct.InitialStockQuantity" />
+                <div style="display: flex; flex-direction: column; gap: 0.55rem;">
+                    @for (var i = 0; i < _newProductVariants.Count; i++)
+                    {
+                        var row = _newProductVariants[i];
+                        var rowIndex = i;
+                        <div style="display: grid; grid-template-columns: minmax(110px, 1.4fr) 52px minmax(100px, 1.1fr) minmax(90px, 0.8fr) auto; gap: 0.5rem; align-items: end;">
+                            <div>
+                                @if (rowIndex == 0) { <label class="adm-label">Cor / Modelo</label> }
+                                <input type="text"
+                                       class="adm-input"
+                                       @bind="row.Color"
+                                       @bind:event="oninput"
+                                       @bind:after="() => OnNewVariantRowColorChanged(row)"
+                                       placeholder="Ex.: Preta, Branca" />
+                            </div>
+                            <div>
+                                @if (rowIndex == 0) { <label class="adm-label">Cor</label> }
+                                <input type="color" class="adm-input" style="height: 38px; padding: 0.15rem;" @bind="row.ColorHex" />
+                            </div>
+                            <div>
+                                @if (rowIndex == 0) { <label class="adm-label">Tamanho / Opção</label> }
+                                <input type="text" class="adm-input" @bind="row.Size" placeholder="Ex.: P, M, G, GG" />
+                            </div>
+                            <div>
+                                @if (rowIndex == 0) { <label class="adm-label">Qtd. (un.)</label> }
+                                <input type="number" min="0" class="adm-input" @bind="row.InitialStockQuantity" />
+                            </div>
+                            <div>
+                                @if (_newProductVariants.Count > 1)
+                                {
+                                    <button type="button" class="adm-btn adm-btn-danger" style="padding: 0.45rem 0.65rem;" title="Remover linha" @onclick="() => RemoveNewProductVariantRow(rowIndex)">✕</button>
+                                }
+                            </div>
+                        </div>
+                    }
+                </div>
             </div>
 
             <div style="grid-column: 1 / -1;">
@@ -187,10 +323,10 @@
 
                 <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
                     <button type="button" class="adm-btn adm-btn-success" @onclick="() => CreateProductAsync(openDetailsAfterCreate: false)">
-                        Salvar Produto
+                        💾 Salvar Produto
                     </button>
                     <button type="button" class="adm-btn adm-btn-primary" @onclick="() => CreateProductAsync(openDetailsAfterCreate: true)">
-                        Criar e Configurar Fotos/Variantes &rarr;
+                        Salvar e Adicionar Fotos &rarr;
                     </button>
                     <button type="button" class="adm-btn adm-btn-outline" @onclick="() => _showNewProductModal = false">
                         Cancelar
@@ -404,11 +540,20 @@ else if (_categories.Count > 0)
     private bool _showNewProductModal;
     private SaveCategoryRequest _newCategory = new() { DisplayOrder = 1, IsActive = true };
     private SaveProductRequest _newProduct = new() { BasePrice = 149.90m, IsVisibleOnSite = true, InitialStockQuantity = 5 };
+    private List<SaveProductVariantRequest> _newProductVariants = [new SaveProductVariantRequest { Color = "", ColorHex = "#18181B", Size = "", InitialStockQuantity = 5, LowStockThreshold = 3 }];
     private string _newProductCategorySelection = string.Empty;
 
     private Guid? _editingProductId;
+    private ProductDetailDto? _editingProductDetail;
     private SaveProductRequest _editProductForm = new();
     private string _editProductCategorySelection = string.Empty;
+    private Guid? _inlineEditingVariantId;
+    private SaveProductVariantRequest _inlineVariantForm = new() { ColorHex = "#18181B", InitialStockQuantity = 5, LowStockThreshold = 3 };
+
+    private bool HasDuplicateNamedProducts =>
+        _products
+            .GroupBy(p => $"{p.CategoryId:N}|{p.Name.Trim().ToLowerInvariant()}")
+            .Any(g => g.Count() > 1);
 
     private string? _error;
     private string? _success;
@@ -437,7 +582,76 @@ else if (_categories.Count > 0)
         if (_showNewProductModal)
         {
             _editingProductId = null;
+            _editingProductDetail = null;
+            _newProductVariants = [new SaveProductVariantRequest { Color = "", ColorHex = "#18181B", Size = "", InitialStockQuantity = 5, LowStockThreshold = 3 }];
             EnsureDefaultCategoryForNewProduct();
+        }
+    }
+
+    private void AddNewProductVariantRow()
+    {
+        var last = _newProductVariants.LastOrDefault();
+        _newProductVariants.Add(new SaveProductVariantRequest
+        {
+            Color = last?.Color ?? string.Empty,
+            ColorHex = last?.ColorHex ?? "#18181B",
+            Size = string.Empty,
+            InitialStockQuantity = last?.InitialStockQuantity > 0 ? last.InitialStockQuantity : 5,
+            LowStockThreshold = 3
+        });
+    }
+
+    private void RemoveNewProductVariantRow(int index)
+    {
+        if (index >= 0 && index < _newProductVariants.Count && _newProductVariants.Count > 1)
+        {
+            _newProductVariants.RemoveAt(index);
+        }
+    }
+
+    private static void OnNewVariantRowColorChanged(SaveProductVariantRequest row)
+    {
+        if (!string.IsNullOrWhiteSpace(row.Color))
+        {
+            row.ColorHex = ClothingStore.Domain.Entities.ProductVariant.ResolveDefaultColorHex(row.Color);
+        }
+    }
+
+    private void OnInlineVariantColorChanged()
+    {
+        if (!string.IsNullOrWhiteSpace(_inlineVariantForm.Color))
+        {
+            _inlineVariantForm.ColorHex = ClothingStore.Domain.Entities.ProductVariant.ResolveDefaultColorHex(_inlineVariantForm.Color);
+        }
+    }
+
+    private ProductDetailDto? FindMatchingExistingProductForNewForm()
+    {
+        var trimmed = (_newProduct.Name ?? string.Empty).Trim();
+        if (string.IsNullOrWhiteSpace(trimmed))
+            return null;
+
+        Guid? selectedCatId = Guid.TryParse(_newProductCategorySelection, out var parsed) ? parsed : null;
+        return _products.FirstOrDefault(p =>
+            string.Equals(p.Name.Trim(), trimmed, StringComparison.OrdinalIgnoreCase) &&
+            (!selectedCatId.HasValue || p.CategoryId == selectedCatId.Value));
+    }
+
+    private async Task MergeDuplicatesAsync()
+    {
+        _error = null;
+        _success = null;
+        try
+        {
+            var merged = await Gateway.MergeDuplicateProductsByNameAsync();
+            await LoadCategoriesAndProductsAsync();
+            _success = merged > 0
+                ? $"✓ {merged} produto(s) duplicado(s) unificado(s) com sucesso! Todas as cores, tamanhos e estoques agora estão juntos."
+                : "Nenhum produto duplicado encontrado.";
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
         }
     }
 
@@ -536,11 +750,40 @@ else if (_categories.Count > 0)
                 _newProduct.CategoryName = null;
             }
 
-            if (string.IsNullOrWhiteSpace(_newProduct.InitialColor))
-                _newProduct.InitialColor = "Padrão";
-            if (string.IsNullOrWhiteSpace(_newProduct.InitialSize))
-                _newProduct.InitialSize = "Único";
+            var preparedVariants = _newProductVariants
+                .Where(v => !string.IsNullOrWhiteSpace(v.Color) || !string.IsNullOrWhiteSpace(v.Size) || v.InitialStockQuantity > 0)
+                .Select(v => new SaveProductVariantRequest
+                {
+                    Color = string.IsNullOrWhiteSpace(v.Color) ? "Padrão" : v.Color.Trim(),
+                    ColorHex = string.IsNullOrWhiteSpace(v.ColorHex)
+                        ? ClothingStore.Domain.Entities.ProductVariant.ResolveDefaultColorHex(v.Color)
+                        : v.ColorHex,
+                    Size = string.IsNullOrWhiteSpace(v.Size) ? "Único" : v.Size.Trim(),
+                    InitialStockQuantity = Math.Max(0, v.InitialStockQuantity),
+                    LowStockThreshold = 3,
+                    IsActive = true
+                })
+                .ToList();
 
+            if (preparedVariants.Count == 0)
+            {
+                preparedVariants.Add(new SaveProductVariantRequest
+                {
+                    Color = "Padrão",
+                    ColorHex = "#18181B",
+                    Size = "Único",
+                    InitialStockQuantity = Math.Max(0, _newProduct.InitialStockQuantity),
+                    LowStockThreshold = 3,
+                    IsActive = true
+                });
+            }
+
+            _newProduct.InitialVariants = preparedVariants;
+            _newProduct.InitialColor = preparedVariants[0].Color;
+            _newProduct.InitialSize = preparedVariants[0].Size;
+            _newProduct.InitialStockQuantity = preparedVariants[0].InitialStockQuantity;
+
+            var existedBefore = FindMatchingExistingProductForNewForm() is not null;
             var created = await Gateway.CreateProductAsync(_newProduct);
             _showNewProductModal = false;
             _newProduct = new SaveProductRequest
@@ -550,6 +793,7 @@ else if (_categories.Count > 0)
                 IsVisibleOnSite = true,
                 InitialStockQuantity = 5
             };
+            _newProductVariants = [new SaveProductVariantRequest { Color = "", ColorHex = "#18181B", Size = "", InitialStockQuantity = 5, LowStockThreshold = 3 }];
             _newProductCategorySelection = created.CategoryId.ToString();
 
             if (openDetailsAfterCreate)
@@ -559,7 +803,9 @@ else if (_categories.Count > 0)
             }
 
             await LoadCategoriesAndProductsAsync();
-            _success = $"Produto '{created.Name}' cadastrado com sucesso!";
+            _success = existedBefore
+                ? $"✓ Novas variantes adicionadas dentro de '{created.Name}' (total: {created.Variants.Count} variante(s), {created.TotalStockQuantity} un.)!"
+                : $"✓ Produto '{created.Name}' cadastrado com {created.Variants.Count} variante(s) ({created.TotalStockQuantity} un.)!";
         }
         catch (Exception ex)
         {
@@ -573,6 +819,9 @@ else if (_categories.Count > 0)
         _success = null;
         _showNewProductModal = false;
         _editingProductId = prod.Id;
+        _editingProductDetail = prod;
+        _inlineEditingVariantId = null;
+        _inlineVariantForm = new SaveProductVariantRequest { ColorHex = "#18181B", InitialStockQuantity = 5, LowStockThreshold = 3 };
         _editProductCategorySelection = prod.CategoryId.ToString();
         _editProductForm = new SaveProductRequest
         {
@@ -587,7 +836,124 @@ else if (_categories.Count > 0)
     private void CancelQuickEditProduct()
     {
         _editingProductId = null;
+        _editingProductDetail = null;
+        _inlineEditingVariantId = null;
         _editProductForm = new SaveProductRequest();
+    }
+
+    private async Task RefreshEditingProductDetailAsync()
+    {
+        if (_editingProductId.HasValue)
+        {
+            _editingProductDetail = await Gateway.GetProductByIdAsync(_editingProductId.Value);
+        }
+        await LoadProductsAsync();
+    }
+
+    private void StartInlineVariantEdit(ProductVariantDto v)
+    {
+        _inlineEditingVariantId = v.Id;
+        _inlineVariantForm = new SaveProductVariantRequest
+        {
+            Color = v.Color,
+            ColorHex = v.ColorHex,
+            Size = v.Size,
+            CustomSku = v.Sku,
+            InitialStockQuantity = v.StockQuantity,
+            LowStockThreshold = v.LowStockThreshold,
+            IsActive = v.IsActive
+        };
+    }
+
+    private void CancelInlineVariantEdit()
+    {
+        _inlineEditingVariantId = null;
+        _inlineVariantForm = new SaveProductVariantRequest { ColorHex = "#18181B", InitialStockQuantity = 5, LowStockThreshold = 3 };
+    }
+
+    private async Task SaveInlineVariantAsync()
+    {
+        if (!_editingProductId.HasValue)
+            return;
+
+        _error = null;
+        _success = null;
+        try
+        {
+            var req = new SaveProductVariantRequest
+            {
+                Color = string.IsNullOrWhiteSpace(_inlineVariantForm.Color) ? "Padrão" : _inlineVariantForm.Color.Trim(),
+                ColorHex = string.IsNullOrWhiteSpace(_inlineVariantForm.ColorHex)
+                    ? ClothingStore.Domain.Entities.ProductVariant.ResolveDefaultColorHex(_inlineVariantForm.Color)
+                    : _inlineVariantForm.ColorHex,
+                Size = string.IsNullOrWhiteSpace(_inlineVariantForm.Size) ? "Único" : _inlineVariantForm.Size.Trim(),
+                CustomSku = _inlineVariantForm.CustomSku,
+                InitialStockQuantity = Math.Max(0, _inlineVariantForm.InitialStockQuantity),
+                UpdateStockQuantity = _inlineEditingVariantId.HasValue,
+                LowStockThreshold = _inlineVariantForm.LowStockThreshold > 0 ? _inlineVariantForm.LowStockThreshold : 3,
+                IsActive = true
+            };
+
+            if (_inlineEditingVariantId.HasValue)
+            {
+                await Gateway.UpdateVariantAsync(_inlineEditingVariantId.Value, req);
+                _success = $"✓ Variante {req.Color} / {req.Size} atualizada ({req.InitialStockQuantity} un.)!";
+            }
+            else
+            {
+                await Gateway.AddVariantAsync(_editingProductId.Value, req);
+                _success = $"✓ Variante {req.Color} / {req.Size} ({req.InitialStockQuantity} un.) adicionada ao produto!";
+            }
+
+            CancelInlineVariantEdit();
+            await RefreshEditingProductDetailAsync();
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+    }
+
+    private async Task QuickMoveInlineVariantAsync(ProductVariantDto variant, string movementType, int quantity)
+    {
+        _error = null;
+        _success = null;
+        try
+        {
+            var mov = await Gateway.RegisterStockMovementAsync(new CreateStockMovementRequest
+            {
+                ProductVariantId = variant.Id,
+                MovementType = movementType,
+                Quantity = quantity,
+                Reason = movementType == "OUT" ? "Saída rápida no produto" : "Entrada rápida no produto"
+            });
+            await RefreshEditingProductDetailAsync();
+            _success = $"✓ Estoque de {variant.Color} / {variant.Size}: {mov.PreviousQuantity} → {mov.NewQuantity} un.";
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+    }
+
+    private async Task DeleteInlineVariantAsync(ProductVariantDto variant)
+    {
+        _error = null;
+        _success = null;
+        try
+        {
+            await Gateway.DeleteVariantAsync(variant.Id);
+            if (_inlineEditingVariantId == variant.Id)
+            {
+                CancelInlineVariantEdit();
+            }
+            await RefreshEditingProductDetailAsync();
+            _success = $"Variante {variant.Color} / {variant.Size} removida.";
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
     }
 
     private async Task SaveQuickEditProductAsync()
@@ -615,9 +981,9 @@ else if (_categories.Count > 0)
             }
 
             var updated = await Gateway.UpdateProductAsync(_editingProductId.Value, _editProductForm);
-            _editingProductId = null;
+            _editingProductDetail = updated;
             await LoadCategoriesAndProductsAsync();
-            _success = $"Item '{updated.Name}' atualizado com sucesso!";
+            _success = $"✓ Dados de '{updated.Name}' atualizados com sucesso!";
         }
         catch (Exception ex)
         {
