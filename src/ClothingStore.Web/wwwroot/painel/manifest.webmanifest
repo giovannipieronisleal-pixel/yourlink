@@ -1,0 +1,30 @@
+{
+  "name": "YouLink — Painel da Loja",
+  "short_name": "YouLink",
+  "description": "Gerencie sua loja online, produtos, cores, tamanhos e estoque direto do celular ou PC com atualização automática.",
+  "start_url": "/painel/index.html",
+  "scope": "/painel/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#0b1120",
+  "theme_color": "#0f172a",
+  "lang": "pt-BR",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}

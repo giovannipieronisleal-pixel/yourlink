@@ -33,6 +33,13 @@ if (!string.IsNullOrWhiteSpace(cloudPort) && int.TryParse(cloudPort, out var par
 
 builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy("YouLinkPwaCors", policy =>
+        policy.AllowAnyOrigin()
+              .AllowAnyHeader()
+              .AllowAnyMethod());
+});
 builder.Services.AddRequestDecompression();
 builder.Services.AddResponseCompression(options =>
 {
@@ -206,12 +213,18 @@ app.Use(async (context, next) =>
 
 app.UseRequestDecompression();
 app.UseResponseCompression();
+app.UseCors("YouLinkPwaCors");
 app.UseStaticFiles(new StaticFileOptions
 {
     OnPrepareResponse = ctx =>
     {
         var path = ctx.Context.Request.Path.Value ?? string.Empty;
-        if (string.Equals(path, "/sw.js", StringComparison.OrdinalIgnoreCase))
+        if (string.Equals(path, "/sw.js", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(path, "/painel/sw.js", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(path, "/painel/index.html", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(path, "/painel/app.js", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(path, "/painel/styles.css", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(path, "/painel/manifest.webmanifest", StringComparison.OrdinalIgnoreCase))
         {
             ctx.Context.Response.Headers.CacheControl = "no-cache, must-revalidate";
             return;
@@ -230,6 +243,9 @@ app.UseStaticFiles(new StaticFileOptions
 });
 app.UseAntiforgery();
 app.UseRateLimiter();
+
+app.MapGet("/painel", () => Results.Redirect("/painel/index.html", permanent: false));
+app.MapGet("/painel/", () => Results.Redirect("/painel/index.html", permanent: false));
 
 app.MapMethods("/health", new[] { "GET", "HEAD" }, () => Results.Ok(new
 {
@@ -1386,7 +1402,59 @@ app.MapPost("/api/cloud/accounts/verify-login", async (
 {
     var res = await accountRegistry.VerifyLoginAsync(loginRequest, ct);
     return Results.Ok(res);
-});
+}).DisableAntiforgery();
+
+app.MapPost("/api/cloud/accounts/register", async (
+    HttpContext httpContext,
+    RegisterUserAccountRequest req,
+    CloudAccountRegistryService accountRegistry,
+    IPasswordHasher passwordHasher,
+    CancellationToken ct) =>
+{
+    if (string.IsNullOrWhiteSpace(req.FullName) ||
+        string.IsNullOrWhiteSpace(req.Email) ||
+        !req.Email.Contains('@', StringComparison.Ordinal) ||
+        string.IsNullOrWhiteSpace(req.Password) ||
+        req.Password.Trim().Length < 4)
+    {
+        return Results.BadRequest(new { error = "Preencha nome completo, e-mail válido e senha com pelo menos 4 caracteres." });
+    }
+
+    var cleanEmail = req.Email.Trim();
+    var cleanUser = string.IsNullOrWhiteSpace(req.Username)
+        ? cleanEmail.Split('@')[0]
+        : req.Username.Trim();
+
+    if (string.Equals(cleanUser, "admin", StringComparison.OrdinalIgnoreCase))
+    {
+        return Results.BadRequest(new { error = "O usuário 'admin' é reservado. Escolha outro nome de usuário." });
+    }
+
+    var existingAccounts = await accountRegistry.GetAllAccountsAsync(ct);
+    var alreadyExists = existingAccounts.Any(a =>
+        (!string.IsNullOrWhiteSpace(a.Email) && string.Equals(a.Email.Trim(), cleanEmail, StringComparison.OrdinalIgnoreCase)) ||
+        (!string.IsNullOrWhiteSpace(a.Username) && string.Equals(a.Username.Trim(), cleanUser, StringComparison.OrdinalIgnoreCase)));
+    if (alreadyExists)
+    {
+        return Results.Conflict(new { error = "Já existe uma conta cadastrada com este e-mail ou usuário. Faça login na aba Entrar." });
+    }
+
+    var hash = passwordHasher.HashPassword(req.Password);
+    var upsert = await accountRegistry.UpsertAccountAsync(new CloudAccountCredentialSyncDto(
+        FullName: req.FullName.Trim(),
+        Username: cleanUser,
+        Email: cleanEmail,
+        PasswordHash: hash),
+        hasValidSyncKey: false,
+        ct);
+
+    if (!upsert.Success)
+        return Results.Json(new { error = upsert.Message }, statusCode: upsert.StatusCode);
+
+    await TryFlushCloudMirrorAsync(httpContext, ct);
+    var verified = await accountRegistry.VerifyLoginAsync(new LoginRequest(cleanEmail, req.Password), ct);
+    return Results.Ok(verified);
+}).DisableAntiforgery();
 
 app.MapPost("/api/cloud/pull-store", async (
     CloudPullStoreRequest request,

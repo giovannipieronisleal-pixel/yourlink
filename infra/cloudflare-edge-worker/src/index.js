@@ -48,6 +48,26 @@ export default {
   async fetch(request, env, ctx) {
     const originBase = (env.ORIGIN_URL || "https://youlink-loja.onrender.com").replace(/\/+$/, "");
     const incomingUrl = new URL(request.url);
+
+    // Serve o Painel PWA estático direto da borda da Cloudflare (0 RAM no Render, atualização instantânea!)
+    if (env.ASSETS && (incomingUrl.pathname === "/painel" || incomingUrl.pathname === "/painel/" || incomingUrl.pathname.startsWith("/painel/"))) {
+      const assetPath = incomingUrl.pathname === "/painel" || incomingUrl.pathname === "/painel/"
+        ? "/painel/index.html"
+        : incomingUrl.pathname;
+      const assetReq = new Request(new URL(assetPath, incomingUrl.origin), request);
+      const assetRes = await env.ASSETS.fetch(assetReq);
+      if (assetRes.status !== 404) {
+        const headers = new Headers(assetRes.headers);
+        headers.set("Cache-Control", "no-cache, must-revalidate");
+        headers.set("X-YouLink-Edge-Asset", "cloudflare-pwa");
+        return new Response(assetRes.body, {
+          status: assetRes.status,
+          statusText: assetRes.statusText,
+          headers
+        });
+      }
+    }
+
     const targetUrl = new URL(incomingUrl.pathname + incomingUrl.search, originBase);
 
     const bypass = shouldBypassCache(request, incomingUrl.pathname);

@@ -3,6 +3,10 @@
   "name": "youlink-edge-accelerator",
   "main": "src/index.js",
   "compatibility_date": "2026-11-19",
+  "assets": {
+    "directory": "./public",
+    "binding": "ASSETS"
+  },
   "observability": {
     "enabled": true,
     "traces": {
