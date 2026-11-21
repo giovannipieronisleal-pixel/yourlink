@@ -272,38 +272,41 @@
                     </button>
                 </div>
 
-                <div style="display: flex; flex-direction: column; gap: 0.55rem;">
+                <div style="display: flex; flex-direction: column; gap: 0.65rem;">
                     @for (var i = 0; i < _newProductVariants.Count; i++)
                     {
                         var row = _newProductVariants[i];
                         var rowIndex = i;
-                        <div style="display: grid; grid-template-columns: minmax(110px, 1.4fr) 52px minmax(100px, 1.1fr) minmax(90px, 0.8fr) auto; gap: 0.5rem; align-items: end;">
-                            <div>
-                                @if (rowIndex == 0) { <label class="adm-label">Cor / Modelo</label> }
-                                <input type="text"
-                                       class="adm-input"
-                                       @bind="row.Color"
-                                       @bind:event="oninput"
-                                       @bind:after="() => OnNewVariantRowColorChanged(row)"
-                                       placeholder="Ex.: Preta, Branca" />
-                            </div>
-                            <div>
-                                @if (rowIndex == 0) { <label class="adm-label">Cor</label> }
-                                <input type="color" class="adm-input" style="height: 38px; padding: 0.15rem;" @bind="row.ColorHex" />
-                            </div>
-                            <div>
-                                @if (rowIndex == 0) { <label class="adm-label">Tamanho / Opção</label> }
-                                <input type="text" class="adm-input" @bind="row.Size" placeholder="Ex.: P, M, G, GG" />
-                            </div>
-                            <div>
-                                @if (rowIndex == 0) { <label class="adm-label">Qtd. (un.)</label> }
-                                <input type="number" min="0" class="adm-input" @bind="row.InitialStockQuantity" />
-                            </div>
-                            <div>
-                                @if (_newProductVariants.Count > 1)
-                                {
-                                    <button type="button" class="adm-btn adm-btn-danger" style="padding: 0.45rem 0.65rem;" title="Remover linha" @onclick="() => RemoveNewProductVariantRow(rowIndex)">✕</button>
-                                }
+                        <div style="background: var(--adm-surface); border: 1px solid var(--adm-border); border-radius: 8px; padding: 0.7rem; display: flex; flex-direction: column; gap: 0.55rem;">
+                            @if (_newProductVariants.Count > 1)
+                            {
+                                <div style="display: flex; justify-content: space-between; align-items: center;">
+                                    <span style="font-size: 0.75rem; font-weight: 700; color: var(--adm-muted);">Opção #@(rowIndex + 1)</span>
+                                    <button type="button" class="adm-btn adm-btn-danger" style="padding: 0.2rem 0.55rem; font-size: 0.75rem;" @onclick="() => RemoveNewProductVariantRow(rowIndex)">✕ Remover</button>
+                                </div>
+                            }
+                            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 135px), 1fr)); gap: 0.55rem; align-items: end;">
+                                <div style="min-width: 0;">
+                                    <label class="adm-label">Cor / Modelo</label>
+                                    <div style="display: flex; gap: 0.4rem; align-items: center;">
+                                        <input type="color" class="adm-input" style="width: 42px; min-width: 42px; height: 38px; padding: 0.15rem; flex: 0 0 42px;" title="Cor visual" @bind="row.ColorHex" />
+                                        <input type="text"
+                                               class="adm-input"
+                                               style="flex: 1 1 0; min-width: 0;"
+                                               @bind="row.Color"
+                                               @bind:event="oninput"
+                                               @bind:after="() => OnNewVariantRowColorChanged(row)"
+                                               placeholder="Ex.: Preta, Branca" />
+                                    </div>
+                                </div>
+                                <div style="min-width: 0;">
+                                    <label class="adm-label">Tamanho / Opção</label>
+                                    <input type="text" class="adm-input" style="width: 100%; min-width: 0;" @bind="row.Size" placeholder="Ex.: P, M, G, GG" />
+                                </div>
+                                <div style="min-width: 0;">
+                                    <label class="adm-label">Qtd. em Estoque (un.)</label>
+                                    <input type="number" min="0" class="adm-input" style="width: 100%; min-width: 0;" @bind="row.InitialStockQuantity" />
+                                </div>
                             </div>
                         </div>
                     }
