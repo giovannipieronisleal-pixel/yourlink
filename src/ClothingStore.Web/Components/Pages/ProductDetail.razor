@@ -113,18 +113,19 @@ else
             @if (HasMeaningfulColors)
             {
                 <div class="lux-filter-group">
-                    <span class="lux-filter-label">Cor / Modelo: @(_selectedColor ?? "Escolha")</span>
+                    <span class="lux-filter-label">1. Cor / Modelo: @(_selectedColor ?? "Escolha")</span>
                     <div class="lux-option-chips">
                         @foreach (var color in DistinctColors)
                         {
                             var active = string.Equals(_selectedColor, color.Color, StringComparison.OrdinalIgnoreCase);
+                            var qtyForColor = GetStockForColor(color.Color);
                             <button type="button"
                                     class="lux-chip-btn @(active ? "active" : "")"
                                     @onclick="() => SelectColor(color.Color)">
                                 <svg width="12" height="12" viewBox="0 0 14 14" aria-hidden="true">
                                     <circle cx="7" cy="7" r="5.5" fill="@color.ColorHex" stroke="rgba(120,113,108,0.5)" stroke-width="1" />
                                 </svg>
-                                <span>@color.Color</span>
+                                <span>@color.Color · @(qtyForColor > 0 ? $"{qtyForColor} un." : "Esgotado")</span>
                             </button>
                         }
                     </div>
@@ -723,6 +724,11 @@ else
     }
 
     private bool HasStockFor(string size) => GetStockFor(_selectedColor, size) > 0;
+
+    private int GetStockForColor(string? color) =>
+        _product?.Variants
+            .Where(v => string.IsNullOrWhiteSpace(color) || string.Equals(v.Color, color, StringComparison.OrdinalIgnoreCase))
+            .Sum(v => v.StockQuantity) ?? 0;
 
     private int GetStockFor(string? color, string size) =>
         _product?.Variants

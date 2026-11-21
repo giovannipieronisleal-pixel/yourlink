@@ -194,12 +194,14 @@ public sealed class ProductManagementService
             });
         }
 
-        // Evita duplicação acidental: se já existir produto ativo com exatamente o mesmo nome na mesma categoria
+        // Evita duplicação acidental: se já existir produto ativo com o mesmo nome/slug na mesma categoria
         // e o usuário estiver cadastrando variantes/modelos, junta as variantes dentro do mesmo produto!
         var existingProducts = await _repository.GetProductsAsync(includeArchived: false, ct);
+        var normalizedNameSlug = Category.GenerateSlug(trimmedName);
         var existingMatch = existingProducts.FirstOrDefault(p =>
             p.CategoryId == category.Id &&
-            string.Equals(p.Name.Trim(), trimmedName, StringComparison.OrdinalIgnoreCase));
+            (string.Equals(p.Name.Trim(), trimmedName, StringComparison.OrdinalIgnoreCase) ||
+             string.Equals(Category.GenerateSlug(p.Name), normalizedNameSlug, StringComparison.OrdinalIgnoreCase)));
 
         Product product;
         if (existingMatch is not null && requestedVariants.Count > 0)

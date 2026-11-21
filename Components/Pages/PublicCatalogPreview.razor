@@ -376,11 +376,12 @@
                                     @foreach (var c in colorGroups)
                                     {
                                         var isCurrent = string.Equals(_detailColor, c.Key, StringComparison.OrdinalIgnoreCase);
+                                        var colorTotalQty = c.Sum(v => v.StockQuantity);
                                         <button type="button"
                                                 class="adm-btn @(isCurrent ? "adm-btn-primary" : "adm-btn-outline")"
                                                 @onclick="() => SelectDetailColor(c.Key)">
                                             <span style="width: 12px; height: 12px; border-radius: 50%; background: @c.First().ColorHex; border: 1px solid rgba(0,0,0,0.2);"></span>
-                                            <span>@c.Key</span>
+                                            <span>@c.Key · @(colorTotalQty > 0 ? $"{colorTotalQty} un." : "Esgotado")</span>
                                         </button>
                                     }
                                 </div>

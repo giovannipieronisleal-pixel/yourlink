@@ -322,13 +322,13 @@
                 </label>
 
                 <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
-                    <button type="button" class="adm-btn adm-btn-success" @onclick="() => CreateProductAsync(openDetailsAfterCreate: false)">
-                        💾 Salvar Produto
+                    <button type="button" class="adm-btn adm-btn-success" disabled="@_isSavingProduct" @onclick="() => CreateProductAsync(openDetailsAfterCreate: false)">
+                        @(_isSavingProduct ? "⏳ Salvando..." : "💾 Salvar Produto")
                     </button>
-                    <button type="button" class="adm-btn adm-btn-primary" @onclick="() => CreateProductAsync(openDetailsAfterCreate: true)">
-                        Salvar e Adicionar Fotos &rarr;
+                    <button type="button" class="adm-btn adm-btn-primary" disabled="@_isSavingProduct" @onclick="() => CreateProductAsync(openDetailsAfterCreate: true)">
+                        @(_isSavingProduct ? "⏳ Salvando..." : "Salvar e Adicionar Fotos →")
                     </button>
-                    <button type="button" class="adm-btn adm-btn-outline" @onclick="() => _showNewProductModal = false">
+                    <button type="button" class="adm-btn adm-btn-outline" disabled="@_isSavingProduct" @onclick="() => _showNewProductModal = false">
                         Cancelar
                     </button>
                 </div>
@@ -538,6 +538,7 @@ else if (_categories.Count > 0)
 
     private bool _showNewCategoryModal;
     private bool _showNewProductModal;
+    private bool _isSavingProduct;
     private SaveCategoryRequest _newCategory = new() { DisplayOrder = 1, IsActive = true };
     private SaveProductRequest _newProduct = new() { BasePrice = 149.90m, IsVisibleOnSite = true, InitialStockQuantity = 5 };
     private List<SaveProductVariantRequest> _newProductVariants = [new SaveProductVariantRequest { Color = "", ColorHex = "#18181B", Size = "", InitialStockQuantity = 5, LowStockThreshold = 3 }];
@@ -726,6 +727,10 @@ else if (_categories.Count > 0)
 
     private async Task CreateProductAsync(bool openDetailsAfterCreate)
     {
+        if (_isSavingProduct)
+            return;
+
+        _isSavingProduct = true;
         _error = null;
         _success = null;
         try
@@ -810,6 +815,10 @@ else if (_categories.Count > 0)
         catch (Exception ex)
         {
             _error = ex.Message;
+        }
+        finally
+        {
+            _isSavingProduct = false;
         }
     }
 
