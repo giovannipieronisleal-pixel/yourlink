@@ -189,7 +189,7 @@ public sealed class CloudAccountRegistryService
         await _lock.WaitAsync(ct);
         try
         {
-            ReloadFromDiskIfModifiedUnsafe();
+            RefreshFromDiskIfModifiedUnsafe();
             var match = _state.Accounts.FirstOrDefault(a =>
                 (!string.IsNullOrWhiteSpace(normEmail) && string.Equals(NormalizeIdentifier(a.Email), normEmail, StringComparison.OrdinalIgnoreCase)) ||
                 (!string.IsNullOrWhiteSpace(normUser) && string.Equals(NormalizeIdentifier(a.Username), normUser, StringComparison.OrdinalIgnoreCase)));
