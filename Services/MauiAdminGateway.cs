@@ -3038,7 +3038,7 @@ public sealed class MauiAdminGateway
                                      string.Equals(updatedSettings.PlanTier, StoreDesignPresets.PlanBasic, StringComparison.OrdinalIgnoreCase)
                     ? "revoked"
                     : "cloud_sync";
-                RaisePlanPopupFromSettings(updatedSettings, triggerContext, forcePopup: true);
+                RaisePlanPopupFromSettings(updatedSettings, triggerContext, forcePopup: triggerContext == "revoked");
                 popupHandled = true;
                 PlanEntitlementActivated?.Invoke(updatedSettings);
                 AuthStateChanged?.Invoke();
@@ -3145,7 +3145,10 @@ public sealed class MauiAdminGateway
             {
             }
         }
-        else if (forcePopup && !isBasic && !isExpired)
+        else if (forcePopup &&
+                 (triggerContext is "purchased" or "redeem") &&
+                 !isBasic &&
+                 !isExpired)
         {
             if (isCourtesy)
             {
