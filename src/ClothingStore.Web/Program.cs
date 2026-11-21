@@ -256,7 +256,7 @@ app.MapGet("/api/platform/pwa-config", (HttpContext httpContext) =>
     var cloudflarePanelUrl = Environment.GetEnvironmentVariable("YOULINK_CLOUDFLARE_PANEL_URL")?.Trim();
     var panelUrl = !string.IsNullOrWhiteSpace(cloudflarePanelUrl)
         ? cloudflarePanelUrl
-        : $"{origin}/painel/index.html";
+        : AppUpdateCatalog.DefaultCloudPanelUrl;
 
     httpContext.Response.Headers.CacheControl = "no-cache, must-revalidate";
     return Results.Ok(new
@@ -264,7 +264,7 @@ app.MapGet("/api/platform/pwa-config", (HttpContext httpContext) =>
         panelUrl,
         apiBase = origin,
         version = AppUpdateCatalog.CurrentAppVersion,
-        edgeEnabled = !string.IsNullOrWhiteSpace(cloudflarePanelUrl)
+        edgeEnabled = true
     });
 }).RequireCors("YouLinkPwaCors");
 
