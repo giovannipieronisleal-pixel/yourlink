@@ -218,120 +218,186 @@
     </div>
 }
 
-<!-- Formulário de Novo Produto (com Grade de Variantes Cor/Tamanho/Quantidade integrada) -->
+<!-- Formulário de Novo Produto (Estilo Figma Aprovado: Cartões Limpos + Stepper de Estoque) -->
 @if (_showNewProductModal && Gateway.CanManageProducts)
 {
     var matchingExistingProduct = FindMatchingExistingProductForNewForm();
-    <div class="adm-card" style="border-left: 4px solid var(--adm-success);">
-        <h3 style="margin-top: 0; font-size: 1.05rem;">Cadastrar Novo Produto</h3>
+    <div class="adm-card yl-product-form-stack" style="border: 1.5px solid var(--adm-border);">
+        <div style="display: flex; justify-content: space-between; align-items: center; gap: 0.75rem;">
+            <div style="display: flex; align-items: center; gap: 0.6rem;">
+                <button type="button"
+                        class="adm-btn adm-btn-outline"
+                        style="min-height: 40px; padding: 0.3rem 0.75rem; border-radius: 10px;"
+                        @onclick="() => _showNewProductModal = false">
+                    ← Voltar
+                </button>
+                <h2 style="margin: 0; font-size: 1.2rem; font-weight: 800; color: var(--adm-text);">Novo Produto</h2>
+            </div>
+        </div>
+
         @if (matchingExistingProduct is not null)
         {
-            <div style="margin-bottom: 0.85rem; padding: 0.65rem 0.85rem; border-radius: 8px; background: rgba(22, 163, 74, 0.1); border: 1px solid var(--adm-success); font-size: 0.84rem; color: var(--adm-text);">
-                ✓ O produto <strong>@matchingExistingProduct.Name</strong> já existe nesta categoria: ao salvar, os modelos/tamanhos abaixo serão <strong>adicionados dentro dele</strong> (sem criar produto duplicado!).
+            <div style="padding: 0.75rem 0.9rem; border-radius: 12px; background: var(--yl-tint-green-bg); border: 1px solid var(--adm-success); font-size: 0.86rem; color: var(--adm-text);">
+                ✓ O produto <strong>@matchingExistingProduct.Name</strong> já existe nesta categoria: ao salvar, as cores e tamanhos abaixo serão <strong>adicionados dentro dele</strong> (sem duplicar).
             </div>
         }
-        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr)); gap: 1rem;">
+
+        <!-- Bloco 1: Informações básicas -->
+        <div style="background: var(--adm-input-bg); border: 1px solid var(--adm-border); border-radius: 14px; padding: 1rem; display: flex; flex-direction: column; gap: 0.9rem;">
+            <div style="font-size: 0.95rem; font-weight: 800; color: var(--adm-text);">Informações básicas</div>
+
             <div>
-                <label class="adm-label">Nome do Produto *</label>
-                <input type="text" class="adm-input" @bind="_newProduct.Name" @bind:event="oninput" placeholder="Ex.: Camisa social, Fone Bluetooth, Kit..." />
+                <label class="adm-label">Nome do produto *</label>
+                <input type="text"
+                       class="adm-input"
+                       style="min-height: 48px; font-size: 1rem;"
+                       @bind="_newProduct.Name"
+                       @bind:event="oninput"
+                       placeholder="Ex.: Camisa de Linho" />
+            </div>
+
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 200px), 1fr)); gap: 0.85rem;">
+                <div>
+                    <label class="adm-label">Preço (R$) *</label>
+                    <input type="number"
+                           step="0.01"
+                           class="adm-input"
+                           style="min-height: 48px; font-size: 1rem;"
+                           @bind="_newProduct.BasePrice" />
+                </div>
+
+                <div>
+                    <label class="adm-label">Categoria *</label>
+                    <select class="adm-select" style="min-height: 48px; font-size: 1rem;" @bind="_newProductCategorySelection">
+                        @foreach (var cat in _categories)
+                        {
+                            <option value="@cat.Id.ToString()">@cat.Name</option>
+                        }
+                        <option value="__NEW__">+ Digitar nova categoria...</option>
+                    </select>
+                    @if (_newProductCategorySelection == "__NEW__" || _categories.Count == 0)
+                    {
+                        <input type="text"
+                               class="adm-input"
+                               style="margin-top: 0.5rem; min-height: 46px;"
+                               @bind="_newProduct.CategoryName"
+                               placeholder="Digite o nome da nova categoria (ex.: Camisas)..." />
+                    }
+                </div>
             </div>
 
             <div>
-                <label class="adm-label">Categoria *</label>
-                <select class="adm-select" @bind="_newProductCategorySelection">
-                    @foreach (var cat in _categories)
-                    {
-                        <option value="@cat.Id.ToString()">@cat.Name</option>
-                    }
-                    <option value="__NEW__">+ Digitar nova categoria...</option>
-                </select>
-                @if (_newProductCategorySelection == "__NEW__" || _categories.Count == 0)
+                <label class="adm-label">Descrição do produto (opcional)</label>
+                <textarea class="adm-textarea" rows="2" @bind="_newProduct.Description" placeholder="Tecido, medidas ou detalhes importantes..."></textarea>
+            </div>
+        </div>
+
+        <!-- Bloco 2: Cores, tamanhos e estoque (Sub-cartões verticais + Stepper -/+ ) -->
+        <div style="background: var(--adm-input-bg); border: 1px solid var(--adm-border); border-radius: 14px; padding: 1rem; display: flex; flex-direction: column; gap: 0.8rem;">
+            <div>
+                <div style="font-size: 0.95rem; font-weight: 800; color: var(--adm-text);">Cores, tamanhos e estoque</div>
+                <div style="font-size: 0.82rem; color: var(--adm-muted); margin-top: 0.15rem;">Informe cor, tamanho e quantas unidades você tem disponíveis.</div>
+            </div>
+
+            <div style="display: flex; flex-direction: column; gap: 0.7rem;">
+                @for (var i = 0; i < _newProductVariants.Count; i++)
                 {
-                    <input type="text"
-                           class="adm-input"
-                           style="margin-top: 0.45rem;"
-                           @bind="_newProduct.CategoryName"
-                           placeholder="Digite o nome da nova categoria (ex.: Camisas, Acessórios...)..." />
+                    var row = _newProductVariants[i];
+                    var rowIndex = i;
+                    <div class="yl-variant-subcard">
+                        @if (_newProductVariants.Count > 1)
+                        {
+                            <div style="display: flex; justify-content: space-between; align-items: center;">
+                                <span style="font-size: 0.78rem; font-weight: 700; color: var(--adm-muted);">Opção #@(rowIndex + 1)</span>
+                                <button type="button"
+                                        class="adm-btn adm-btn-danger"
+                                        style="min-height: 32px; padding: 0.2rem 0.6rem; font-size: 0.76rem;"
+                                        @onclick="() => RemoveNewProductVariantRow(rowIndex)">
+                                    ✕ Remover
+                                </button>
+                            </div>
+                        }
+
+                        <div class="yl-variant-row-top">
+                            <input type="text"
+                                   class="adm-input"
+                                   style="flex: 1 1 0; min-width: 0; min-height: 46px;"
+                                   @bind="row.Color"
+                                   @bind:event="oninput"
+                                   @bind:after="() => OnNewVariantRowColorChanged(row)"
+                                   placeholder="Cor ou modelo (ex.: Preta, Branca)" />
+                            <input type="color"
+                                   class="yl-color-dot-picker"
+                                   title="Escolher cor visual"
+                                   aria-label="Cor visual da variante"
+                                   @bind="row.ColorHex" />
+                        </div>
+
+                        <div class="yl-variant-row-bottom">
+                            <input type="text"
+                                   class="adm-input"
+                                   style="flex: 1 1 120px; min-width: 0; min-height: 46px;"
+                                   @bind="row.Size"
+                                   placeholder="Tamanho (ex.: P, M, G)" />
+
+                            <div class="yl-stepper" aria-label="Quantidade em estoque">
+                                <button type="button"
+                                        class="yl-stepper-btn"
+                                        aria-label="Diminuir estoque"
+                                        disabled="@(row.InitialStockQuantity <= 0)"
+                                        @onclick="() => AdjustNewVariantStock(row, -1)">
+                                    −
+                                </button>
+                                <input type="number"
+                                       min="0"
+                                       class="yl-stepper-input"
+                                       aria-label="Quantidade"
+                                       @bind="row.InitialStockQuantity" />
+                                <button type="button"
+                                        class="yl-stepper-btn"
+                                        aria-label="Aumentar estoque"
+                                        @onclick="() => AdjustNewVariantStock(row, 1)">
+                                    +
+                                </button>
+                            </div>
+                        </div>
+                    </div>
                 }
             </div>
 
-            <div>
-                <label class="adm-label">Preço de Venda (R$) *</label>
-                <input type="number" step="0.01" class="adm-input" @bind="_newProduct.BasePrice" />
-            </div>
+            <button type="button" class="yl-add-variant-btn" @onclick="AddNewProductVariantRow">
+                + Adicionar outra cor ou tamanho
+            </button>
+        </div>
 
-            <!-- Grade de Variantes dentro do cadastro de produto -->
-            <div style="grid-column: 1 / -1; background: var(--adm-input-bg); border: 1px solid var(--adm-border); border-radius: 10px; padding: 0.9rem;">
-                <div style="display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 0.65rem;">
-                    <div>
-                        <strong style="font-size: 0.9rem; color: var(--adm-text);">🎨 Modelos / Cores, Tamanhos e Quantidade em Estoque</strong>
-                        <div style="font-size: 0.78rem; color: var(--adm-muted);">Adicione quantas combinações de cor e tamanho quiser para este mesmo produto.</div>
-                    </div>
-                    <button type="button" class="adm-btn adm-btn-outline" style="font-size: 0.8rem; padding: 0.35rem 0.75rem;" @onclick="AddNewProductVariantRow">
-                        + Adicionar outra Cor / Tamanho
+        <!-- Visibilidade + Botões de Salvar -->
+        <div style="display: flex; flex-direction: column; gap: 0.85rem;">
+            <label style="display: flex; align-items: center; gap: 0.55rem; font-size: 0.94rem; font-weight: 600; color: var(--adm-text); cursor: pointer;">
+                <input type="checkbox" @bind="_newProduct.IsVisibleOnSite" />
+                <span>Exibir imediatamente na loja online</span>
+            </label>
+
+            <div style="display: flex; flex-direction: column; gap: 0.6rem;">
+                <button type="button"
+                        class="adm-btn adm-btn-success"
+                        style="width: 100%; min-height: 52px; font-size: 1rem; font-weight: 800; justify-content: center; border-radius: 14px;"
+                        disabled="@_isSavingProduct"
+                        @onclick="() => CreateProductAsync(openDetailsAfterCreate: false)">
+                    @(_isSavingProduct ? "⏳ Salvando..." : "Salvar produto")
+                </button>
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 0.6rem;">
+                    <button type="button"
+                            class="adm-btn adm-btn-outline"
+                            style="min-height: 46px; justify-content: center; font-weight: 700;"
+                            disabled="@_isSavingProduct"
+                            @onclick="() => CreateProductAsync(openDetailsAfterCreate: true)">
+                        @(_isSavingProduct ? "⏳ Salvando..." : "📷 Salvar e adicionar fotos")
                     </button>
-                </div>
-
-                <div style="display: flex; flex-direction: column; gap: 0.65rem;">
-                    @for (var i = 0; i < _newProductVariants.Count; i++)
-                    {
-                        var row = _newProductVariants[i];
-                        var rowIndex = i;
-                        <div style="background: var(--adm-surface); border: 1px solid var(--adm-border); border-radius: 8px; padding: 0.7rem; display: flex; flex-direction: column; gap: 0.55rem;">
-                            @if (_newProductVariants.Count > 1)
-                            {
-                                <div style="display: flex; justify-content: space-between; align-items: center;">
-                                    <span style="font-size: 0.75rem; font-weight: 700; color: var(--adm-muted);">Opção #@(rowIndex + 1)</span>
-                                    <button type="button" class="adm-btn adm-btn-danger" style="padding: 0.2rem 0.55rem; font-size: 0.75rem;" @onclick="() => RemoveNewProductVariantRow(rowIndex)">✕ Remover</button>
-                                </div>
-                            }
-                            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 135px), 1fr)); gap: 0.55rem; align-items: end;">
-                                <div style="min-width: 0;">
-                                    <label class="adm-label">Cor / Modelo</label>
-                                    <div style="display: flex; gap: 0.4rem; align-items: center;">
-                                        <input type="color" class="adm-input" style="width: 42px; min-width: 42px; height: 38px; padding: 0.15rem; flex: 0 0 42px;" title="Cor visual" @bind="row.ColorHex" />
-                                        <input type="text"
-                                               class="adm-input"
-                                               style="flex: 1 1 0; min-width: 0;"
-                                               @bind="row.Color"
-                                               @bind:event="oninput"
-                                               @bind:after="() => OnNewVariantRowColorChanged(row)"
-                                               placeholder="Ex.: Preta, Branca" />
-                                    </div>
-                                </div>
-                                <div style="min-width: 0;">
-                                    <label class="adm-label">Tamanho / Opção</label>
-                                    <input type="text" class="adm-input" style="width: 100%; min-width: 0;" @bind="row.Size" placeholder="Ex.: P, M, G, GG" />
-                                </div>
-                                <div style="min-width: 0;">
-                                    <label class="adm-label">Qtd. em Estoque (un.)</label>
-                                    <input type="number" min="0" class="adm-input" style="width: 100%; min-width: 0;" @bind="row.InitialStockQuantity" />
-                                </div>
-                            </div>
-                        </div>
-                    }
-                </div>
-            </div>
-
-            <div style="grid-column: 1 / -1;">
-                <label class="adm-label">Descrição do Produto</label>
-                <textarea class="adm-textarea" rows="2" @bind="_newProduct.Description" placeholder="Características, medidas, especificações e detalhes..."></textarea>
-            </div>
-
-            <div style="grid-column: 1 / -1; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;">
-                <label style="display: flex; align-items: center; gap: 0.5rem; font-size: 0.9rem;">
-                    <input type="checkbox" @bind="_newProduct.IsVisibleOnSite" />
-                    <span>Exibir imediatamente no site público</span>
-                </label>
-
-                <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
-                    <button type="button" class="adm-btn adm-btn-success" disabled="@_isSavingProduct" @onclick="() => CreateProductAsync(openDetailsAfterCreate: false)">
-                        @(_isSavingProduct ? "⏳ Salvando..." : "💾 Salvar Produto")
-                    </button>
-                    <button type="button" class="adm-btn adm-btn-primary" disabled="@_isSavingProduct" @onclick="() => CreateProductAsync(openDetailsAfterCreate: true)">
-                        @(_isSavingProduct ? "⏳ Salvando..." : "Salvar e Adicionar Fotos →")
-                    </button>
-                    <button type="button" class="adm-btn adm-btn-outline" disabled="@_isSavingProduct" @onclick="() => _showNewProductModal = false">
+                    <button type="button"
+                            class="adm-btn adm-btn-outline"
+                            style="min-height: 46px; justify-content: center;"
+                            disabled="@_isSavingProduct"
+                            @onclick="() => _showNewProductModal = false">
                         Cancelar
                     </button>
                 </div>
@@ -565,6 +631,20 @@ else if (_categories.Count > 0)
     protected override async Task OnInitializedAsync()
     {
         await LoadCategoriesAndProductsAsync();
+
+        var uri = Navigation.ToAbsoluteUri(Navigation.Uri);
+        if (Gateway.CanManageProducts &&
+            uri.Query.Contains("novo=1", StringComparison.OrdinalIgnoreCase) &&
+            !_showNewProductModal)
+        {
+            OpenNewProductModal();
+        }
+    }
+
+    private void AdjustNewVariantStock(SaveProductVariantRequest row, int delta)
+    {
+        var next = row.InitialStockQuantity + delta;
+        row.InitialStockQuantity = next < 0 ? 0 : next;
     }
 
     private void ToggleNewCategoryModal()

@@ -1,3 +1,4 @@
+using System.Net.Http.Json;
 using System.Text.Json;
 using ClothingStore.Application.Services;
 using ClothingStore.Domain.Entities;
@@ -1350,6 +1351,82 @@ public sealed class MauiAdminGateway
         catch
         {
             return LatestPlatformCatalog;
+        }
+    }
+
+    public async Task<SendEmailOtpResponse> SendEmailVerificationCodeAsync(
+        string email,
+        string purpose = "store_verification",
+        string? contextLabel = null,
+        CancellationToken ct = default)
+    {
+        var centralUrl = WhatsAppLinkBuilder.NormalizePublicServerUrl(LatestAdminCentralServerUrl);
+        if (string.IsNullOrWhiteSpace(centralUrl))
+            centralUrl = AppUpdateCatalog.DefaultCentralPlatformServerUrl;
+
+        try
+        {
+            using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(18) };
+            using var resp = await client.PostAsJsonAsync(
+                $"{centralUrl.TrimEnd('/')}/api/cloud/email-otp/send",
+                new SendEmailOtpRequest(email, purpose, contextLabel),
+                ct);
+            var body = await resp.Content.ReadFromJsonAsync<SendEmailOtpResponse>(cancellationToken: ct);
+            if (body is not null)
+                return body;
+
+            return new SendEmailOtpResponse(
+                Sent: false,
+                ProviderConfigured: false,
+                MaskedEmail: string.Empty,
+                ExpiresInSeconds: 0,
+                ResendAfterSeconds: 0,
+                Message: $"O servidor retornou HTTP {(int)resp.StatusCode} ao enviar o código por e-mail.");
+        }
+        catch (Exception ex)
+        {
+            return new SendEmailOtpResponse(
+                Sent: false,
+                ProviderConfigured: false,
+                MaskedEmail: string.Empty,
+                ExpiresInSeconds: 0,
+                ResendAfterSeconds: 0,
+                Message: $"Não foi possível conectar ao servidor para enviar o e-mail: {ex.Message}");
+        }
+    }
+
+    public async Task<VerifyEmailOtpResponse> VerifyEmailVerificationCodeAsync(
+        string email,
+        string code,
+        string purpose = "store_verification",
+        CancellationToken ct = default)
+    {
+        var centralUrl = WhatsAppLinkBuilder.NormalizePublicServerUrl(LatestAdminCentralServerUrl);
+        if (string.IsNullOrWhiteSpace(centralUrl))
+            centralUrl = AppUpdateCatalog.DefaultCentralPlatformServerUrl;
+
+        try
+        {
+            using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(18) };
+            using var resp = await client.PostAsJsonAsync(
+                $"{centralUrl.TrimEnd('/')}/api/cloud/email-otp/verify",
+                new VerifyEmailOtpRequest(email, code, purpose),
+                ct);
+            var body = await resp.Content.ReadFromJsonAsync<VerifyEmailOtpResponse>(cancellationToken: ct);
+            if (body is not null)
+                return body;
+
+            return new VerifyEmailOtpResponse(
+                Verified: false,
+                NormalizedEmail: string.Empty,
+                Message: $"O servidor retornou HTTP {(int)resp.StatusCode} ao validar o código.");
+        }
+        catch (Exception ex)
+        {
+            return new VerifyEmailOtpResponse(
+                Verified: false,
+                NormalizedEmail: string.Empty,
+                Message: $"Não foi possível validar o código agora: {ex.Message}");
         }
     }
 

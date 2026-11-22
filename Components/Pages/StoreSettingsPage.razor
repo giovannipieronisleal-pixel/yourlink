@@ -24,50 +24,156 @@
     var qrCodeSvgUri = WhatsAppLinkBuilder.GenerateQrCodeSvgDataUri(storeCatalogUrl);
 }
 
-<div style="margin-bottom: 1.15rem;">
-    <h1 style="font-size: 1.65rem; font-weight: 800; margin: 0; color: var(--adm-text);">Configurações da Loja &amp; Catálogo</h1>
-    <p style="color: var(--adm-muted); font-size: 0.92rem; margin: 0.25rem 0 0;">
-        Escolha uma aba abaixo para configurar sua loja sem excesso de informação na tela.
-    </p>
-</div>
-
-<!-- Barra de Abas Limpa para Separar Configurações da Loja, Visual, Pix/Entrega e Plano -->
-<nav aria-label="Seções das configurações da loja"
-     style="display: grid; grid-template-columns: repeat(auto-fit, minmax(175px, 1fr)); gap: 0.55rem; margin-bottom: 1.35rem; background: var(--adm-surface); padding: 0.45rem; border-radius: 14px; border: 1px solid var(--adm-border);">
-    <button type="button"
-            class="adm-btn @(_activeSettingsTab == "loja" ? "adm-btn-primary" : "adm-btn-outline")"
-            style="min-height: 46px; font-weight: 700; justify-content: center; border-radius: 10px;"
-            @onclick='() => _activeSettingsTab = "loja"'>
-        🏪 Dados &amp; Link da Loja
-    </button>
-    <button type="button"
-            class="adm-btn @(_activeSettingsTab == "visual" ? "adm-btn-primary" : "adm-btn-outline")"
-            style="min-height: 46px; font-weight: 700; justify-content: center; border-radius: 10px;"
-            @onclick='() => _activeSettingsTab = "visual"'>
-        🎨 Visual &amp; Temas
-    </button>
-    <button type="button"
-            class="adm-btn @(_activeSettingsTab == "vendas" ? "adm-btn-primary" : "adm-btn-outline")"
-            style="min-height: 46px; font-weight: 700; justify-content: center; border-radius: 10px;"
-            @onclick='() => _activeSettingsTab = "vendas"'>
-        💰 Pix, Vendas &amp; Frete
-    </button>
-    <button type="button"
-            class="adm-btn @(_activeSettingsTab == "plano" ? "adm-btn-primary" : "adm-btn-outline")"
-            style="min-height: 46px; font-weight: 700; justify-content: center; border-radius: 10px;"
-            @onclick='() => _activeSettingsTab = "plano"'>
-        🎁 Plano &amp; Gift Card
-    </button>
-</nav>
-
-@if (!string.IsNullOrWhiteSpace(_error))
+<div class="yl-settings-shell">
+@if (_activeSettingsTab == "hub")
 {
-    <div class="alert-banner alert-error">@_error</div>
+    <div class="yl-settings-hub-wrap">
+        <h1 class="yl-settings-page-title">Minha Loja</h1>
+
+        @if (!string.IsNullOrWhiteSpace(_error))
+        {
+            <div class="alert-banner alert-error">@_error</div>
+        }
+
+        @if (!string.IsNullOrWhiteSpace(_success))
+        {
+            <div class="alert-banner alert-success">@_success</div>
+        }
+
+        <!-- Cartão Identidade + Switches Rápidos (Loja no Ar & Modo Escuro) -->
+        <section class="adm-card yl-store-hero-card" aria-label="Resumo da loja">
+            <div class="yl-store-hero-top">
+                <div class="yl-store-hero-logo" aria-hidden="true">
+                    @if (!string.IsNullOrWhiteSpace(_form.LogoPublicUrl))
+                    {
+                        <img src="@_form.LogoPublicUrl" alt="Logo da loja" />
+                    }
+                    else
+                    {
+                        <span>@StoreInitials</span>
+                    }
+                </div>
+                <div class="yl-store-hero-meta">
+                    <div class="yl-store-hero-name">@(string.IsNullOrWhiteSpace(_form.StoreName) ? "Minha Loja" : _form.StoreName)</div>
+                    <span class="yl-plan-pill @(BrandState.IsPremiumPlan ? "premium" : BrandState.IsIntermediatePlan ? "intermediate" : "basic")">
+                        @(BrandState.IsPremiumPlan ? "✦ Plano Premium" : BrandState.IsIntermediatePlan ? "◈ Meia Versão" : "● Plano Básico")
+                    </span>
+                </div>
+            </div>
+
+            <div class="yl-hero-toggle-list">
+                <div class="yl-hero-toggle-row">
+                    <div class="yl-hero-toggle-text">
+                        <span class="yl-hero-toggle-title">Loja aberta no ar</span>
+                        <span class="yl-hero-toggle-sub">@(_form.IsSiteActive ? "Clientes podem ver e comprar" : "Vitrine pausada temporariamente")</span>
+                    </div>
+                    <button type="button"
+                            role="switch"
+                            aria-checked="@_form.IsSiteActive"
+                            aria-label="Alternar loja aberta no ar"
+                            class="yl-switch-btn @(_form.IsSiteActive ? "is-on" : string.Empty)"
+                            @onclick="ToggleSiteActiveSwitchAsync">
+                        <span class="yl-switch-knob"></span>
+                    </button>
+                </div>
+
+                <div class="yl-hero-toggle-row">
+                    <div class="yl-hero-toggle-text">
+                        <span class="yl-hero-toggle-title">Modo escuro</span>
+                        <span class="yl-hero-toggle-sub">@(Theme.IsDarkMode ? "Ativo — conforto visual à noite" : "Desativado — fundo claro")</span>
+                    </div>
+                    <button type="button"
+                            role="switch"
+                            aria-checked="@Theme.IsDarkMode"
+                            aria-label="Alternar modo escuro"
+                            class="yl-switch-btn @(Theme.IsDarkMode ? "is-on" : string.Empty)"
+                            @onclick="ToggleDarkModeSwitch">
+                        <span class="yl-switch-knob"></span>
+                    </button>
+                </div>
+            </div>
+        </section>
+
+        <!-- Lista Agrupada de 5 Subtelas (Mesmo estilo aprovado no Figma) -->
+        <nav class="adm-card yl-hub-group-card" aria-label="Menu de configurações da loja">
+            <button type="button" class="yl-hub-row" @onclick='() => OpenSettingsSection("loja")'>
+                <span class="yl-tint-icon yl-tint-blue" aria-hidden="true">🏪</span>
+                <span class="yl-hub-row-body">
+                    <span class="yl-hub-row-title">Dados da loja</span>
+                    <span class="yl-hub-row-desc">Nome, logotipo, descrição e WhatsApp</span>
+                </span>
+                <span class="yl-hub-chevron" aria-hidden="true">›</span>
+            </button>
+
+            <button type="button" class="yl-hub-row" @onclick='() => OpenSettingsSection("visual")'>
+                <span class="yl-tint-icon yl-tint-purple" aria-hidden="true">🎨</span>
+                <span class="yl-hub-row-body">
+                    <span class="yl-hub-row-title">Aparência da vitrine</span>
+                    <span class="yl-hub-row-desc">Temas e cores do site</span>
+                </span>
+                <span class="yl-hub-chevron" aria-hidden="true">›</span>
+            </button>
+
+            <button type="button" class="yl-hub-row" @onclick='() => OpenSettingsSection("vendas")'>
+                <span class="yl-tint-icon yl-tint-green" aria-hidden="true">💳</span>
+                <span class="yl-hub-row-body">
+                    <span class="yl-hub-row-title">Pagamentos e entrega</span>
+                    <span class="yl-hub-row-desc">Pix, Mercado Pago e CEP de frete</span>
+                </span>
+                <span class="yl-hub-chevron" aria-hidden="true">›</span>
+            </button>
+
+            <button type="button" class="yl-hub-row" @onclick='() => OpenSettingsSection("plano")'>
+                <span class="yl-tint-icon yl-tint-gold" aria-hidden="true">👑</span>
+                <span class="yl-hub-row-body">
+                    <span class="yl-hub-row-title">Planos e VIP</span>
+                    <span class="yl-hub-row-desc">Seu plano atual e código Gift Card</span>
+                </span>
+                <span class="yl-hub-chevron" aria-hidden="true">›</span>
+            </button>
+
+            <button type="button" class="yl-hub-row" @onclick='() => OpenSettingsSection("conta")'>
+                <span class="yl-tint-icon yl-tint-slate" aria-hidden="true">👤</span>
+                <span class="yl-hub-row-body">
+                    <span class="yl-hub-row-title">Minha conta e tema</span>
+                    <span class="yl-hub-row-desc">E-mail, modo claro/escuro, nuvem e sair</span>
+                </span>
+                <span class="yl-hub-chevron" aria-hidden="true">›</span>
+            </button>
+        </nav>
+    </div>
 }
-
-@if (!string.IsNullOrWhiteSpace(_success))
+else
 {
-    <div class="alert-banner alert-success">@_success</div>
+    <header class="yl-subpage-header">
+        <div class="yl-subpage-top">
+            <button type="button" class="yl-back-btn" @onclick='() => OpenSettingsSection("hub")'>
+                ← Minha Loja
+            </button>
+            <div class="yl-subpage-title-block">
+                <h1 class="yl-subpage-title">@CurrentSectionTitle</h1>
+                <p class="yl-subpage-desc">@CurrentSectionSubtitle</p>
+            </div>
+        </div>
+
+        <nav class="yl-subpage-pills" aria-label="Atalho entre seções">
+            <button type="button" class="yl-subpage-pill @(_activeSettingsTab == "loja" ? "is-active" : string.Empty)" @onclick='() => OpenSettingsSection("loja")'>🏪 Dados da loja</button>
+            <button type="button" class="yl-subpage-pill @(_activeSettingsTab == "visual" ? "is-active" : string.Empty)" @onclick='() => OpenSettingsSection("visual")'>🎨 Aparência da vitrine</button>
+            <button type="button" class="yl-subpage-pill @(_activeSettingsTab == "vendas" ? "is-active" : string.Empty)" @onclick='() => OpenSettingsSection("vendas")'>💳 Pagamentos e entrega</button>
+            <button type="button" class="yl-subpage-pill @(_activeSettingsTab == "plano" ? "is-active" : string.Empty)" @onclick='() => OpenSettingsSection("plano")'>👑 Planos e VIP</button>
+            <button type="button" class="yl-subpage-pill @(_activeSettingsTab == "conta" ? "is-active" : string.Empty)" @onclick='() => OpenSettingsSection("conta")'>👤 Minha conta e tema</button>
+        </nav>
+    </header>
+
+    @if (!string.IsNullOrWhiteSpace(_error))
+    {
+        <div class="alert-banner alert-error">@_error</div>
+    }
+
+    @if (!string.IsNullOrWhiteSpace(_success))
+    {
+        <div class="alert-banner alert-success">@_success</div>
+    }
 }
 
 <!-- ====================================================================== -->
@@ -191,11 +297,11 @@
                                     class="adm-btn @(isWaVerified ? "adm-btn-outline" : "adm-btn-success")"
                                     style="white-space: nowrap;"
                                     @onclick="SendWhatsappVerificationCodeAsync">
-                                @(isWaVerified ? "🔄 Reautenticar Zap" : "📲 Autenticar Meu WhatsApp")
+                                @(isWaVerified ? "🔄 Reconfirmar por E-mail" : "📧 Confirmar por E-mail")
                             </button>
                         </div>
                         <span style="font-size: 0.78rem; color: var(--adm-muted); display: block; margin-top: 0.3rem;">
-                            Pode digitar apenas o DDD + número (ex.: <strong>11999990000</strong>). O código do Brasil (+55) é inserido automaticamente!
+                            Pode digitar apenas o DDD + número (ex.: <strong>11999990000</strong>). Enviamos automaticamente um código de 6 dígitos para o seu e-mail de cadastro!
                         </span>
 
                         @if (!string.IsNullOrWhiteSpace(_whatsappAuthFeedback))
@@ -209,16 +315,16 @@
                         {
                             <div style="margin-top: 0.65rem; padding: 0.85rem; border-radius: 10px; border: 1.5px solid var(--adm-success); background: rgba(22, 163, 74, 0.08); display: flex; flex-direction: column; gap: 0.6rem;">
                                 <div style="font-size: 0.84rem; color: var(--adm-text); line-height: 1.45;">
-                                    🔐 <strong>Digite o código de 4 dígitos enviado pelo Suporte YouLink</strong> para confirmar o número <strong>@(waCheck.IsValid ? waCheck.FormattedDisplay : _form.WhatsappNumber)</strong>:
+                                    📧 <strong>Digite o código de 6 dígitos enviado para o seu e-mail</strong> para confirmar o número <strong>@(waCheck.IsValid ? waCheck.FormattedDisplay : _form.WhatsappNumber)</strong>:
                                 </div>
                                 <div style="display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center;">
                                     <input type="text"
-                                           maxlength="4"
+                                           maxlength="6"
                                            class="adm-input"
-                                           style="max-width: 140px; font-family: monospace; font-weight: 800; font-size: 1.05rem; letter-spacing: 0.18em; text-align: center;"
+                                           style="max-width: 160px; font-family: monospace; font-weight: 800; font-size: 1.05rem; letter-spacing: 0.18em; text-align: center;"
                                            @bind="_whatsappVerificationCodeInput"
                                            @bind:event="oninput"
-                                           placeholder="0000" />
+                                           placeholder="000000" />
                                     <button type="button"
                                             class="adm-btn adm-btn-success"
                                             style="font-weight: 700;"
@@ -228,7 +334,7 @@
                                     <button type="button"
                                             class="adm-btn adm-btn-outline"
                                             @onclick="SendWhatsappVerificationCodeAsync">
-                                        Reabrir no Zap
+                                        Reenviar E-mail
                                     </button>
                                 </div>
                             </div>
@@ -799,8 +905,191 @@
 </section>
 </div>
 
+<!-- ====================================================================== -->
+<!-- ABA 5: MINHA CONTA E TEMA (Modo Claro/Escuro, E-mail, Nuvem e Sair)    -->
+<!-- ====================================================================== -->
+<div style="@(_activeSettingsTab == "conta" ? string.Empty : "display: none;")">
+    <div class="yl-account-stack">
+        <!-- Aparência do Aplicativo (Modo Escuro & Seletor 3 opções) -->
+        <section class="adm-card" style="margin-bottom: 0; display: flex; flex-direction: column; gap: 1rem;">
+            <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.75rem;">
+                <div>
+                    <h2 style="font-size: 1.08rem; font-weight: 800; margin: 0; color: var(--adm-text);">Aparência do aplicativo</h2>
+                    <p style="font-size: 0.86rem; color: var(--adm-muted); margin: 0.2rem 0 0;">
+                        Alterne entre fundo claro ou modo escuro suave para usar à noite.
+                    </p>
+                </div>
+                <button type="button"
+                        role="switch"
+                        aria-checked="@Theme.IsDarkMode"
+                        aria-label="Ativar modo escuro"
+                        class="yl-switch-btn @(Theme.IsDarkMode ? "is-on" : string.Empty)"
+                        @onclick="ToggleDarkModeSwitch">
+                    <span class="yl-switch-knob"></span>
+                </button>
+            </div>
+
+            <div class="yl-seg-control" role="radiogroup" aria-label="Escolha o tema do aplicativo">
+                <button type="button"
+                        class="yl-seg-btn @(Theme.ThemePreference == "light" ? "is-active" : string.Empty)"
+                        @onclick='() => ChangeTheme("light")'>
+                    ☀️ Claro
+                </button>
+                <button type="button"
+                        class="yl-seg-btn @(Theme.ThemePreference == "dark" ? "is-active" : string.Empty)"
+                        @onclick='() => ChangeTheme("dark")'>
+                    🌙 Escuro
+                </button>
+                <button type="button"
+                        class="yl-seg-btn @(Theme.ThemePreference == "system" ? "is-active" : string.Empty)"
+                        @onclick='() => ChangeTheme("system")'>
+                    🌓 Auto
+                </button>
+            </div>
+        </section>
+
+        <!-- Conta e Segurança -->
+        <section class="adm-card" style="margin-bottom: 0; display: flex; flex-direction: column; gap: 0.9rem;">
+            <h2 style="font-size: 1.08rem; font-weight: 800; margin: 0; color: var(--adm-text);">Conta e segurança</h2>
+
+            <div class="yl-account-info-box">
+                <span class="yl-account-info-label">E-mail conectado</span>
+                <span class="yl-account-info-value">@(Gateway.CurrentEmployee?.Email ?? "lojista@exemplo.com")</span>
+                <span style="font-size: 0.82rem; color: var(--adm-muted);">
+                    Perfil: <strong>@(Gateway.CurrentEmployee?.FullName ?? "Lojista")</strong> (@(Gateway.IsAdmin ? "Administrador" : "Equipe"))
+                </span>
+            </div>
+
+            <div style="display: flex; gap: 0.65rem; flex-wrap: wrap;">
+                <button type="button"
+                        class="adm-btn adm-btn-outline"
+                        style="flex: 1 1 200px; min-height: 46px; justify-content: center;"
+                        @onclick='() => OpenSettingsSection("loja")'>
+                    📧 Verificar e-mail / WhatsApp
+                </button>
+                @if (Gateway.IsAdmin)
+                {
+                    <a href="/usuarios"
+                       class="adm-btn adm-btn-outline"
+                       style="flex: 1 1 160px; min-height: 46px; justify-content: center;">
+                        👥 Equipe e acessos
+                    </a>
+                }
+            </div>
+        </section>
+
+        <!-- Sincronização, Atualizações e Sair -->
+        <section class="adm-card" style="margin-bottom: 0; display: flex; flex-direction: column; gap: 0.8rem;">
+            <div style="display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+                <h2 style="font-size: 1.08rem; font-weight: 800; margin: 0; color: var(--adm-text);">Nuvem e aplicativo</h2>
+                <span class="pill-badge pill-slate">v@(UpdateService.CurrentVersion)</span>
+            </div>
+
+            <div style="display: flex; flex-direction: column; gap: 0.6rem;">
+                <button type="button"
+                        class="adm-btn adm-btn-primary"
+                        style="width: 100%; min-height: 48px; justify-content: center; font-weight: 700;"
+                        disabled="@CloudSync.IsSyncing"
+                        @onclick="SyncToCloudNowAsync">
+                    @(CloudSync.IsSyncing ? "⏳ Sincronizando..." : "☁️ Sincronizar loja agora")
+                </button>
+
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 0.6rem;">
+                    <button type="button"
+                            class="adm-btn adm-btn-outline"
+                            style="min-height: 46px; justify-content: center;"
+                            disabled="@CloudSync.IsSyncing"
+                            @onclick="PullStoreFromCloudNowAsync">
+                        ⬇️ Baixar da nuvem
+                    </button>
+                    <button type="button"
+                            class="adm-btn adm-btn-outline"
+                            style="min-height: 46px; justify-content: center;"
+                            disabled="@UpdateService.IsChecking"
+                            @onclick="CheckUpdatesManuallyAsync">
+                        @(UpdateService.IsChecking ? "⏳ Verificando..." : "🔄 Atualizações")
+                    </button>
+                </div>
+
+                <button type="button"
+                        class="adm-btn adm-btn-danger"
+                        style="width: 100%; min-height: 48px; justify-content: center; font-weight: 700; margin-top: 0.25rem;"
+                        @onclick="LogoutAccount">
+                    Sair da conta
+                </button>
+            </div>
+        </section>
+    </div>
+</div>
+</div>
+
 @code {
-    private string _activeSettingsTab = "loja";
+    private string _activeSettingsTab = "hub";
+
+    private string StoreInitials
+    {
+        get
+        {
+            var name = _form.StoreName?.Trim();
+            if (string.IsNullOrWhiteSpace(name))
+                return "YL";
+
+            var parts = name.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            if (parts.Length >= 2)
+                return $"{char.ToUpperInvariant(parts[0][0])}{char.ToUpperInvariant(parts[1][0])}";
+
+            return name.Length >= 2 ? name[..2].ToUpperInvariant() : name.ToUpperInvariant();
+        }
+    }
+
+    private string CurrentSectionTitle => _activeSettingsTab switch
+    {
+        "loja" => "Dados da loja",
+        "visual" => "Aparência da vitrine",
+        "vendas" => "Pagamentos e entrega",
+        "plano" => "Planos e VIP",
+        "conta" => "Minha conta e tema",
+        _ => "Minha Loja"
+    };
+
+    private string CurrentSectionSubtitle => _activeSettingsTab switch
+    {
+        "loja" => "Nome, logotipo, descrição, link oficial e WhatsApp.",
+        "visual" => "Escolha um tema pronto e personalize as cores da sua vitrine.",
+        "vendas" => "Configure chave Pix, Mercado Pago, entregas locais e CEP de frete.",
+        "plano" => "Acompanhe seu plano atual, ative Gift Card e verifique o status VIP.",
+        "conta" => "Modo claro/escuro, dados da conta, sincronização e saída segura.",
+        _ => string.Empty
+    };
+
+    private void OpenSettingsSection(string section)
+    {
+        _activeSettingsTab = section;
+        _error = null;
+    }
+
+    private async Task ToggleSiteActiveSwitchAsync()
+    {
+        if (_form.IsSiteActive)
+        {
+            await DeactivateSiteNowAsync();
+        }
+        else
+        {
+            await ActivateSiteNowAsync();
+        }
+    }
+
+    private void ToggleDarkModeSwitch()
+    {
+        Theme.ToggleTheme();
+    }
+
+    private void LogoutAccount()
+    {
+        Gateway.Logout();
+        Navigation.NavigateTo("/login");
+    }
     private string _planTier = StoreDesignPresets.PlanBasic;
     private DateTimeOffset? _planActivatedAt;
     private DateTimeOffset? _planExpiresAt;
@@ -975,27 +1264,34 @@
             return;
         }
 
+        var recipientEmail = Gateway.CurrentEmployee?.Email?.Trim();
+        if (string.IsNullOrWhiteSpace(recipientEmail))
+        {
+            _whatsappAuthFeedbackOk = false;
+            _whatsappAuthFeedback = "⚠️ Cadastre um e-mail na sua conta (Minha Conta) para receber o código de verificação.";
+            return;
+        }
+
         _form.WhatsappNumber = check.NormalizedNumber;
         _pendingWhatsappNormalizedTarget = check.NormalizedNumber;
-        _pendingWhatsappVerificationCode = WhatsAppLinkBuilder.GenerateSupportWhatsAppVerificationCode(check.NormalizedNumber);
         _whatsappVerificationCodeInput = string.Empty;
 
-        var catalog = await Gateway.TryLoadPublicPlatformCatalogAsync();
-        var supportUrl = WhatsAppLinkBuilder.BuildSupportVerificationRequestLink(
-            catalog?.SupportWhatsappNumber,
-            check.NormalizedNumber,
-            _form.StoreName);
+        var resp = await Gateway.SendEmailVerificationCodeAsync(
+            recipientEmail,
+            purpose: "store_whatsapp_verification",
+            contextLabel: $"confirmação do WhatsApp {check.FormattedDisplay}");
 
-        if (!string.IsNullOrWhiteSpace(supportUrl))
+        if (resp.Sent)
         {
-            await Gateway.OpenExternalUrlSafeAsync(supportUrl);
+            _pendingWhatsappVerificationCode = recipientEmail;
             _whatsappAuthFeedbackOk = true;
-            _whatsappAuthFeedback = $"📲 Abrimos o WhatsApp oficial de Suporte! Envie a mensagem pronta pelo número {check.FormattedDisplay} para receber seu código de 4 dígitos e digite-o abaixo.";
+            _whatsappAuthFeedback = "📧 " + resp.Message;
         }
         else
         {
+            _pendingWhatsappVerificationCode = null;
             _whatsappAuthFeedbackOk = false;
-            _whatsappAuthFeedback = "⚠️ O número oficial de WhatsApp do Suporte ainda não foi configurado no servidor. Peça ao suporte o código de 4 dígitos para o seu número e digite abaixo.";
+            _whatsappAuthFeedback = "⚠️ " + resp.Message;
         }
     }
 
@@ -1003,11 +1299,14 @@
     {
         _error = null;
         var typed = WhatsAppLinkBuilder.SanitizePhoneNumber(_whatsappVerificationCodeInput);
-        if (string.IsNullOrWhiteSpace(_pendingWhatsappVerificationCode) ||
-            !string.Equals(typed, _pendingWhatsappVerificationCode, StringComparison.Ordinal))
+        var recipientEmail = !string.IsNullOrWhiteSpace(_pendingWhatsappVerificationCode)
+            ? _pendingWhatsappVerificationCode
+            : Gateway.CurrentEmployee?.Email?.Trim();
+
+        if (string.IsNullOrWhiteSpace(recipientEmail) || typed.Length != 6)
         {
             _whatsappAuthFeedbackOk = false;
-            _whatsappAuthFeedback = "❌ Código incorreto. Confira os 4 dígitos na mensagem que abriu no seu WhatsApp.";
+            _whatsappAuthFeedback = "❌ Digite os 6 dígitos do código enviado para o seu e-mail.";
             return;
         }
 
@@ -1016,6 +1315,18 @@
         {
             _whatsappAuthFeedbackOk = false;
             _whatsappAuthFeedback = "⚠️ " + check.Message;
+            return;
+        }
+
+        var verify = await Gateway.VerifyEmailVerificationCodeAsync(
+            recipientEmail,
+            typed,
+            purpose: "store_whatsapp_verification");
+
+        if (!verify.Verified)
+        {
+            _whatsappAuthFeedbackOk = false;
+            _whatsappAuthFeedback = "❌ " + verify.Message;
             return;
         }
 
@@ -1031,7 +1342,7 @@
         }
 
         _whatsappAuthFeedbackOk = true;
-        _whatsappAuthFeedback = $"✅ WhatsApp {check.FormattedDisplay} autenticado e salvo com sucesso!";
+        _whatsappAuthFeedback = $"✅ WhatsApp {check.FormattedDisplay} confirmado via e-mail e salvo com sucesso!";
         await SaveSettingsAsync();
     }
 

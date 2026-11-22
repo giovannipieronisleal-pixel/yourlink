@@ -8,33 +8,35 @@
 @implements IDisposable
 
 <div class="yl-home-wrap">
-    <!-- Cabeçalho Calmo & Direto -->
+    <!-- Barra Superior Limpa (Status + Ver loja + Iniciais) -->
+    @if (_publicStore is not null)
+    {
+        <div class="yl-home-topbar">
+            <span class="yl-status-pill @(_publicStore.IsSiteActive ? "online" : "offline")">
+                <span class="yl-status-dot @(_publicStore.IsSiteActive ? "online" : "offline")" aria-hidden="true"></span>
+                @(_publicStore.IsSiteActive ? "Loja aberta" : "Loja pausada")
+            </span>
+
+            <div class="yl-home-topbar-right">
+                <button type="button"
+                        class="yl-ver-loja-btn"
+                        @onclick="OpenPublicStoreAsync">
+                    Ver loja
+                </button>
+                <a href="/configuracoes-loja" class="yl-store-avatar" title="Abrir Minha Loja" aria-label="Abrir Minha Loja">
+                    @StoreInitials
+                </a>
+            </div>
+        </div>
+    }
+
+    <!-- Saudação Calma & Direta -->
     <header class="yl-home-header">
         <div class="yl-home-greeting">
             <h1 class="yl-home-title">@GreetingText</h1>
             @if (_publicStore is not null)
             {
-                <div class="yl-home-status-line">
-                    <span class="yl-status-dot @(_publicStore.IsSiteActive ? "online" : "offline")" aria-hidden="true"></span>
-                    <span>@_publicStore.StoreName</span>
-                    <span class="yl-status-sep" aria-hidden="true">&bull;</span>
-                    <span>@(_publicStore.IsSiteActive ? "No ar" : "Pausada")</span>
-                </div>
-            }
-        </div>
-
-        <div class="yl-home-header-actions">
-            @if (Gateway.CanManageProducts)
-            {
-                <a href="/produtos" class="adm-btn adm-btn-primary yl-home-cta">
-                    + Novo Produto
-                </a>
-            }
-            else if (Gateway.CanManageStock)
-            {
-                <a href="/estoque" class="adm-btn adm-btn-primary yl-home-cta">
-                    📦 Abrir Estoque
-                </a>
+                <div class="yl-home-store-sub">@_publicStore.StoreName</div>
             }
         </div>
     </header>
@@ -57,32 +59,45 @@
                 <button type="button"
                         class="adm-btn adm-btn-primary yl-share-btn"
                         @onclick="CopyStoreLinkAsync">
-                    @(_copiedLink ? "✓ Link Copiado!" : "📋 Copiar Link")
+                    @(_copiedLink ? "✓ Copiado!" : "Copiar link")
                 </button>
                 <button type="button"
                         class="adm-btn adm-btn-success yl-share-btn"
                         @onclick="ShareStoreOnWhatsAppAsync">
-                    💬 WhatsApp
+                    WhatsApp
                 </button>
             </div>
         </section>
     }
 
+    <!-- Botão Principal em Destaque (Largura Total, estilo Figma aprovado) -->
+    @if (Gateway.CanManageProducts)
+    {
+        <a href="/produtos?novo=1" class="adm-btn adm-btn-primary yl-home-primary-cta">
+            + Cadastrar novo produto
+        </a>
+    }
+    else if (Gateway.CanManageStock)
+    {
+        <a href="/estoque" class="adm-btn adm-btn-primary yl-home-primary-cta">
+            📦 Ajustar estoque
+        </a>
+    }
+
     @if (_summary is not null)
     {
-        <!-- 3 Cartões Calmos de Resumo (Windows & Mobile) -->
+        <!-- Grade 2x2 Limpa de Resumo (Sem texto repetitivo, Vendas Hoje em Verde) -->
         <section class="yl-summary-grid" aria-label="Resumo rápido da loja">
             <a href="/vendas" class="yl-summary-card">
                 <span class="yl-summary-label">Vendas hoje</span>
                 @if (_salesReport?.IsUnlocked == true)
                 {
-                    <strong class="yl-summary-value">@_salesReport.TodayConfirmedRevenue.ToString("C", PtBr)</strong>
+                    <strong class="yl-summary-value yl-summary-value-green">@_salesReport.TodayConfirmedRevenue.ToString("C", PtBr)</strong>
                 }
                 else
                 {
                     <strong class="yl-summary-value yl-summary-value-muted">Ver vendas</strong>
                 }
-                <span class="yl-summary-link">Abrir &rarr;</span>
             </a>
 
             <a href="@(Gateway.IsAdmin ? "/pedidos" : "/estoque")" class="yl-summary-card">
@@ -90,41 +105,24 @@
                 <strong class="yl-summary-value @(PendingOrdersOrAlertsCount > 0 ? "yl-summary-value-amber" : string.Empty)">
                     @PendingOrdersOrAlertsCount
                 </strong>
-                <span class="yl-summary-link">Abrir &rarr;</span>
             </a>
 
             <a href="/produtos" class="yl-summary-card">
                 <span class="yl-summary-label">Produtos ativos</span>
                 <strong class="yl-summary-value">@_summary.TotalVisibleProducts</strong>
-                <span class="yl-summary-link">Abrir &rarr;</span>
             </a>
-        </section>
 
-        <!-- Grade 2x2 de Ações Rápidas (Exclusiva para Celular — mantém o Windows ultra-limpo) -->
-        <section class="yl-mobile-quick-section" aria-label="Ações rápidas no celular">
-            <h2 class="yl-mobile-quick-heading">O que você quer fazer agora?</h2>
-            <div class="yl-mobile-quick-grid">
-                <a href="/produtos" class="yl-mobile-quick-tile">
-                    <span class="yl-mobile-quick-icon yl-icon-blue">➕</span>
-                    <strong>Cadastrar Produto</strong>
-                    <span>Foto, nome e preço</span>
-                </a>
-                <a href="/produtos" class="yl-mobile-quick-tile">
-                    <span class="yl-mobile-quick-icon yl-icon-slate">🛍️</span>
-                    <strong>Meus Produtos</strong>
-                    <span>@_summary.TotalRegisteredProducts no catálogo</span>
-                </a>
-                <a href="@(Gateway.IsAdmin ? "/pedidos" : "/estoque")" class="yl-mobile-quick-tile">
-                    <span class="yl-mobile-quick-icon yl-icon-amber">🧾</span>
-                    <strong>@(Gateway.IsAdmin ? "Ver Pedidos" : "Ver Estoque")</strong>
-                    <span>@(PendingOrdersOrAlertsCount > 0 ? $"{PendingOrdersOrAlertsCount} pendente(s)" : "Tudo em dia")</span>
-                </a>
-                <a href="/vendas" class="yl-mobile-quick-tile">
-                    <span class="yl-mobile-quick-icon yl-icon-green">💰</span>
-                    <strong>Minhas Vendas</strong>
-                    <span>Resumo e Pix</span>
-                </a>
-            </div>
+            <a href="/estoque" class="yl-summary-card">
+                <span class="yl-summary-label">Ajustar estoque</span>
+                @if (_summary.StockAlerts.Count > 0)
+                {
+                    <strong class="yl-summary-value yl-summary-value-amber">@_summary.StockAlerts.Count @(_summary.StockAlerts.Count == 1 ? "alerta" : "alertas")</strong>
+                }
+                else
+                {
+                    <strong class="yl-summary-value yl-summary-value-ok">Tudo em dia</strong>
+                }
+            </a>
         </section>
 
         <!-- Cartão Único e Calmo: Últimas Vendas -->
@@ -132,7 +130,7 @@
             <div class="adm-sales-mini-header">
                 <h2 class="adm-sales-mini-title">Últimas Vendas</h2>
                 <a href="@(_salesReport?.IsUnlocked == true ? "/vendas" : "/pedidos")" class="adm-sales-mini-link">
-                    Ver todas &rarr;
+                    Ver todas
                 </a>
             </div>
 
@@ -246,6 +244,28 @@
         }
     }
 
+    private string StoreInitials
+    {
+        get
+        {
+            var name = _publicStore?.StoreName?.Trim();
+            if (string.IsNullOrWhiteSpace(name))
+            {
+                return "YL";
+            }
+
+            var parts = name.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            if (parts.Length >= 2)
+            {
+                return $"{char.ToUpperInvariant(parts[0][0])}{char.ToUpperInvariant(parts[1][0])}";
+            }
+
+            return name.Length >= 2
+                ? name[..2].ToUpperInvariant()
+                : name.ToUpperInvariant();
+        }
+    }
+
     private string PublicStoreUrl
     {
         get
@@ -348,6 +368,11 @@
         {
             _error = ex.Message;
         }
+    }
+
+    private async Task OpenPublicStoreAsync()
+    {
+        await Gateway.OpenExternalUrlSafeAsync(PublicStoreUrl);
     }
 
     private async Task CopyStoreLinkAsync()

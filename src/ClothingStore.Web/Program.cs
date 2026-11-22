@@ -129,6 +129,12 @@ builder.Services.AddSingleton(sp =>
 builder.Services.AddSingleton(_ => new RemoteConfigAndTelemetryStore(appDataRoot));
 builder.Services.AddSingleton(sp =>
     new CloudflareTurnstileService(sp.GetRequiredService<IHttpClientFactory>().CreateClient("CloudflareTurnstile")));
+builder.Services.AddHttpClient("EmailOtp", client =>
+{
+    client.Timeout = TimeSpan.FromSeconds(15);
+});
+builder.Services.AddSingleton(sp =>
+    new EmailOtpService(sp.GetRequiredService<IHttpClientFactory>().CreateClient("EmailOtp")));
 builder.Services.AddSingleton(sp =>
     new GeminiProductAssistantService(
         sp.GetRequiredService<IHttpClientFactory>().CreateClient("GeminiAi"),
@@ -1500,6 +1506,30 @@ app.MapPost("/api/cloud/pull-store", async (
 
     return Results.Ok(response);
 }).DisableAntiforgery();
+
+app.MapGet("/api/cloud/email-otp/status", (EmailOtpService emailOtp) =>
+    Results.Ok(emailOtp.GetPublicStatus())).RequireCors("YouLinkPwaCors");
+
+app.MapPost("/api/cloud/email-otp/send", async (
+    SendEmailOtpRequest request,
+    EmailOtpService emailOtp,
+    CancellationToken ct) =>
+{
+    var result = await emailOtp.SendOtpAsync(request, ct);
+    return result.Sent
+        ? Results.Ok(result)
+        : Results.BadRequest(result);
+}).DisableAntiforgery().RequireCors("YouLinkPwaCors").RequireRateLimiting("giftcard-strict");
+
+app.MapPost("/api/cloud/email-otp/verify", (
+    VerifyEmailOtpRequest request,
+    EmailOtpService emailOtp) =>
+{
+    var result = emailOtp.VerifyOtp(request);
+    return result.Verified
+        ? Results.Ok(result)
+        : Results.BadRequest(result);
+}).DisableAntiforgery().RequireCors("YouLinkPwaCors").RequireRateLimiting("giftcard-strict");
 
 app.MapGet("/api/cloud/plan-status", async (
     string? email,

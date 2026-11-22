@@ -31,7 +31,7 @@
 
   const state = {
     session: loadSession(),
-    theme: localStorage.getItem(THEME_KEY) || "dark",
+    theme: localStorage.getItem(THEME_KEY) || "light",
     authTab: "login",
     activeTab: "home",
     busy: false,
@@ -898,10 +898,9 @@
             <span class="yl-status-dot ${state.store.isSiteActive ? "online" : "offline"}"></span>
             <span>${esc(state.store.storeName)}</span>
             <span>&bull;</span>
-            <span>${state.store.isSiteActive ? "No ar" : "Pausada"}</span>
+            <span>${state.store.isSiteActive ? "Loja aberta" : "Pausada"}</span>
           </div>
         </div>
-        <button type="button" class="adm-btn adm-btn-primary" id="home-new-product-btn">+ Novo Produto</button>
       </header>
 
       <section class="adm-card yl-share-card">
@@ -919,23 +918,27 @@
         </div>
       </section>
 
-      <section class="yl-summary-grid">
+      <button type="button" class="adm-btn adm-btn-primary" id="home-new-product-btn" style="width:100%;min-height:52px;font-size:1rem;font-weight:800;border-radius:14px;">+ Cadastrar novo produto</button>
+
+      <section class="yl-summary-grid" style="grid-template-columns:repeat(2,minmax(0,1fr));">
         <button type="button" class="yl-summary-card" data-tab="orders">
           <span class="yl-summary-label">Pedidos novos</span>
-          <strong class="yl-summary-value">${pendingOrders || state.orders.length}</strong>
-          <span class="yl-summary-link">Abrir &rarr;</span>
-        </button>
-
-        <button type="button" class="yl-summary-card" data-tab="stock">
-          <span class="yl-summary-label">Estoque total</span>
-          <strong class="yl-summary-value">${totalUnits}</strong>
-          <span class="yl-summary-link">${lowStock > 0 ? `${lowStock} alerta(s)` : "Controlar"} &rarr;</span>
+          <strong class="yl-summary-value" style="color:var(--yl-success-text);">${pendingOrders || state.orders.length}</strong>
         </button>
 
         <button type="button" class="yl-summary-card" data-tab="products">
           <span class="yl-summary-label">Produtos ativos</span>
           <strong class="yl-summary-value">${visibleProducts}</strong>
-          <span class="yl-summary-link">Abrir &rarr;</span>
+        </button>
+
+        <button type="button" class="yl-summary-card" data-tab="stock">
+          <span class="yl-summary-label">Estoque total</span>
+          <strong class="yl-summary-value">${totalUnits}</strong>
+        </button>
+
+        <button type="button" class="yl-summary-card" data-tab="stock">
+          <span class="yl-summary-label">Ajustar estoque</span>
+          <strong class="yl-summary-value" style="color:${lowStock > 0 ? "var(--adm-warning)" : "var(--yl-success-text)"};">${lowStock > 0 ? `${lowStock} alerta(s)` : "Em dia"}</strong>
         </button>
       </section>
 
