@@ -24,7 +24,7 @@
             <span>Pedidos</span>
         </NavLink>
 
-        <NavLink class="adm-nav-item adm-nav-secondary" href="/configuracoes-loja">
+        <NavLink class="adm-nav-item" href="/configuracoes-loja">
             <span class="adm-nav-icon">🏪</span>
             <span>Minha Loja</span>
         </NavLink>
@@ -76,14 +76,17 @@
         }
     }
 
-    <button type="button"
-            class="adm-nav-item adm-nav-more-btn @(IsSecondaryRouteActive() || _mobileMoreOpen ? "active" : string.Empty)"
-            @onclick="ToggleMobileMore"
-            aria-expanded="@_mobileMoreOpen"
-            aria-label="Mais opções do menu">
-        <span class="adm-nav-icon">⋯</span>
-        <span>Mais</span>
-    </button>
+    @if (!Gateway.IsAdmin)
+    {
+        <button type="button"
+                class="adm-nav-item adm-nav-more-btn @(IsSecondaryRouteActive() || _mobileMoreOpen ? "active" : string.Empty)"
+                @onclick="ToggleMobileMore"
+                aria-expanded="@_mobileMoreOpen"
+                aria-label="Mais opções do menu">
+            <span class="adm-nav-icon">⋯</span>
+            <span>Mais</span>
+        </button>
+    }
 </nav>
 
 <div class="adm-sidebar-footer">

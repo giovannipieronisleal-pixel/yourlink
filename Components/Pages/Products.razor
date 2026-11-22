@@ -2,26 +2,29 @@
 @inject MauiAdminGateway Gateway
 @inject NavigationManager Navigation
 
-<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; flex-wrap: wrap; gap: 1rem;">
-    <div>
-        <h1 style="font-size: 1.65rem; font-weight: 700; margin: 0;">Gerenciamento de Produtos</h1>
-        <p style="color: var(--adm-muted); font-size: 0.92rem; margin: 0.25rem 0 0;">
-            Cadastre produtos, edite informações, gerencie fotografias, variações de cor/tamanho/opção e controle a visibilidade no site público.
-        </p>
-    </div>
-
-    @if (Gateway.CanManageProducts)
-    {
-        <div style="display: flex; gap: 0.65rem; flex-wrap: wrap;">
-            <button type="button" class="adm-btn adm-btn-outline" @onclick="ToggleNewCategoryModal">
-                + Nova Categoria
-            </button>
-            <button type="button" class="adm-btn adm-btn-primary" @onclick="OpenNewProductModal">
-                + Novo Produto
-            </button>
+@if (!_showNewProductModal)
+{
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.25rem; flex-wrap: wrap; gap: 0.85rem;">
+        <div>
+            <h1 style="font-size: 1.6rem; font-weight: 800; margin: 0; color: var(--adm-text);">Produtos</h1>
+            <p style="color: var(--adm-muted); font-size: 0.9rem; margin: 0.2rem 0 0;">
+                Cadastre produtos, fotos, cores, tamanhos e estoque.
+            </p>
         </div>
-    }
-</div>
+
+        @if (Gateway.CanManageProducts)
+        {
+            <div style="display: flex; gap: 0.6rem; flex-wrap: wrap;">
+                <button type="button" class="adm-btn adm-btn-outline" @onclick="ToggleNewCategoryModal">
+                    + Categoria
+                </button>
+                <button type="button" class="adm-btn adm-btn-primary" @onclick="OpenNewProductModal">
+                    + Novo produto
+                </button>
+            </div>
+        }
+    </div>
+}
 
 @if (!string.IsNullOrWhiteSpace(_error))
 {
@@ -218,33 +221,72 @@
     </div>
 }
 
-<!-- Formulário de Novo Produto (Estilo Figma Aprovado: Cartões Limpos + Stepper de Estoque) -->
+<!-- Formulário de Novo Produto (Estilo Figma Aprovado: Fotos no Topo + Cartões Limpos + Stepper lado a lado) -->
 @if (_showNewProductModal && Gateway.CanManageProducts)
 {
     var matchingExistingProduct = FindMatchingExistingProductForNewForm();
-    <div class="adm-card yl-product-form-stack" style="border: 1.5px solid var(--adm-border);">
-        <div style="display: flex; justify-content: space-between; align-items: center; gap: 0.75rem;">
-            <div style="display: flex; align-items: center; gap: 0.6rem;">
-                <button type="button"
-                        class="adm-btn adm-btn-outline"
-                        style="min-height: 40px; padding: 0.3rem 0.75rem; border-radius: 10px;"
-                        @onclick="() => _showNewProductModal = false">
-                    ← Voltar
-                </button>
-                <h2 style="margin: 0; font-size: 1.2rem; font-weight: 800; color: var(--adm-text);">Novo Produto</h2>
-            </div>
+    <div class="yl-product-form-stack" style="max-width: 700px; margin: 0 auto;">
+        <div style="display: flex; align-items: center; gap: 0.65rem;">
+            <button type="button"
+                    class="adm-btn adm-btn-outline"
+                    style="min-height: 42px; padding: 0.35rem 0.85rem; border-radius: 12px;"
+                    @onclick="CloseNewProductModal">
+                ← Voltar
+            </button>
+            <h1 style="margin: 0; font-size: 1.35rem; font-weight: 800; color: var(--adm-text);">Novo Produto</h1>
         </div>
 
         @if (matchingExistingProduct is not null)
         {
             <div style="padding: 0.75rem 0.9rem; border-radius: 12px; background: var(--yl-tint-green-bg); border: 1px solid var(--adm-success); font-size: 0.86rem; color: var(--adm-text);">
-                ✓ O produto <strong>@matchingExistingProduct.Name</strong> já existe nesta categoria: ao salvar, as cores e tamanhos abaixo serão <strong>adicionados dentro dele</strong> (sem duplicar).
+                ✓ O produto <strong>@matchingExistingProduct.Name</strong> já existe nesta categoria: ao salvar, as fotos, cores e tamanhos abaixo serão <strong>adicionados dentro dele</strong> (sem duplicar).
             </div>
         }
 
-        <!-- Bloco 1: Informações básicas -->
-        <div style="background: var(--adm-input-bg); border: 1px solid var(--adm-border); border-radius: 14px; padding: 1rem; display: flex; flex-direction: column; gap: 0.9rem;">
-            <div style="font-size: 0.95rem; font-weight: 800; color: var(--adm-text);">Informações básicas</div>
+        <!-- Bloco 1: Fotos do produto (Idêntico ao Figma aprovado) -->
+        <section class="adm-card" style="margin-bottom: 0; display: flex; flex-direction: column; gap: 0.75rem;">
+            <div style="display: flex; justify-content: space-between; align-items: center; gap: 0.5rem;">
+                <span style="font-size: 0.96rem; font-weight: 800; color: var(--adm-text);">Fotos do produto</span>
+                @if (_newProductPendingPhotos.Count > 0)
+                {
+                    <span style="font-size: 0.8rem; color: var(--adm-muted);">@_newProductPendingPhotos.Count @(_newProductPendingPhotos.Count == 1 ? "foto" : "fotos")</span>
+                }
+            </div>
+
+            <div class="yl-photo-strip">
+                <button type="button"
+                        class="yl-photo-add-tile"
+                        disabled="@_isPickingNewPhoto"
+                        @onclick="PickNewProductPhotoAsync">
+                    <span class="yl-photo-add-plus">@(_isPickingNewPhoto ? "⏳" : "+")</span>
+                    <span>@(_isPickingNewPhoto ? "Carregando" : "Adicionar foto")</span>
+                </button>
+
+                @for (var pIdx = 0; pIdx < _newProductPendingPhotos.Count; pIdx++)
+                {
+                    var photo = _newProductPendingPhotos[pIdx];
+                    var removeIdx = pIdx;
+                    <div class="yl-photo-thumb">
+                        <img src="@photo.PreviewDataUri" alt="Prévia da foto @(removeIdx + 1)" />
+                        @if (removeIdx == 0)
+                        {
+                            <span class="yl-photo-cover-badge">Capa</span>
+                        }
+                        <button type="button"
+                                class="yl-photo-remove-btn"
+                                title="Remover foto"
+                                aria-label="Remover foto"
+                                @onclick="() => RemoveNewProductPendingPhoto(removeIdx)">
+                            ✕
+                        </button>
+                    </div>
+                }
+            </div>
+        </section>
+
+        <!-- Bloco 2: Informações básicas -->
+        <section class="adm-card" style="margin-bottom: 0; display: flex; flex-direction: column; gap: 0.9rem;">
+            <div style="font-size: 0.96rem; font-weight: 800; color: var(--adm-text);">Informações básicas</div>
 
             <div>
                 <label class="adm-label">Nome do produto *</label>
@@ -290,12 +332,12 @@
                 <label class="adm-label">Descrição do produto (opcional)</label>
                 <textarea class="adm-textarea" rows="2" @bind="_newProduct.Description" placeholder="Tecido, medidas ou detalhes importantes..."></textarea>
             </div>
-        </div>
+        </section>
 
-        <!-- Bloco 2: Cores, tamanhos e estoque (Sub-cartões verticais + Stepper -/+ ) -->
-        <div style="background: var(--adm-input-bg); border: 1px solid var(--adm-border); border-radius: 14px; padding: 1rem; display: flex; flex-direction: column; gap: 0.8rem;">
+        <!-- Bloco 3: Cores, tamanhos e estoque (Sub-cartões limpos + Tamanho e Stepper na mesma linha) -->
+        <section class="adm-card" style="margin-bottom: 0; display: flex; flex-direction: column; gap: 0.8rem;">
             <div>
-                <div style="font-size: 0.95rem; font-weight: 800; color: var(--adm-text);">Cores, tamanhos e estoque</div>
+                <div style="font-size: 0.96rem; font-weight: 800; color: var(--adm-text);">Cores, tamanhos e estoque</div>
                 <div style="font-size: 0.82rem; color: var(--adm-muted); margin-top: 0.15rem;">Informe cor, tamanho e quantas unidades você tem disponíveis.</div>
             </div>
 
@@ -304,7 +346,7 @@
                 {
                     var row = _newProductVariants[i];
                     var rowIndex = i;
-                    <div class="yl-variant-subcard">
+                    <div class="yl-variant-subcard" style="background: var(--adm-input-bg);">
                         @if (_newProductVariants.Count > 1)
                         {
                             <div style="display: flex; justify-content: space-between; align-items: center;">
@@ -325,7 +367,7 @@
                                    @bind="row.Color"
                                    @bind:event="oninput"
                                    @bind:after="() => OnNewVariantRowColorChanged(row)"
-                                   placeholder="Cor ou modelo (ex.: Preta, Branca)" />
+                                   placeholder="Cor ou modelo (ex.: Preta)" />
                             <input type="color"
                                    class="yl-color-dot-picker"
                                    title="Escolher cor visual"
@@ -336,9 +378,9 @@
                         <div class="yl-variant-row-bottom">
                             <input type="text"
                                    class="adm-input"
-                                   style="flex: 1 1 120px; min-width: 0; min-height: 46px;"
+                                   style="width: 100%; min-width: 0; min-height: 46px;"
                                    @bind="row.Size"
-                                   placeholder="Tamanho (ex.: P, M, G)" />
+                                   placeholder="Tamanho (ex.: M)" />
 
                             <div class="yl-stepper" aria-label="Quantidade em estoque">
                                 <button type="button"
@@ -368,45 +410,29 @@
             <button type="button" class="yl-add-variant-btn" @onclick="AddNewProductVariantRow">
                 + Adicionar outra cor ou tamanho
             </button>
-        </div>
+        </section>
 
-        <!-- Visibilidade + Botões de Salvar -->
-        <div style="display: flex; flex-direction: column; gap: 0.85rem;">
+        <!-- Visibilidade + Botão Salvar em Destaque -->
+        <div style="display: flex; flex-direction: column; gap: 0.75rem; padding-bottom: 0.5rem;">
             <label style="display: flex; align-items: center; gap: 0.55rem; font-size: 0.94rem; font-weight: 600; color: var(--adm-text); cursor: pointer;">
                 <input type="checkbox" @bind="_newProduct.IsVisibleOnSite" />
                 <span>Exibir imediatamente na loja online</span>
             </label>
 
-            <div style="display: flex; flex-direction: column; gap: 0.6rem;">
-                <button type="button"
-                        class="adm-btn adm-btn-success"
-                        style="width: 100%; min-height: 52px; font-size: 1rem; font-weight: 800; justify-content: center; border-radius: 14px;"
-                        disabled="@_isSavingProduct"
-                        @onclick="() => CreateProductAsync(openDetailsAfterCreate: false)">
-                    @(_isSavingProduct ? "⏳ Salvando..." : "Salvar produto")
-                </button>
-                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 0.6rem;">
-                    <button type="button"
-                            class="adm-btn adm-btn-outline"
-                            style="min-height: 46px; justify-content: center; font-weight: 700;"
-                            disabled="@_isSavingProduct"
-                            @onclick="() => CreateProductAsync(openDetailsAfterCreate: true)">
-                        @(_isSavingProduct ? "⏳ Salvando..." : "📷 Salvar e adicionar fotos")
-                    </button>
-                    <button type="button"
-                            class="adm-btn adm-btn-outline"
-                            style="min-height: 46px; justify-content: center;"
-                            disabled="@_isSavingProduct"
-                            @onclick="() => _showNewProductModal = false">
-                        Cancelar
-                    </button>
-                </div>
-            </div>
+            <button type="button"
+                    class="adm-btn adm-btn-success"
+                    style="width: 100%; min-height: 52px; font-size: 1rem; font-weight: 800; justify-content: center; border-radius: 14px;"
+                    disabled="@_isSavingProduct"
+                    @onclick="() => CreateProductAsync(openDetailsAfterCreate: false)">
+                @(_isSavingProduct ? "⏳ Salvando produto..." : "Salvar produto")
+            </button>
         </div>
     </div>
 }
 
-<!-- Barra de Busca e Filtros -->
+<!-- Barra de Busca, Filtros e Lista (ocultos enquanto Novo Produto está aberto) -->
+@if (!_showNewProductModal)
+{
 @if (_categories.Count == 0 && Gateway.CanManageProducts && !_showNewCategoryModal && !_showNewProductModal)
 {
     <div class="adm-card" style="border-left: 4px solid var(--adm-accent); display: flex; justify-content: space-between; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
@@ -598,8 +624,15 @@ else if (_categories.Count > 0)
         </tbody>
     </table>
 </div>
+}
 
 @code {
+    private sealed record PendingProductPhoto(
+        string FileName,
+        string ContentType,
+        byte[] Bytes,
+        string PreviewDataUri);
+
     private IReadOnlyList<CategoryDto> _categories = [];
     private IReadOnlyList<ProductDetailDto> _products = [];
     private string? _search;
@@ -608,6 +641,8 @@ else if (_categories.Count > 0)
     private bool _showNewCategoryModal;
     private bool _showNewProductModal;
     private bool _isSavingProduct;
+    private bool _isPickingNewPhoto;
+    private readonly List<PendingProductPhoto> _newProductPendingPhotos = [];
     private SaveCategoryRequest _newCategory = new() { DisplayOrder = 1, IsActive = true };
     private SaveProductRequest _newProduct = new() { BasePrice = 149.90m, IsVisibleOnSite = true, InitialStockQuantity = 5 };
     private List<SaveProductVariantRequest> _newProductVariants = [new SaveProductVariantRequest { Color = "", ColorHex = "#18181B", Size = "", InitialStockQuantity = 5, LowStockThreshold = 3 }];
@@ -667,8 +702,77 @@ else if (_categories.Count > 0)
         {
             _editingProductId = null;
             _editingProductDetail = null;
+            _newProductPendingPhotos.Clear();
             _newProductVariants = [new SaveProductVariantRequest { Color = "", ColorHex = "#18181B", Size = "", InitialStockQuantity = 5, LowStockThreshold = 3 }];
             EnsureDefaultCategoryForNewProduct();
+        }
+    }
+
+    private void CloseNewProductModal()
+    {
+        _showNewProductModal = false;
+        _newProductPendingPhotos.Clear();
+    }
+
+    private async Task PickNewProductPhotoAsync()
+    {
+        if (_isPickingNewPhoto)
+            return;
+
+        _isPickingNewPhoto = true;
+        _error = null;
+        try
+        {
+            var pickedFiles = await FilePicker.Default.PickMultipleAsync(new PickOptions
+            {
+                PickerTitle = "Selecione as fotos do produto",
+                FileTypes = FilePickerFileType.Images
+            });
+
+            if (pickedFiles is null)
+                return;
+
+            foreach (var file in pickedFiles)
+            {
+                if (file is null)
+                    continue;
+
+                await using var rawStream = await file.OpenReadAsync();
+                await using var optimized = await appmaui.blazor.Services.DeviceImageCompressor.OptimizeForUploadAsync(
+                    rawStream,
+                    file.FileName,
+                    file.ContentType,
+                    maxDimension: 1200,
+                    preservePngFormat: false);
+
+                using var ms = new MemoryStream();
+                await optimized.Stream.CopyToAsync(ms);
+                var bytes = ms.ToArray();
+                var contentType = string.IsNullOrWhiteSpace(optimized.ContentType) ? "image/jpeg" : optimized.ContentType;
+                var previewUri = $"data:{contentType};base64,{Convert.ToBase64String(bytes)}";
+
+                _newProductPendingPhotos.Add(new PendingProductPhoto(
+                    optimized.FileName,
+                    contentType,
+                    bytes,
+                    previewUri));
+            }
+        }
+        catch (Exception ex)
+        {
+            _error = $"Não foi possível carregar a foto: {ex.Message}";
+        }
+        finally
+        {
+            _isPickingNewPhoto = false;
+        }
+    }
+
+    private void RemoveNewProductPendingPhoto(int index)
+    {
+        if (index >= 0 && index < _newProductPendingPhotos.Count)
+        {
+            _newProductPendingPhotos.RemoveAt(index);
         }
     }
 
@@ -873,6 +977,24 @@ else if (_categories.Count > 0)
 
             var existedBefore = FindMatchingExistingProductForNewForm() is not null;
             var created = await Gateway.CreateProductAsync(_newProduct);
+
+            var uploadedPhotosCount = 0;
+            for (var photoIdx = 0; photoIdx < _newProductPendingPhotos.Count; photoIdx++)
+            {
+                var pending = _newProductPendingPhotos[photoIdx];
+                using var photoStream = new MemoryStream(pending.Bytes, writable: false);
+                var setAsPrimary = photoIdx == 0 && created.Images.Count == 0;
+                await Gateway.UploadProductImageFileAsync(
+                    created.Id,
+                    pending.FileName,
+                    photoStream,
+                    pending.ContentType,
+                    created.Name,
+                    setAsPrimary);
+                uploadedPhotosCount++;
+            }
+
+            _newProductPendingPhotos.Clear();
             _showNewProductModal = false;
             _newProduct = new SaveProductRequest
             {
@@ -891,9 +1013,10 @@ else if (_categories.Count > 0)
             }
 
             await LoadCategoriesAndProductsAsync();
+            var photoSuffix = uploadedPhotosCount > 0 ? $" e {uploadedPhotosCount} foto(s)" : string.Empty;
             _success = existedBefore
-                ? $"✓ Novas variantes adicionadas dentro de '{created.Name}' (total: {created.Variants.Count} variante(s), {created.TotalStockQuantity} un.)!"
-                : $"✓ Produto '{created.Name}' cadastrado com {created.Variants.Count} variante(s) ({created.TotalStockQuantity} un.)!";
+                ? $"✓ Novas variantes{photoSuffix} adicionadas dentro de '{created.Name}'!"
+                : $"✓ Produto '{created.Name}' salvo com {created.Variants.Count} variante(s){photoSuffix}!";
         }
         catch (Exception ex)
         {

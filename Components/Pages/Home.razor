@@ -8,28 +8,6 @@
 @implements IDisposable
 
 <div class="yl-home-wrap">
-    <!-- Barra Superior Limpa (Status + Ver loja + Iniciais) -->
-    @if (_publicStore is not null)
-    {
-        <div class="yl-home-topbar">
-            <span class="yl-status-pill @(_publicStore.IsSiteActive ? "online" : "offline")">
-                <span class="yl-status-dot @(_publicStore.IsSiteActive ? "online" : "offline")" aria-hidden="true"></span>
-                @(_publicStore.IsSiteActive ? "Loja aberta" : "Loja pausada")
-            </span>
-
-            <div class="yl-home-topbar-right">
-                <button type="button"
-                        class="yl-ver-loja-btn"
-                        @onclick="OpenPublicStoreAsync">
-                    Ver loja
-                </button>
-                <a href="/configuracoes-loja" class="yl-store-avatar" title="Abrir Minha Loja" aria-label="Abrir Minha Loja">
-                    @StoreInitials
-                </a>
-            </div>
-        </div>
-    }
-
     <!-- Saudação Calma & Direta -->
     <header class="yl-home-header">
         <div class="yl-home-greeting">
@@ -244,28 +222,6 @@
         }
     }
 
-    private string StoreInitials
-    {
-        get
-        {
-            var name = _publicStore?.StoreName?.Trim();
-            if (string.IsNullOrWhiteSpace(name))
-            {
-                return "YL";
-            }
-
-            var parts = name.Split(' ', StringSplitOptions.RemoveEmptyEntries);
-            if (parts.Length >= 2)
-            {
-                return $"{char.ToUpperInvariant(parts[0][0])}{char.ToUpperInvariant(parts[1][0])}";
-            }
-
-            return name.Length >= 2
-                ? name[..2].ToUpperInvariant()
-                : name.ToUpperInvariant();
-        }
-    }
-
     private string PublicStoreUrl
     {
         get
@@ -368,11 +324,6 @@
         {
             _error = ex.Message;
         }
-    }
-
-    private async Task OpenPublicStoreAsync()
-    {
-        await Gateway.OpenExternalUrlSafeAsync(PublicStoreUrl);
     }
 
     private async Task CopyStoreLinkAsync()
