@@ -193,7 +193,9 @@
     let data = null;
     try { data = text ? JSON.parse(text) : null; } catch { data = { raw: text }; }
     if (!res.ok) {
-      throw new Error(data?.error || data?.message || `Erro HTTP ${res.status}`);
+      const err = new Error(data?.error || data?.message || `Erro HTTP ${res.status}`);
+      err.status = res.status;
+      throw err;
     }
     return data;
   }
@@ -207,12 +209,108 @@
     } catch {}
   }
 
+  async function pullStoreViaPublicFallback(showMessage = false) {
+    const email = encodeURIComponent(state.session?.email || "");
+    const username = encodeURIComponent(state.session?.username || "");
+    let planInfo = null;
+    try {
+      planInfo = await apiJson(`/api/cloud/plan-status?email=${email}&username=${username}`);
+    } catch {}
+
+    const slug = (planInfo?.storeSlug || state.session?.storeSlug || "").trim();
+    const fallbackName = planInfo?.storeName || state.session?.storeName || "Minha Loja";
+    const fallbackPlan = planInfo?.planTier || state.session?.planTier || "Basico";
+
+    if (!slug) {
+      state.store = { ...createDefaultStore(), storeName: fallbackName, planTier: fallbackPlan };
+      state.categories = [];
+      state.products = [];
+      state.storeLoaded = true;
+      if (showMessage) setStatus("Sua conta está pronta! Configure o nome da loja e adicione seu primeiro produto.", null);
+      return;
+    }
+
+    let info = null;
+    try {
+      info = await apiJson(`/api/public/stores/${encodeURIComponent(slug)}/store-info`);
+    } catch (e) {
+      if (e.status === 404) {
+        state.store = { ...createDefaultStore(), storeName: fallbackName, storeSlug: slug, planTier: fallbackPlan };
+        state.categories = [];
+        state.products = [];
+        state.storeLoaded = true;
+        if (showMessage) setStatus("Sua loja está pronta para a primeira publicação!", null);
+        return;
+      }
+      throw e;
+    }
+
+    const [cats, cards] = await Promise.all([
+      apiJson(`/api/public/stores/${encodeURIComponent(slug)}/categories`).catch(() => []),
+      apiJson(`/api/public/stores/${encodeURIComponent(slug)}/products`).catch(() => [])
+    ]);
+
+    const details = await Promise.all(
+      (Array.isArray(cards) ? cards : []).map((card) =>
+        apiJson(`/api/public/stores/${encodeURIComponent(slug)}/products/${encodeURIComponent(card.slug || card.id)}`).catch(() => card)
+      )
+    );
+
+    state.store = {
+      ...createDefaultStore(),
+      storeName: info?.storeName || fallbackName,
+      storeSlug: info?.storeSlug || slug,
+      whatsappNumber: info?.whatsappNumber || "",
+      storeDescription: info?.storeDescription || "Catálogo oficial da loja.",
+      logoPublicUrl: info?.logoPublicUrl || null,
+      isSiteActive: info?.isSiteActive !== false,
+      autoSyncOnlineOnSave: true,
+      planTier: info?.planTier || fallbackPlan,
+      designPreset: info?.design?.presetKey || "minimalista-luxo"
+    };
+    state.categories = (Array.isArray(cats) ? cats : []).map((c, idx) => ({
+      name: c.name || "Geral",
+      description: c.description || "",
+      displayOrder: c.displayOrder || idx + 1,
+      isActive: c.isActive !== false
+    }));
+    state.products = details.map((prod) => ({
+      sourceId: prod.id || cryptoRandomUuid(),
+      name: prod.name || "",
+      slug: prod.slug || slugify(prod.name),
+      categoryName: prod.categoryName || "Geral",
+      description: prod.description || "",
+      basePrice: Number(prod.basePrice || 0),
+      isVisibleOnSite: true,
+      variants: (prod.variants || []).map((v) => ({
+        color: v.color || "Padrão",
+        colorHex: v.colorHex || "#18181b",
+        size: v.size || "Único",
+        sku: v.sku || null,
+        stockQuantity: Number(v.stockQuantity || 0),
+        lowStockThreshold: Number(v.lowStockThreshold || 3),
+        isActive: v.isActive !== false
+      })),
+      images: (prod.images || (prod.primaryImageUrl ? [{ publicUrl: prod.primaryImageUrl, isPrimary: true }] : [])).map((img, i) => ({
+        publicUrl: img.publicUrl,
+        storagePath: img.storagePath || img.publicUrl,
+        altText: img.altText || prod.name,
+        displayOrder: i,
+        isPrimary: i === 0 || !!img.isPrimary
+      }))
+    }));
+    state.storeLoaded = true;
+    saveSession({ ...state.session, storeSlug: state.store.storeSlug, storeName: state.store.storeName, planTier: state.store.planTier });
+    if (showMessage) setStatus(`☁️ Loja '${state.store.storeName}' carregada (${state.products.length} produtos)!`, null);
+  }
+
   async function pullStoreFromCloud(showMessage = false) {
     if (!state.session?.passwordHash) {
       state.storeLoaded = true;
       return;
     }
     state.busy = true;
+    state.msgErr = null;
     render();
     try {
       const res = await apiJson("/api/cloud/pull-store", {
@@ -234,6 +332,16 @@
       // Só libera salvar depois de saber o que existe na nuvem (evita apagar o catálogo por engano)
       state.storeLoaded = true;
     } catch (err) {
+      if (err && err.status === 404) {
+        try {
+          await pullStoreViaPublicFallback(showMessage);
+          return;
+        } catch (fallbackErr) {
+          state.storeLoaded = false;
+          setStatus(null, `Não foi possível carregar sua loja da nuvem: ${fallbackErr.message}.`);
+          return;
+        }
+      }
       state.storeLoaded = false;
       setStatus(null, `Não foi possível carregar sua loja da nuvem: ${err.message}. Toque em "🔄 Atualizar da Nuvem" para tentar de novo.`);
     } finally {
