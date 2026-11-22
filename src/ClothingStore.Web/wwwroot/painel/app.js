@@ -44,10 +44,11 @@
     filterCategory: "",
     editingProductIndex: null,
     showProductForm: false,
-    productDraft: createEmptyProductDraft(),
+    productDraft: null,
     linkCheck: null
   };
 
+  state.productDraft = createEmptyProductDraft();
   applyTheme(state.theme);
 
   function createDefaultStore() {
