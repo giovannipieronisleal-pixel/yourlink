@@ -1,4 +1,4 @@
-const CACHE_NAME = "youlink-painel-pwa-v2";
+const CACHE_NAME = "youlink-painel-pwa-v3";
 const CORE_ASSETS = [
   "/painel/index.html",
   "/painel/styles.css",
