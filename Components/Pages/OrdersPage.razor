@@ -8,26 +8,23 @@
 
 <PageTitle>Pedidos Pix &amp; Envios — YouLink</PageTitle>
 
-<div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; flex-wrap: wrap; margin-bottom: 1.25rem;">
+<div style="display: flex; justify-content: space-between; align-items: center; gap: 0.75rem; flex-wrap: wrap; margin-bottom: 1.05rem;">
     <div>
-        <h1 class="adm-page-title" style="margin: 0;">🧾 Pedidos Pix &amp; Envios</h1>
-        <p class="adm-page-subtitle" style="margin: 0.25rem 0 0;">
-            Confira pagamentos via Pix, veja o endereço e distância do comprador, calcule os Correios e organize o envio de cada pedido.
+        <h1 class="adm-page-title" style="margin: 0; font-size: 1.6rem; font-weight: 800;">Pedidos</h1>
+        <p class="adm-page-subtitle" style="margin: 0.2rem 0 0; font-size: 0.9rem;">
+            Acompanhe pagamentos e entregas da sua loja.
         </p>
     </div>
 
     @if (Gateway.IsAuthenticated)
     {
         <div style="display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center;">
-            <span class="pill-badge pill-slate" title="Pedidos e confirmações Pix sincronizam sozinhos">⚡ Auto 8s</span>
-            <a href="/vendas" class="adm-btn adm-btn-success">💰 Ver Quanto Vendeu</a>
-            <button type="button" class="adm-btn adm-btn-outline" @onclick="() => _showCorreiosSimulator = !_showCorreiosSimulator">
-                @(_showCorreiosSimulator ? "Ocultar Simulador Correios" : "📦 Simulador Correios")
+            <button type="button" class="adm-btn adm-btn-outline" style="min-height: 42px;" @onclick="() => _showCorreiosSimulator = !_showCorreiosSimulator">
+                @(_showCorreiosSimulator ? "Ocultar frete" : "📦 Frete")
             </button>
-            <button type="button" class="adm-btn adm-btn-outline" @onclick="ManualRefreshOrdersAsync">
+            <button type="button" class="adm-btn adm-btn-outline" style="min-height: 42px;" @onclick="ManualRefreshOrdersAsync">
                 🔄 Atualizar
             </button>
-            <a href="/configuracoes-loja" class="adm-btn adm-btn-primary">⚙️ Raio &amp; Chave Pix</a>
         </div>
     }
 </div>
@@ -141,41 +138,33 @@ else
         </section>
     }
 
-    <!-- Resumo Rápido -->
-    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 0.75rem; margin-bottom: 1rem;">
-        <div class="adm-card" style="padding: 0.9rem 1rem;">
-            <div style="font-size: 0.74rem; font-weight: 700; color: var(--adm-muted); text-transform: uppercase;">Total de Pedidos</div>
-            <div style="font-size: 1.4rem; font-weight: 800; margin-top: 0.2rem;">@_orders.Count</div>
+    <!-- Resumo Rápido 2x2 -->
+    <div class="yl-order-kpi-grid">
+        <div class="yl-order-kpi-card">
+            <span class="yl-order-kpi-label">Total de pedidos</span>
+            <strong class="yl-order-kpi-val">@_orders.Count</strong>
         </div>
-        <div class="adm-card" style="padding: 0.9rem 1rem;">
-            <div style="font-size: 0.74rem; font-weight: 700; color: var(--adm-muted); text-transform: uppercase;">Aguardando Pix</div>
-            <div style="font-size: 1.4rem; font-weight: 800; color: #D97706; margin-top: 0.2rem;">@_orders.Count(o => o.Status == BrazilShippingCalculator.OrderStatuses.AwaitingPix)</div>
+        <div class="yl-order-kpi-card">
+            <span class="yl-order-kpi-label">Aguardando Pix</span>
+            <strong class="yl-order-kpi-val" style="color: var(--adm-warning);">@_orders.Count(o => o.Status == BrazilShippingCalculator.OrderStatuses.AwaitingPix)</strong>
         </div>
-        <div class="adm-card" style="padding: 0.9rem 1rem;">
-            <div style="font-size: 0.74rem; font-weight: 700; color: var(--adm-muted); text-transform: uppercase;">Para Enviar</div>
-            <div style="font-size: 1.4rem; font-weight: 800; color: #2563EB; margin-top: 0.2rem;">@_orders.Count(o => o.Status == BrazilShippingCalculator.OrderStatuses.PaidPreparing)</div>
+        <div class="yl-order-kpi-card">
+            <span class="yl-order-kpi-label">Para enviar</span>
+            <strong class="yl-order-kpi-val" style="color: var(--adm-primary);">@_orders.Count(o => o.Status == BrazilShippingCalculator.OrderStatuses.PaidPreparing)</strong>
         </div>
-        <div class="adm-card" style="padding: 0.9rem 1rem;">
-            <div style="font-size: 0.74rem; font-weight: 700; color: var(--adm-muted); text-transform: uppercase;">Enviados / Entregues</div>
-            <div style="font-size: 1.4rem; font-weight: 800; color: var(--adm-success); margin-top: 0.2rem;">@_orders.Count(o => o.Status is BrazilShippingCalculator.OrderStatuses.Shipped or BrazilShippingCalculator.OrderStatuses.Delivered)</div>
+        <div class="yl-order-kpi-card">
+            <span class="yl-order-kpi-label">Enviados</span>
+            <strong class="yl-order-kpi-val" style="color: var(--yl-success-text);">@_orders.Count(o => o.Status is BrazilShippingCalculator.OrderStatuses.Shipped or BrazilShippingCalculator.OrderStatuses.Delivered)</strong>
         </div>
-        @if (_salesReport?.IsUnlocked == true)
-        {
-            <div class="adm-card" style="padding: 0.9rem 1rem; border-left: 3px solid var(--adm-success);">
-                <div style="font-size: 0.74rem; font-weight: 700; color: var(--adm-muted); text-transform: uppercase;">Quanto Vendeu (Total)</div>
-                <div style="font-size: 1.35rem; font-weight: 800; color: var(--adm-success); margin-top: 0.2rem;">@_salesReport.TotalConfirmedRevenue.ToString("C", PtBr)</div>
-            </div>
-        }
     </div>
 
     <!-- Filtros por Status -->
-    <div style="display: flex; gap: 0.45rem; flex-wrap: wrap; margin-bottom: 1rem;">
+    <div class="yl-filter-chips" style="margin-bottom: 1rem;">
         @foreach (var tab in StatusTabs)
         {
             var isSel = _statusFilter == tab.Key;
             <button type="button"
-                    class="adm-btn @(isSel ? "adm-btn-primary" : "adm-btn-outline")"
-                    style="padding: 0.45rem 0.85rem; font-size: 0.82rem;"
+                    class="yl-filter-chip @(isSel ? "is-active" : string.Empty)"
                     @onclick="() => _statusFilter = tab.Key">
                 @tab.Label
             </button>

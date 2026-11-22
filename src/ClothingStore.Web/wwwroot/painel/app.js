@@ -103,12 +103,12 @@
       sourceId: cryptoRandomUuid(),
       name: "",
       categoryName: (state && state.categories && state.categories[0]?.name) || "Geral",
-      basePrice: "99.90",
+      basePrice: "",
       description: "",
       isVisibleOnSite: true,
       images: [],
       variants: [
-        { color: "", colorHex: "#18181b", size: "", stockQuantity: 5, lowStockThreshold: 3, isActive: true }
+        { color: "", colorHex: "#18181b", size: "", stockQuantity: "", lowStockThreshold: 3, isActive: true }
       ]
     };
   }

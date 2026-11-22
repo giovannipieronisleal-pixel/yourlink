@@ -2,321 +2,356 @@
 @inject MauiAdminGateway Gateway
 @inject NavigationManager Navigation
 
-<div style="margin-bottom: 1rem;">
-    <a href="/produtos" style="color: var(--adm-muted); font-size: 0.9rem; text-decoration: none;">
-        &larr; Voltar para Lista de Produtos
-    </a>
-</div>
-
-@if (!string.IsNullOrWhiteSpace(_error))
-{
-    <div class="alert-banner alert-error">@_error</div>
-}
-
-@if (!string.IsNullOrWhiteSpace(_success))
-{
-    <div class="alert-banner alert-success">@_success</div>
-}
-
-@if (_product is not null)
-{
-    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.25rem; flex-wrap: wrap; gap: 1rem;">
-        <div>
-            <h1 style="font-size: 1.6rem; font-weight: 700; margin: 0;">@_product.Name</h1>
-            <span style="font-size: 0.85rem; color: var(--adm-muted);">
-                Categoria: <strong>@_product.CategoryName</strong> &bull; Estoque Total: <strong>@_product.TotalStockQuantity unidades</strong>
-            </span>
+<div class="yl-product-form-stack" style="max-width: 740px; margin: 0 auto;">
+    <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; flex-wrap: wrap;">
+        <div style="display: flex; align-items: center; gap: 0.65rem; min-width: 0;">
+            <a href="/produtos"
+               class="adm-btn adm-btn-outline"
+               style="min-height: 42px; padding: 0.35rem 0.85rem; border-radius: 12px; text-decoration: none;">
+                ← Produtos
+            </a>
+            <h1 style="margin: 0; font-size: 1.3rem; font-weight: 800; color: var(--adm-text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                @(_product?.Name ?? "Editar Produto")
+            </h1>
         </div>
 
-        <span class="pill-badge @(_product.IsVisibleOnSite ? "pill-green" : "pill-slate")">
-            @(_product.IsVisibleOnSite ? "Visível no Catálogo Público" : "Oculto no Catálogo Público")
-        </span>
+        @if (_product is not null)
+        {
+            <span class="pill-badge @(_product.IsVisibleOnSite ? "pill-green" : "pill-slate")">
+                @(_product.IsVisibleOnSite ? "● No site" : "Oculto")
+            </span>
+        }
     </div>
 
-    <!-- 1. DADOS CADASTRAIS DO PRODUTO -->
-    <section class="adm-card">
-        <h2 style="font-size: 1.1rem; font-weight: 700; margin-top: 0; margin-bottom: 1rem;">1. Informações do Produto</h2>
-        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr)); gap: 1rem;">
-            <div>
-                <label class="adm-label">Nome do Produto</label>
-                <input type="text" class="adm-input" @bind="_editProduct.Name" disabled="@(!Gateway.CanManageProducts)" />
+    @if (!string.IsNullOrWhiteSpace(_error))
+    {
+        <div class="alert-banner alert-error" style="margin-bottom: 0;">@_error</div>
+    }
+
+    @if (!string.IsNullOrWhiteSpace(_success))
+    {
+        <div class="alert-banner alert-success" style="margin-bottom: 0;">@_success</div>
+    }
+
+    @if (_product is not null)
+    {
+        <!-- 1. FOTOS DO PRODUTO (NO TOPO — IDÊNTICO AO FIGMA APROVADO) -->
+        <section class="adm-card" style="margin-bottom: 0; display: flex; flex-direction: column; gap: 0.8rem;">
+            <div style="display: flex; justify-content: space-between; align-items: center; gap: 0.5rem;">
+                <h2 style="font-size: 0.98rem; font-weight: 800; margin: 0; color: var(--adm-text);">Fotos do produto</h2>
+                <span style="font-size: 0.82rem; color: var(--adm-muted);">@_product.Images.Count @(_product.Images.Count == 1 ? "foto" : "fotos")</span>
             </div>
 
-            <div>
-                <label class="adm-label">Categoria</label>
-                <select class="adm-select" @bind="_editCategorySelection" disabled="@(!Gateway.CanManageProducts)">
-                    @foreach (var cat in _categories)
-                    {
-                        <option value="@cat.Id.ToString()">@cat.Name</option>
-                    }
-                    <option value="__NEW__">+ Digitar nova categoria...</option>
-                </select>
-                @if ((_editCategorySelection == "__NEW__" || _categories.Count == 0) && Gateway.CanManageProducts)
+            <div class="yl-photo-strip">
+                @if (Gateway.CanManageProducts)
                 {
-                    <input type="text"
-                           class="adm-input"
-                           style="margin-top: 0.45rem;"
-                           @bind="_editProduct.CategoryName"
-                           placeholder="Digite o nome da nova categoria..." />
+                    <button type="button"
+                            class="yl-photo-add-tile"
+                            @onclick="PickAndUploadDevicePhotoAsync">
+                        <span class="yl-photo-add-plus">+</span>
+                        <span>Adicionar foto</span>
+                    </button>
                 }
-            </div>
 
-            <div>
-                <label class="adm-label">Preço (R$)</label>
-                <input type="number" step="0.01" class="adm-input" @bind="_editProduct.BasePrice" disabled="@(!Gateway.CanManageProducts)" />
-            </div>
-
-            <div style="grid-column: 1 / -1;">
-                <label class="adm-label">Descrição Detalhada</label>
-                <textarea class="adm-textarea" rows="3" @bind="_editProduct.Description" disabled="@(!Gateway.CanManageProducts)"></textarea>
+                @foreach (var img in _product.Images)
+                {
+                    <div class="yl-photo-thumb">
+                        <img src="@WhatsAppLinkBuilder.SanitizeMediaUrl(img.PublicUrl)"
+                             alt="@img.AltText"
+                             referrerpolicy="no-referrer" />
+                        @if (img.IsPrimary)
+                        {
+                            <span class="yl-photo-cover-badge">Capa</span>
+                        }
+                        else if (Gateway.CanManageProducts)
+                        {
+                            <button type="button"
+                                    class="yl-photo-cover-btn"
+                                    title="Definir como capa"
+                                    @onclick="() => SetPrimaryImageAsync(img.Id)">
+                                Usar capa
+                            </button>
+                        }
+                        @if (Gateway.CanManageProducts)
+                        {
+                            <button type="button"
+                                    class="yl-photo-remove-btn"
+                                    title="Excluir foto"
+                                    aria-label="Excluir foto"
+                                    @onclick="() => DeleteImageAsync(img.Id)">
+                                ✕
+                            </button>
+                        }
+                    </div>
+                }
             </div>
 
             @if (Gateway.CanManageProducts)
             {
-                <div style="grid-column: 1 / -1; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;">
-                    <label style="display: flex; align-items: center; gap: 0.5rem; font-size: 0.9rem;">
-                        <input type="checkbox" @bind="_editProduct.IsVisibleOnSite" />
-                        <span>Exibir este produto no site público (Catálogo)</span>
-                    </label>
-
-                    <button type="button" class="adm-btn adm-btn-primary" @onclick="SaveProductDetailsAsync">
-                        Salvar Alterações do Produto
-                    </button>
-                </div>
+                <details style="font-size: 0.85rem;">
+                    <summary style="cursor: pointer; color: var(--adm-muted); font-weight: 700; user-select: none;">
+                        Ou adicionar foto por link (opcional)
+                    </summary>
+                    <div style="display: flex; gap: 0.5rem; margin-top: 0.6rem; flex-wrap: wrap;">
+                        <input type="url"
+                               class="adm-input"
+                               style="flex: 1 1 200px; min-height: 44px;"
+                               @bind="_newImageUrl"
+                               @bind:event="oninput"
+                               @onkeydown="HandleImageUrlKeyDown"
+                               placeholder="Cole o link da imagem (https://...)" />
+                        <button type="button"
+                                class="adm-btn adm-btn-outline"
+                                style="min-height: 44px;"
+                                disabled="@_addingUrlImage"
+                                @onclick="AddPhotoByUrlAsync">
+                            @(_addingUrlImage ? "Salvando..." : "Adicionar")
+                        </button>
+                    </div>
+                </details>
             }
-        </div>
-    </section>
+        </section>
 
-    <!-- 2. GERENCIAMENTO DE VARIANTES (Cor + Tamanho + Estoque Independente) -->
-    <section class="adm-card">
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; flex-wrap: wrap; gap: 0.75rem;">
+        <!-- 2. INFORMAÇÕES BÁSICAS -->
+        <section class="adm-card" style="margin-bottom: 0; display: flex; flex-direction: column; gap: 0.9rem;">
+            <h2 style="font-size: 0.98rem; font-weight: 800; margin: 0; color: var(--adm-text);">Informações básicas</h2>
+
             <div>
-                <h2 style="font-size: 1.1rem; font-weight: 700; margin: 0;">2. Variantes (Cor/Modelo, Tamanho/Opção e Estoque Independente)</h2>
-                <p style="font-size: 0.84rem; color: var(--adm-muted); margin: 0.2rem 0 0;">
-                    Cada combinação de Cor/Modelo e Tamanho/Opção possui SKU próprio e saldo controlado individualmente.
-                </p>
+                <label class="adm-label">Nome do produto</label>
+                <input type="text"
+                       class="adm-input"
+                       style="min-height: 48px; font-size: 1rem;"
+                       @bind="_editProduct.Name"
+                       disabled="@(!Gateway.CanManageProducts)" />
             </div>
-        </div>
 
-        @if (Gateway.CanManageProducts)
-        {
-            <div style="background: var(--adm-input-bg); border: 1px solid var(--adm-border); border-radius: 8px; padding: 1rem; margin-bottom: 1.25rem;">
-                <div style="font-weight: 600; font-size: 0.88rem; margin-bottom: 0.75rem;">
-                    @(_editingVariantId.HasValue ? "Editar Variante Selecionada" : "+ Adicionar Variante / Estoque (Cor e Tamanho Opcionais)")
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 200px), 1fr)); gap: 0.85rem;">
+                <div>
+                    <label class="adm-label">Preço (R$)</label>
+                    <input type="number"
+                           step="0.01"
+                           class="adm-input"
+                           style="min-height: 48px; font-size: 1rem;"
+                           @bind="_editProduct.BasePrice"
+                           disabled="@(!Gateway.CanManageProducts)" />
                 </div>
-                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 150px), 1fr)); gap: 0.75rem; align-items: end;">
-                    <div>
-                        <label class="adm-label">Cor / Modelo (Opcional)</label>
+
+                <div>
+                    <label class="adm-label">Categoria</label>
+                    <select class="adm-select"
+                            style="min-height: 48px; font-size: 1rem;"
+                            @bind="_editCategorySelection"
+                            disabled="@(!Gateway.CanManageProducts)">
+                        @foreach (var cat in _categories)
+                        {
+                            <option value="@cat.Id.ToString()">@cat.Name</option>
+                        }
+                        <option value="__NEW__">+ Digitar nova categoria...</option>
+                    </select>
+                    @if ((_editCategorySelection == "__NEW__" || _categories.Count == 0) && Gateway.CanManageProducts)
+                    {
                         <input type="text"
                                class="adm-input"
-                               @bind="_variantForm.Color"
-                               @bind:event="oninput"
-                               @bind:after="OnVariantColorChanged"
-                               placeholder="Opcional (ex.: Preto, Branco...)" />
-                    </div>
-                    <div>
-                        <label class="adm-label">Cor Hex (Seletor)</label>
-                        <input type="color" class="adm-input" style="height: 38px; padding: 0.2rem;" @bind="_variantForm.ColorHex" />
-                    </div>
-                    <div>
-                        <label class="adm-label">Tamanho / Opção (Opcional)</label>
-                        <input type="text" class="adm-input" @bind="_variantForm.Size" @bind:event="oninput" placeholder="Opcional (ex.: P, M, G, 110V, 200ml...)" />
-                    </div>
-                    <div>
-                        <label class="adm-label">SKU (Opcional)</label>
-                        <input type="text" class="adm-input" @bind="_variantForm.CustomSku" placeholder="Gerado automático" />
-                    </div>
-                    <div>
-                        <label class="adm-label">@(_editingVariantId.HasValue ? "Quantidade em Estoque" : "Estoque Inicial")</label>
-                        <input type="number" min="0" class="adm-input" @bind="_variantForm.InitialStockQuantity" />
-                    </div>
-                    <div>
-                        <label class="adm-label">Alerta Estoque Baixo</label>
-                        <input type="number" min="0" class="adm-input" @bind="_variantForm.LowStockThreshold" />
-                    </div>
-                    <div style="display: flex; gap: 0.45rem;">
-                        <button type="button" class="adm-btn adm-btn-success" @onclick="SaveVariantAsync">
-                            @(_editingVariantId.HasValue ? "Salvar Variante" : "Adicionar")
-                        </button>
-                        @if (_editingVariantId.HasValue)
-                        {
-                            <button type="button" class="adm-btn adm-btn-outline" @onclick="CancelEditVariant">Cancelar</button>
-                        }
+                               style="margin-top: 0.5rem; min-height: 46px;"
+                               @bind="_editProduct.CategoryName"
+                               placeholder="Nome da nova categoria..." />
+                    }
+                </div>
+            </div>
+
+            <div>
+                <label class="adm-label">Descrição do produto (opcional)</label>
+                <textarea class="adm-textarea" rows="2" @bind="_editProduct.Description" disabled="@(!Gateway.CanManageProducts)" placeholder="Detalhes, medidas ou observações..."></textarea>
+            </div>
+
+            @if (Gateway.CanManageProducts)
+            {
+                <label style="display: flex; align-items: center; gap: 0.55rem; font-size: 0.94rem; font-weight: 600; color: var(--adm-text); cursor: pointer;">
+                    <input type="checkbox" @bind="_editProduct.IsVisibleOnSite" />
+                    <span>Exibir este produto na loja online</span>
+                </label>
+
+                <button type="button"
+                        class="adm-btn adm-btn-success"
+                        style="width: 100%; min-height: 50px; font-size: 0.98rem; font-weight: 800; justify-content: center; border-radius: 14px;"
+                        @onclick="SaveProductDetailsAsync">
+                    Salvar alterações
+                </button>
+            }
+        </section>
+
+        <!-- 3. CORES, TAMANHOS E ESTOQUE (CARTÕES LIMPOS + STEPPER -/+, SEM TABELA ANTIGA) -->
+        <section class="adm-card" style="margin-bottom: 0; display: flex; flex-direction: column; gap: 0.85rem;">
+            <div style="display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+                <div>
+                    <h2 style="font-size: 0.98rem; font-weight: 800; margin: 0; color: var(--adm-text);">Cores, tamanhos e estoque</h2>
+                    <div style="font-size: 0.82rem; color: var(--adm-muted); margin-top: 0.12rem;">
+                        Estoque total: <strong>@_product.TotalStockQuantity un.</strong>
                     </div>
                 </div>
             </div>
-        }
 
-        <table class="adm-table">
-            <thead>
-                <tr>
-                    <th>Cor / Modelo</th>
-                    <th>Tamanho / Opção</th>
-                    <th>Código SKU</th>
-                    <th>Quantidade Atual</th>
-                    <th>Status</th>
-                    <th style="text-align: right;">Ações Rápidas</th>
-                </tr>
-            </thead>
-            <tbody>
-                @foreach (var v in _product.Variants)
-                {
-                    <tr>
-                        <td data-label="Cor / Modelo">
-                            <div style="display: flex; align-items: center; gap: 0.5rem;">
-                                @if (!ClothingStore.Domain.Entities.ProductVariant.IsDefaultPlaceholderColor(v.Color))
+            @if (_product.Variants.Count > 0)
+            {
+                <div style="display: flex; flex-direction: column; gap: 0.65rem;">
+                    @foreach (var v in _product.Variants)
+                    {
+                        var hasColor = !ClothingStore.Domain.Entities.ProductVariant.IsDefaultPlaceholderColor(v.Color);
+                        var hasSize = !ClothingStore.Domain.Entities.ProductVariant.IsDefaultPlaceholderSize(v.Size);
+                        var label = hasColor && hasSize
+                            ? $"{v.Color} • {v.Size}"
+                            : hasColor
+                                ? v.Color
+                                : hasSize
+                                    ? v.Size
+                                    : "Padrão";
+
+                        <div class="yl-editor-variant-card">
+                            <div class="yl-editor-variant-head">
+                                <div class="yl-editor-variant-title">
+                                    @if (hasColor)
+                                    {
+                                        <span style="width: 16px; height: 16px; border-radius: 50%; background: @v.ColorHex; border: 1.5px solid var(--adm-border); display: inline-block; flex-shrink: 0;"></span>
+                                    }
+                                    <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">@label</span>
+                                </div>
+
+                                @if (v.IsOutOfStock)
                                 {
-                                    <span style="width: 16px; height: 16px; border-radius: 50%; background: @v.ColorHex; border: 1px solid rgba(0,0,0,0.2); display: inline-block;"></span>
-                                    <span style="font-weight: 700;">@v.Color</span>
+                                    <span class="pill-badge pill-red">Sem estoque</span>
+                                }
+                                else if (v.IsLowStock)
+                                {
+                                    <span class="pill-badge pill-amber">Baixo (@v.StockQuantity un.)</span>
                                 }
                                 else
                                 {
-                                    <span style="color: var(--adm-muted); font-weight: 600;">Padrão</span>
+                                    <span class="pill-badge pill-green">@v.StockQuantity un.</span>
                                 }
                             </div>
-                        </td>
-                        <td data-label="Tamanho / Opção" style="font-weight: 800;">
-                            @(ClothingStore.Domain.Entities.ProductVariant.IsDefaultPlaceholderSize(v.Size) ? "— (Sem tamanho)" : v.Size)
-                        </td>
-                        <td data-label="SKU" style="font-family: monospace; color: var(--adm-muted);">@v.Sku</td>
-                        <td data-label="Quantidade" style="font-size: 1rem; font-weight: 800;">@v.StockQuantity un.</td>
-                        <td data-label="Status">
-                            @if (v.IsOutOfStock)
-                            {
-                                <span class="pill-badge pill-red">Sem estoque (0)</span>
-                            }
-                            else if (v.IsLowStock)
-                            {
-                                <span class="pill-badge pill-amber">Estoque baixo (&le; @v.LowStockThreshold)</span>
-                            }
-                            else
-                            {
-                                <span class="pill-badge pill-green">Normal</span>
-                            }
-                        </td>
-                        <td data-label="Ações">
-                            <div style="display: flex; gap: 0.35rem; flex-wrap: wrap; justify-content: flex-end; width: 100%;">
+
+                            <div class="yl-editor-variant-foot">
                                 @if (Gateway.CanManageStock)
                                 {
-                                    <button type="button"
-                                            class="adm-btn adm-btn-outline"
-                                            style="padding: 0.35rem 0.65rem; min-height: 36px; font-size: 0.8rem;"
-                                            title="Entrada rápida de +1 unidade"
-                                            @onclick="() => QuickMovementAsync(v, true)">
-                                        +1 Entrada
-                                    </button>
-                                    <button type="button"
-                                            class="adm-btn adm-btn-outline"
-                                            style="padding: 0.35rem 0.65rem; min-height: 36px; font-size: 0.8rem;"
-                                            disabled="@(v.StockQuantity <= 0)"
-                                            title="Saída rápida de -1 unidade"
-                                            @onclick="() => QuickMovementAsync(v, false)">
-                                        -1 Saída
-                                    </button>
+                                    <div class="yl-stepper" aria-label="Ajustar quantidade">
+                                        <button type="button"
+                                                class="yl-stepper-btn"
+                                                aria-label="Retirar 1 unidade"
+                                                disabled="@(v.StockQuantity <= 0)"
+                                                @onclick="() => QuickMovementAsync(v, false)">
+                                            −
+                                        </button>
+                                        <span style="min-width: 38px; text-align: center; font-weight: 800; font-size: 1rem; color: var(--adm-text);">
+                                            @v.StockQuantity
+                                        </span>
+                                        <button type="button"
+                                                class="yl-stepper-btn"
+                                                aria-label="Adicionar 1 unidade"
+                                                @onclick="() => QuickMovementAsync(v, true)">
+                                            +
+                                        </button>
+                                    </div>
                                 }
+
                                 @if (Gateway.CanManageProducts)
                                 {
-                                    <button type="button"
-                                            class="adm-btn adm-btn-primary"
-                                            style="padding: 0.35rem 0.65rem; min-height: 36px; font-size: 0.8rem;"
-                                            @onclick="() => StartEditVariant(v)">
-                                        ✏️ Editar
-                                    </button>
-                                    <button type="button"
-                                            class="adm-btn adm-btn-danger"
-                                            style="padding: 0.35rem 0.65rem; min-height: 36px; font-size: 0.8rem;"
-                                            @onclick="() => DeleteVariantAsync(v)">
-                                        🗑️ Remover
-                                    </button>
+                                    <div style="display: flex; align-items: center; gap: 0.45rem; margin-left: auto;">
+                                        <button type="button"
+                                                class="adm-btn adm-btn-outline"
+                                                style="min-height: 42px; padding: 0.35rem 0.85rem; font-size: 0.86rem; font-weight: 700;"
+                                                @onclick="() => StartEditVariant(v)">
+                                            Editar
+                                        </button>
+                                        <button type="button"
+                                                class="yl-icon-danger-btn"
+                                                title="Remover opção"
+                                                aria-label="Remover opção"
+                                                @onclick="() => DeleteVariantAsync(v)">
+                                            🗑️
+                                        </button>
+                                    </div>
                                 }
                             </div>
-                        </td>
-                    </tr>
-                }
-            </tbody>
-        </table>
-    </section>
-
-    <!-- 3. GALERIA DE FOTOGRAFIAS DO PRODUTO (Supabase Storage) -->
-    <section class="adm-card">
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; flex-wrap: wrap; gap: 0.75rem;">
-            <div>
-                <h2 style="font-size: 1.1rem; font-weight: 700; margin: 0;">3. Fotografias do Produto (@_product.Images.Count)</h2>
-                <p style="font-size: 0.84rem; color: var(--adm-muted); margin: 0.2rem 0 0;">
-                    Adicione várias fotografias enviando do seu dispositivo para o Supabase Storage ou informando a URL.
-                </p>
-            </div>
-
-            @if (Gateway.CanManageProducts)
-            {
-                <button type="button" class="adm-btn adm-btn-primary" @onclick="PickAndUploadDevicePhotoAsync">
-                    Selecionar Foto do Dispositivo (Upload)
-                </button>
-            }
-        </div>
-
-        @if (Gateway.CanManageProducts)
-        {
-            <div class="adm-url-add-row">
-                <div>
-                    <label class="adm-label">Ou adicionar fotografia por URL pública</label>
-                    <input type="url"
-                           class="adm-input"
-                           @bind="_newImageUrl"
-                           @bind:event="oninput"
-                           @onkeydown="HandleImageUrlKeyDown"
-                           placeholder="Cole o link da imagem ou da página do produto (https://...)" />
-                </div>
-                <button type="button"
-                        class="adm-btn adm-btn-outline"
-                        disabled="@_addingUrlImage"
-                        @onclick="AddPhotoByUrlAsync">
-                    @(_addingUrlImage ? "Adicionando..." : "Adicionar URL")
-                </button>
-            </div>
-        }
-
-        <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 180px), 1fr)); gap: 1rem;">
-            @foreach (var img in _product.Images)
-            {
-                <div style="border: 1px solid var(--adm-border); border-radius: 8px; overflow: hidden; background: var(--adm-card-bg);">
-                    <div style="aspect-ratio: 1 / 1; background: var(--adm-input-bg); position: relative; display: flex; align-items: center; justify-content: center;">
-                        <img src="@WhatsAppLinkBuilder.SanitizeMediaUrl(img.PublicUrl)"
-                             alt="@img.AltText"
-                             referrerpolicy="no-referrer"
-                             style="width: 100%; height: 100%; object-fit: contain;" />
-                        @if (img.IsPrimary)
-                        {
-                            <span class="pill-badge pill-green" style="position: absolute; top: 0.5rem; left: 0.5rem;">
-                                Foto Principal (Capa)
-                            </span>
-                        }
-                    </div>
-                    @if (Gateway.CanManageProducts)
-                    {
-                        <div style="padding: 0.65rem; display: flex; gap: 0.4rem; justify-content: space-between;">
-                            @if (!img.IsPrimary)
-                            {
-                                <button type="button"
-                                        class="adm-btn adm-btn-outline"
-                                        style="font-size: 0.75rem; padding: 0.3rem 0.5rem; flex: 1;"
-                                        @onclick="() => SetPrimaryImageAsync(img.Id)">
-                                    Definir Capa
-                                </button>
-                            }
-                            <button type="button"
-                                    class="adm-btn adm-btn-danger"
-                                    style="font-size: 0.75rem; padding: 0.3rem 0.5rem;"
-                                    @onclick="() => DeleteImageAsync(img.Id)">
-                                Excluir
-                            </button>
                         </div>
                     }
                 </div>
             }
-        </div>
-    </section>
-}
+
+            @if (Gateway.CanManageProducts)
+            {
+                <div class="yl-variant-subcard" style="background: var(--adm-input-bg);">
+                    <div style="font-weight: 800; font-size: 0.9rem; color: var(--adm-text);">
+                        @(_editingVariantId.HasValue ? "Editando opção selecionada" : "+ Adicionar outra cor ou tamanho")
+                    </div>
+
+                    <div class="yl-variant-row-top">
+                        <input type="text"
+                               class="adm-input"
+                               style="flex: 1 1 0; min-width: 0; min-height: 46px;"
+                               @bind="_variantForm.Color"
+                               @bind:event="oninput"
+                               @bind:after="OnVariantColorChanged"
+                               placeholder="Cor ou modelo (ex.: Preta)" />
+                        <input type="color"
+                               class="yl-color-dot-picker"
+                               title="Escolher cor"
+                               aria-label="Cor visual"
+                               @bind="_variantForm.ColorHex" />
+                    </div>
+
+                    <div class="yl-variant-row-bottom">
+                        <input type="text"
+                               class="adm-input"
+                               style="width: 100%; min-width: 0; min-height: 46px;"
+                               @bind="_variantForm.Size"
+                               @bind:event="oninput"
+                               placeholder="Tamanho (ex.: M)" />
+                        <input type="number"
+                               min="0"
+                               class="adm-input"
+                               style="width: 112px; min-height: 46px; text-align: center; font-weight: 700;"
+                               placeholder="Qtd."
+                               @bind="_variantStockInput" />
+                    </div>
+
+                    <details style="font-size: 0.82rem;">
+                        <summary style="cursor: pointer; color: var(--adm-muted); font-weight: 600; user-select: none;">
+                            Opções avançadas (código e alerta de estoque)
+                        </summary>
+                        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 0.6rem; margin-top: 0.55rem;">
+                            <div>
+                                <label class="adm-label">Código interno (opcional)</label>
+                                <input type="text" class="adm-input" @bind="_variantForm.CustomSku" placeholder="Automático" />
+                            </div>
+                            <div>
+                                <label class="adm-label">Avisar quando restar</label>
+                                <input type="number" min="0" class="adm-input" @bind="_variantForm.LowStockThreshold" />
+                            </div>
+                        </div>
+                    </details>
+
+                    <div style="display: flex; gap: 0.5rem;">
+                        <button type="button"
+                                class="yl-add-variant-btn"
+                                style="flex: 1;"
+                                @onclick="SaveVariantAsync">
+                            @(_editingVariantId.HasValue ? "✓ Salvar opção" : "+ Adicionar cor ou tamanho")
+                        </button>
+                        @if (_editingVariantId.HasValue)
+                        {
+                            <button type="button"
+                                    class="adm-btn adm-btn-outline"
+                                    style="min-height: 48px;"
+                                    @onclick="CancelEditVariant">
+                                Cancelar
+                            </button>
+                        }
+                    </div>
+                </div>
+            }
+        </section>
+    }
+</div>
 
 @code {
     [Parameter]
@@ -328,10 +363,11 @@
     private string _editCategorySelection = string.Empty;
 
     private Guid? _editingVariantId;
+    private int? _variantStockInput;
     private SaveProductVariantRequest _variantForm = new()
     {
         ColorHex = "#18181B",
-        InitialStockQuantity = 5,
+        InitialStockQuantity = 0,
         LowStockThreshold = 3,
         IsActive = true
     };
@@ -404,6 +440,7 @@
     private void StartEditVariant(ProductVariantDto variant)
     {
         _editingVariantId = variant.Id;
+        _variantStockInput = variant.StockQuantity;
         _variantForm = new SaveProductVariantRequest
         {
             Color = variant.Color,
@@ -420,10 +457,11 @@
     private void CancelEditVariant()
     {
         _editingVariantId = null;
+        _variantStockInput = null;
         _variantForm = new SaveProductVariantRequest
         {
             ColorHex = "#18181B",
-            InitialStockQuantity = 5,
+            InitialStockQuantity = 0,
             LowStockThreshold = 3,
             IsActive = true
         };
@@ -443,6 +481,7 @@
         _success = null;
         try
         {
+            _variantForm.InitialStockQuantity = Math.Max(0, _variantStockInput ?? 0);
             if (_editingVariantId.HasValue)
             {
                 await Gateway.UpdateVariantAsync(_editingVariantId.Value, _variantForm);

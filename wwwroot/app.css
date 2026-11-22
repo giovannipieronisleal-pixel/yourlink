@@ -1701,6 +1701,245 @@ html, body {
     cursor: pointer;
 }
 
+.yl-photo-cover-btn {
+    position: absolute;
+    left: 6px;
+    bottom: 6px;
+    padding: 0.14rem 0.45rem;
+    border-radius: 999px;
+    border: none;
+    background: rgba(15, 23, 42, 0.72);
+    color: #FFFFFF;
+    font-size: 0.68rem;
+    font-weight: 700;
+    cursor: pointer;
+}
+
+/* Lista moderna de Produtos (Cartões limpos no lugar da tabela antiga) */
+.yl-filter-chips {
+    display: flex;
+    gap: 0.45rem;
+    overflow-x: auto;
+    padding-bottom: 0.2rem;
+    scrollbar-width: none;
+}
+
+.yl-filter-chips::-webkit-scrollbar {
+    display: none;
+}
+
+.yl-filter-chip {
+    min-height: 38px;
+    padding: 0.38rem 0.9rem;
+    border-radius: 999px;
+    border: 1px solid var(--adm-border);
+    background: var(--adm-card);
+    color: var(--adm-muted);
+    font-family: inherit;
+    font-size: 0.85rem;
+    font-weight: 700;
+    white-space: nowrap;
+    cursor: pointer;
+    flex-shrink: 0;
+    transition: all 0.14s ease;
+}
+
+.yl-filter-chip.is-active {
+    background: var(--adm-primary);
+    color: #FFFFFF;
+    border-color: var(--adm-primary);
+}
+
+.yl-product-list-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0.85rem;
+}
+
+@media (min-width: 780px) {
+    .yl-product-list-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+.yl-product-card {
+    background: var(--adm-card);
+    border: 1px solid var(--adm-border);
+    border-radius: 16px;
+    padding: 0.95rem;
+    box-shadow: var(--adm-shadow);
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    min-width: 0;
+}
+
+.yl-product-card-top {
+    display: flex;
+    align-items: center;
+    gap: 0.85rem;
+    min-width: 0;
+}
+
+.yl-product-thumb {
+    width: 72px;
+    height: 72px;
+    min-width: 72px;
+    border-radius: 14px;
+    overflow: hidden;
+    background: var(--adm-input-bg);
+    border: 1px solid var(--adm-border);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--adm-muted);
+    font-size: 1.35rem;
+    flex-shrink: 0;
+}
+
+.yl-product-thumb img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+}
+
+.yl-product-card-meta {
+    flex: 1 1 0;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+}
+
+.yl-product-card-name {
+    font-size: 1rem;
+    font-weight: 800;
+    color: var(--adm-text);
+    line-height: 1.25;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.yl-product-card-cat {
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--adm-muted);
+}
+
+.yl-product-card-price-row {
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+    flex-wrap: wrap;
+    margin-top: 0.1rem;
+}
+
+.yl-product-card-price {
+    font-size: 1.02rem;
+    font-weight: 800;
+    color: var(--adm-text);
+}
+
+.yl-product-card-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding-top: 0.65rem;
+    border-top: 1px solid var(--adm-border);
+}
+
+.yl-icon-danger-btn {
+    width: 42px;
+    height: 42px;
+    min-width: 42px;
+    border-radius: 12px;
+    border: 1px solid color-mix(in srgb, var(--adm-danger) 35%, transparent);
+    background: var(--yl-tint-red-bg);
+    color: var(--yl-tint-red-fg);
+    font-size: 1rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    flex-shrink: 0;
+}
+
+/* Cartão limpo de variante no Editor de Produto */
+.yl-editor-variant-card {
+    background: var(--adm-input-bg);
+    border: 1px solid var(--adm-border);
+    border-radius: 14px;
+    padding: 0.85rem 0.95rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.7rem;
+}
+
+.yl-editor-variant-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.6rem;
+}
+
+.yl-editor-variant-title {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    min-width: 0;
+    font-size: 0.96rem;
+    font-weight: 800;
+    color: var(--adm-text);
+}
+
+.yl-editor-variant-foot {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.55rem;
+    flex-wrap: wrap;
+}
+
+/* Grade 2x2 de resumo nos Pedidos */
+.yl-order-kpi-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.75rem;
+    margin-bottom: 1rem;
+}
+
+@media (min-width: 720px) {
+    .yl-order-kpi-grid {
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
+}
+
+.yl-order-kpi-card {
+    background: var(--adm-card);
+    border: 1px solid var(--adm-border);
+    border-radius: 14px;
+    padding: 0.95rem 1.05rem;
+    box-shadow: var(--adm-shadow);
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+}
+
+.yl-order-kpi-label {
+    font-size: 0.82rem;
+    font-weight: 600;
+    color: var(--adm-muted);
+}
+
+.yl-order-kpi-val {
+    font-size: 1.45rem;
+    font-weight: 800;
+    color: var(--adm-text);
+    line-height: 1.15;
+}
+
 .yl-color-dot-picker {
     width: 44px;
     height: 44px;
