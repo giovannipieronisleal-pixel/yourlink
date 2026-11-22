@@ -29,7 +29,7 @@ public sealed record AppUpdateReleaseInfo(
 /// </summary>
 public static class AppUpdateCatalog
 {
-    public const string CurrentAppVersion = "1.0.67";
+    public const string CurrentAppVersion = "1.0.68";
     public const string DefaultCentralPlatformServerUrl = "https://youlink-loja.onrender.com";
     public const string DefaultCloudflareEdgeOrigin = "https://youlink-edge-accelerator.youlink-edge.workers.dev";
     public const string DefaultCloudPanelUrl = DefaultCloudflareEdgeOrigin + "/painel/index.html";

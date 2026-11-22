@@ -146,7 +146,7 @@ public sealed class AppUpdateService
     {
         if (!manualTrigger &&
             OperatingSystem.IsAndroid() &&
-            Preferences.Default.Get(MainPage.AndroidCloudPanelModePrefKey, true))
+            Preferences.Default.Get(MainPage.AndroidCloudPanelModePrefKey, false))
         {
             return null;
         }

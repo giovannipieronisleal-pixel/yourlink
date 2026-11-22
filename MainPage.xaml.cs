@@ -21,7 +21,9 @@ public partial class MainPage : ContentPage
     {
         InitializeComponent();
 
-        if (OperatingSystem.IsAndroid() && Preferences.Default.Get(AndroidCloudPanelModePrefKey, true))
+        // Mantém o app completo nativo (BlazorWebView) como padrão no celular e no Windows.
+        // O painel nuvem da Cloudflare fica disponível na web enquanto evoluímos a nova versão.
+        if (OperatingSystem.IsAndroid() && Preferences.Default.Get(AndroidCloudPanelModePrefKey, false))
         {
             ConfigureCloudWebViewHandler();
             StartCloudPanelMode();
