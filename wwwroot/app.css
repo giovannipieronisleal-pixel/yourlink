@@ -768,34 +768,7 @@ html, body {
 .theme-dark .alert-info,
 .theme-dark .adm-alert-info { color: #E5C99B; }
 
-/* ---------------- Seletor de Tema & Login ---------------- */
-.theme-selector-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
-    gap: 0.75rem;
-}
-
-.theme-card-option {
-    padding: 0.95rem 1rem;
-    border-radius: var(--brand-radius-card);
-    border: 1.5px solid var(--adm-border);
-    background-color: var(--adm-field-bg, #FFFFFF);
-    color: var(--adm-text);
-    text-align: left;
-    cursor: pointer;
-    transition: border-color 0.18s ease, background-color 0.18s ease, box-shadow 0.18s ease;
-}
-
-.theme-card-option:hover {
-    border-color: var(--adm-accent);
-}
-
-.theme-card-option.active {
-    border-color: var(--adm-accent);
-    background-color: var(--adm-surface-subtle);
-    box-shadow: 0 0 0 2px rgba(182, 145, 88, 0.24);
-}
-
+/* ---------------- Login ---------------- */
 .adm-login-wrapper {
     min-height: 100vh;
     display: flex;

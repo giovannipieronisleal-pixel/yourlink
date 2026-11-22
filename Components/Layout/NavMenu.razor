@@ -12,7 +12,7 @@
         <span>Início</span>
     </NavLink>
 
-    <NavLink class="adm-nav-item" href="/produtos">
+    <NavLink class="adm-nav-item" href="/produtos" @onclick="() => Gateway.RequestProductsRoot()">
         <span class="adm-nav-icon">🛍️</span>
         <span>Produtos</span>
     </NavLink>
@@ -24,7 +24,7 @@
             <span>Pedidos</span>
         </NavLink>
 
-        <NavLink class="adm-nav-item" href="/configuracoes-loja">
+        <NavLink class="adm-nav-item" href="/configuracoes-loja" @onclick="() => Gateway.RequestSettingsHub()">
             <span class="adm-nav-icon">🏪</span>
             <span>Minha Loja</span>
         </NavLink>

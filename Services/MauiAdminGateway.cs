@@ -143,6 +143,11 @@ public sealed class MauiAdminGateway
     public event Action? PlanPopupNoticeChanged;
     public event Action? RemoteConfigChanged;
     public event Action? StoreDataChanged;
+    public event Action? SettingsHubRequested;
+    public event Action? ProductsRootRequested;
+
+    public void RequestSettingsHub() => SettingsHubRequested?.Invoke();
+    public void RequestProductsRoot() => ProductsRootRequested?.Invoke();
 
     public RemoteFeatureConfigDto? LatestRemoteConfig { get; private set; }
     private readonly GeminiProductAssistantService _aiAssistant;

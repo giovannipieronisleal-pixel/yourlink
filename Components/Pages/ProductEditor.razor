@@ -427,9 +427,7 @@
             }
 
             _product = await Gateway.UpdateProductAsync(ProductId, _editProduct);
-            _categories = await Gateway.GetCategoriesAsync();
-            _editCategorySelection = _product.CategoryId.ToString();
-            _success = "Dados do produto atualizados e sincronizados com o catálogo!";
+            Navigation.NavigateTo("/produtos");
         }
         catch (Exception ex)
         {

@@ -495,53 +495,9 @@ else
 </div>
 
 <!-- ====================================================================== -->
-<!-- ABA 2: VISUAL & TEMAS (Temas da Vitrine Online + Tema Claro/Escuro App) -->
+<!-- ABA 2: APARÊNCIA DA VITRINE (Temas e Cores do Site)                    -->
 <!-- ====================================================================== -->
 <div style="@(_activeSettingsTab == "visual" ? string.Empty : "display: none;")">
-    <section class="adm-card" style="border-left: 4px solid var(--adm-accent); margin-bottom: 1.25rem;">
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem; flex-wrap: wrap; gap: 0.5rem;">
-            <h2 style="font-size: 1.1rem; font-weight: 700; margin: 0; color: var(--adm-text);">
-                🎨 Tema do Aplicativo (Modo Claro &amp; Escuro)
-            </h2>
-            <div style="display: flex; align-items: center; gap: 0.5rem;">
-                <span class="pill-badge pill-slate">v@(UpdateService.CurrentVersion)</span>
-                <button type="button"
-                        class="adm-btn adm-btn-outline"
-                        style="padding: 0.3rem 0.65rem; font-size: 0.78rem;"
-                        disabled="@UpdateService.IsChecking"
-                        @onclick="CheckUpdatesManuallyAsync">
-                    @(UpdateService.IsChecking ? "⏳ Verificando..." : "🔄 Procurar Atualizações")
-                </button>
-            </div>
-        </div>
-        <p style="font-size: 0.85rem; color: var(--adm-muted); margin-top: 0; margin-bottom: 0.75rem;">
-            Escolha a aparência do seu painel administrativo no computador ou celular:
-        </p>
-
-        <div class="theme-selector-grid">
-            <div class="theme-card-option @(Theme.ThemePreference == "system" ? "active" : "")"
-                 @onclick='() => ChangeTheme("system")'>
-                <div style="font-size: 1.3rem; margin-bottom: 0.2rem;">🌓</div>
-                <div>Automático</div>
-                <div style="font-size: 0.72rem; color: var(--adm-muted); font-weight: 500;">Segue o sistema</div>
-            </div>
-
-            <div class="theme-card-option @(Theme.ThemePreference == "light" ? "active" : "")"
-                 @onclick='() => ChangeTheme("light")'>
-                <div style="font-size: 1.3rem; margin-bottom: 0.2rem;">☀️</div>
-                <div>Modo Claro</div>
-                <div style="font-size: 0.72rem; color: var(--adm-muted); font-weight: 500;">Fundo Branco</div>
-            </div>
-
-            <div class="theme-card-option @(Theme.ThemePreference == "dark" ? "active" : "")"
-                 @onclick='() => ChangeTheme("dark")'>
-                <div style="font-size: 1.3rem; margin-bottom: 0.2rem;">🌙</div>
-                <div>Modo Escuro</div>
-                <div style="font-size: 0.72rem; color: var(--adm-muted); font-weight: 500;">OLED / Alto Contraste</div>
-            </div>
-        </div>
-    </section>
-
     <DesignStudioPanel PlanTier="@_planTier"
                        PlanActivatedAt="@_planActivatedAt"
                        PlanExpiresAt="@_planExpiresAt"
@@ -1138,6 +1094,7 @@ else
         CloudSync.OnSyncStatusChanged += StateHasChanged;
         Gateway.PlanEntitlementActivated += OnPlanEntitlementActivated;
         Gateway.AuthStateChanged += OnGatewayAuthStateChanged;
+        Gateway.SettingsHubRequested += OnSettingsHubRequested;
 
         if (Gateway.CachedAdminSettings is not null)
         {
@@ -1146,6 +1103,16 @@ else
 
         await LoadSettingsCoreAsync(refreshCloud: false);
         _ = RefreshSettingsCloudInBackgroundAsync();
+    }
+
+    private void OnSettingsHubRequested()
+    {
+        if (_activeSettingsTab != "hub")
+        {
+            _activeSettingsTab = "hub";
+            _error = null;
+            _ = InvokeAsync(StateHasChanged);
+        }
     }
 
     private async Task RefreshSettingsCloudInBackgroundAsync()
@@ -1414,12 +1381,38 @@ else
         }
     }
 
+    private bool IsCurrentWhatsappVerified()
+    {
+        var waCheck = WhatsAppLinkBuilder.ValidateBrazilianWhatsAppNumber(_form.WhatsappNumber);
+        return waCheck.IsValid &&
+               !string.IsNullOrWhiteSpace(_verifiedWhatsappNumber) &&
+               string.Equals(waCheck.NormalizedNumber, _verifiedWhatsappNumber, StringComparison.Ordinal);
+    }
+
     private async Task SaveSettingsAsync()
     {
         _error = null;
         _success = null;
         try
         {
+            var waCheck = WhatsAppLinkBuilder.ValidateBrazilianWhatsAppNumber(_form.WhatsappNumber);
+            if (!waCheck.IsValid)
+            {
+                _error = !string.IsNullOrWhiteSpace(waCheck.Message)
+                    ? waCheck.Message
+                    : "Informe um número de WhatsApp válido (DDD + celular).";
+                return;
+            }
+
+            if (!IsCurrentWhatsappVerified())
+            {
+                _whatsappAuthFeedbackOk = false;
+                _whatsappAuthFeedback = "⚠️ Este número de WhatsApp ainda não foi autorizado. Toque em '📧 Confirmar por E-mail' e digite o código de 6 dígitos antes de salvar.";
+                _error = "Não é possível salvar ou usar este número de WhatsApp sem antes confirmá-lo pelo código enviado ao seu e-mail.";
+                return;
+            }
+
+            _form.WhatsappNumber = waCheck.NormalizedNumber;
             if (_autoSyncSlugWithName || string.IsNullOrWhiteSpace(_form.StoreSlug))
             {
                 _form.StoreSlug = WhatsAppLinkBuilder.GenerateStoreSlug(_form.StoreName);
@@ -2124,6 +2117,15 @@ else
             return;
         }
 
+        if (!IsCurrentWhatsappVerified())
+        {
+            _whatsappAuthFeedbackOk = false;
+            _whatsappAuthFeedback = "⚠️ Autentique o número de WhatsApp pelo código enviado ao seu e-mail antes de publicar.";
+            _publishWizardMessage = "⚠️ Confirme o número de WhatsApp por e-mail (código de 6 dígitos) antes de publicar a loja.";
+            _error = _publishWizardMessage;
+            return;
+        }
+
         _publishingOneClick = true;
         _publishWizardMessage = "🚀 Publicando sua loja online em 1 clique...";
         StateHasChanged();
@@ -2224,5 +2226,6 @@ else
         CloudSync.OnSyncStatusChanged -= StateHasChanged;
         Gateway.PlanEntitlementActivated -= OnPlanEntitlementActivated;
         Gateway.AuthStateChanged -= OnGatewayAuthStateChanged;
+        Gateway.SettingsHubRequested -= OnSettingsHubRequested;
     }
 }

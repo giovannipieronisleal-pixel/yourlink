@@ -76,152 +76,6 @@
     </div>
 }
 
-<!-- Formulário de Edição Completa do Produto (com Variantes de Cor/Tamanho/Estoque dentro do Produto) -->
-@if (_editingProductId.HasValue && Gateway.CanManageProducts)
-{
-    <div class="adm-card" style="border-left: 4px solid var(--adm-primary); background: var(--adm-input-bg);">
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.85rem; flex-wrap: wrap; gap: 0.5rem;">
-            <h3 style="margin: 0; font-size: 1.08rem;">✏️ Editar Produto &amp; Variantes: @_editProductForm.Name</h3>
-            <a href="/produtos/@_editingProductId.Value" class="adm-btn adm-btn-outline" style="padding: 0.35rem 0.75rem; font-size: 0.82rem;">
-                📷 Gerenciar Fotos do Produto &rarr;
-            </a>
-        </div>
-
-        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr)); gap: 1rem;">
-            <div>
-                <label class="adm-label">Nome do Produto *</label>
-                <input type="text" class="adm-input" @bind="_editProductForm.Name" placeholder="Nome do produto" />
-            </div>
-
-            <div>
-                <label class="adm-label">Categoria *</label>
-                <select class="adm-select" @bind="_editProductCategorySelection">
-                    @foreach (var cat in _categories)
-                    {
-                        <option value="@cat.Id.ToString()">@cat.Name</option>
-                    }
-                    <option value="__NEW__">+ Digitar nova categoria...</option>
-                </select>
-                @if (_editProductCategorySelection == "__NEW__" || _categories.Count == 0)
-                {
-                    <input type="text"
-                           class="adm-input"
-                           style="margin-top: 0.45rem;"
-                           @bind="_editProductForm.CategoryName"
-                           placeholder="Digite o nome da nova categoria..." />
-                }
-            </div>
-
-            <div>
-                <label class="adm-label">Preço de Venda (R$) *</label>
-                <input type="number" step="0.01" class="adm-input" @bind="_editProductForm.BasePrice" />
-            </div>
-
-            <div style="grid-column: 1 / -1;">
-                <label class="adm-label">Descrição do Produto</label>
-                <textarea class="adm-textarea" rows="2" @bind="_editProductForm.Description" placeholder="Características, medidas, especificações e detalhes..."></textarea>
-            </div>
-
-            <div style="grid-column: 1 / -1; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;">
-                <label style="display: flex; align-items: center; gap: 0.5rem; font-size: 0.9rem;">
-                    <input type="checkbox" @bind="_editProductForm.IsVisibleOnSite" />
-                    <span>Exibir no site público</span>
-                </label>
-
-                <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
-                    <button type="button" class="adm-btn adm-btn-success" @onclick="SaveQuickEditProductAsync">
-                        💾 Salvar Dados do Produto
-                    </button>
-                    <button type="button" class="adm-btn adm-btn-outline" @onclick="CancelQuickEditProduct">
-                        Fechar
-                    </button>
-                </div>
-            </div>
-        </div>
-
-        <!-- Variantes (Cor/Modelo + Tamanho/Opção + Quantidade) diretamente dentro do produto -->
-        @if (_editingProductDetail is not null)
-        {
-            <div style="margin-top: 1.15rem; padding-top: 1rem; border-top: 1px solid var(--adm-border);">
-                <div style="font-weight: 800; font-size: 0.95rem; margin-bottom: 0.65rem; color: var(--adm-text);">
-                    🎨 Variantes deste Produto (Cor/Modelo, Tamanho/Opção e Quantidade por combinação)
-                </div>
-
-                <div style="background: var(--adm-surface); border: 1px solid var(--adm-border); border-radius: 10px; padding: 0.85rem; margin-bottom: 0.85rem;">
-                    <div style="font-size: 0.82rem; font-weight: 700; margin-bottom: 0.55rem; color: var(--adm-muted);">
-                        @(_inlineEditingVariantId.HasValue ? "✏️ Editando variante selecionada" : "+ Adicionar nova Cor / Modelo / Tamanho neste produto")
-                    </div>
-                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 135px), 1fr)); gap: 0.6rem; align-items: end;">
-                        <div>
-                            <label class="adm-label">Cor / Modelo</label>
-                            <input type="text"
-                                   class="adm-input"
-                                   @bind="_inlineVariantForm.Color"
-                                   @bind:event="oninput"
-                                   @bind:after="OnInlineVariantColorChanged"
-                                   placeholder="Ex.: Preta, Branca..." />
-                        </div>
-                        <div>
-                            <label class="adm-label">Cor (Visual)</label>
-                            <input type="color" class="adm-input" style="height: 38px; padding: 0.2rem;" @bind="_inlineVariantForm.ColorHex" />
-                        </div>
-                        <div>
-                            <label class="adm-label">Tamanho / Opção</label>
-                            <input type="text" class="adm-input" @bind="_inlineVariantForm.Size" placeholder="Ex.: P, M, G, GG, 100ml..." />
-                        </div>
-                        <div>
-                            <label class="adm-label">Quantidade (un.)</label>
-                            <input type="number" min="0" class="adm-input" placeholder="0" @bind="_inlineVariantStockInput" />
-                        </div>
-                        <div style="display: flex; gap: 0.4rem;">
-                            <button type="button" class="adm-btn adm-btn-success" style="flex: 1;" @onclick="SaveInlineVariantAsync">
-                                @(_inlineEditingVariantId.HasValue ? "✓ Atualizar" : "+ Adicionar")
-                            </button>
-                            @if (_inlineEditingVariantId.HasValue)
-                            {
-                                <button type="button" class="adm-btn adm-btn-outline" @onclick="CancelInlineVariantEdit">Cancelar</button>
-                            }
-                        </div>
-                    </div>
-                </div>
-
-                @if (_editingProductDetail.Variants.Count == 0)
-                {
-                    <div style="font-size: 0.84rem; color: var(--adm-muted); padding: 0.5rem 0;">
-                        Nenhuma variante cadastrada ainda. Adicione acima a cor/modelo, tamanho e quantidade.
-                    </div>
-                }
-                else
-                {
-                    <div style="display: flex; flex-direction: column; gap: 0.45rem;">
-                        @foreach (var v in _editingProductDetail.Variants)
-                        {
-                            <div style="display: flex; justify-content: space-between; align-items: center; gap: 0.6rem; flex-wrap: wrap; padding: 0.55rem 0.75rem; background: var(--adm-surface); border: 1px solid var(--adm-border); border-radius: 8px;">
-                                <div style="display: flex; align-items: center; gap: 0.55rem; flex-wrap: wrap;">
-                                    <span style="width: 14px; height: 14px; border-radius: 50%; background: @v.ColorHex; border: 1px solid rgba(0,0,0,0.25); display: inline-block;"></span>
-                                    <strong>@v.Color</strong>
-                                    <span style="color: var(--adm-muted);">/</span>
-                                    <span class="pill-badge pill-slate">@v.Size</span>
-                                    <span class="pill-badge @(v.StockQuantity > 0 ? "pill-green" : "pill-red")">@v.StockQuantity un.</span>
-                                </div>
-                                <div style="display: flex; gap: 0.35rem; flex-wrap: wrap;">
-                                    @if (Gateway.CanManageStock)
-                                    {
-                                        <button type="button" class="adm-btn adm-btn-outline" style="padding: 0.2rem 0.5rem; font-size: 0.78rem;" disabled="@(v.StockQuantity <= 0)" @onclick='() => QuickMoveInlineVariantAsync(v, "OUT", 1)'>−1</button>
-                                        <button type="button" class="adm-btn adm-btn-outline" style="padding: 0.2rem 0.5rem; font-size: 0.78rem;" @onclick='() => QuickMoveInlineVariantAsync(v, "IN", 1)'>+1</button>
-                                    }
-                                    <button type="button" class="adm-btn adm-btn-outline" style="padding: 0.2rem 0.55rem; font-size: 0.78rem;" @onclick="() => StartInlineVariantEdit(v)">✏️ Editar</button>
-                                    <button type="button" class="adm-btn adm-btn-danger" style="padding: 0.2rem 0.55rem; font-size: 0.78rem;" @onclick="() => DeleteInlineVariantAsync(v)">🗑️</button>
-                                </div>
-                            </div>
-                        }
-                    </div>
-                }
-            </div>
-        }
-    </div>
-}
-
 <!-- Formulário de Novo Produto (Estilo Figma Aprovado: Fotos no Topo + Cartões Limpos + Stepper lado a lado) -->
 @if (_showNewProductModal && Gateway.CanManageProducts)
 {
@@ -593,14 +447,6 @@
     private List<NewVariantDraft> _newProductVariants = [new NewVariantDraft()];
     private string _newProductCategorySelection = string.Empty;
 
-    private Guid? _editingProductId;
-    private ProductDetailDto? _editingProductDetail;
-    private SaveProductRequest _editProductForm = new();
-    private string _editProductCategorySelection = string.Empty;
-    private Guid? _inlineEditingVariantId;
-    private SaveProductVariantRequest _inlineVariantForm = new() { ColorHex = "#18181B", InitialStockQuantity = 0, LowStockThreshold = 3 };
-    private int? _inlineVariantStockInput;
-
     private bool HasDuplicateNamedProducts =>
         _products
             .GroupBy(p => $"{p.CategoryId:N}|{p.Name.Trim().ToLowerInvariant()}")
@@ -612,6 +458,7 @@
     protected override async Task OnInitializedAsync()
     {
         Gateway.StoreDataChanged += OnStoreDataChanged;
+        Gateway.ProductsRootRequested += OnProductsRootRequested;
 
         if (Gateway.CachedCategories is not null)
             _categories = Gateway.CachedCategories;
@@ -645,9 +492,22 @@
         });
     }
 
+    private void OnProductsRootRequested()
+    {
+        if (_showNewProductModal || _showNewCategoryModal)
+        {
+            _showNewProductModal = false;
+            _showNewCategoryModal = false;
+            _newProductPendingPhotos.Clear();
+            _error = null;
+            _ = InvokeAsync(StateHasChanged);
+        }
+    }
+
     public void Dispose()
     {
         Gateway.StoreDataChanged -= OnStoreDataChanged;
+        Gateway.ProductsRootRequested -= OnProductsRootRequested;
     }
 
     private void AdjustNewVariantStock(NewVariantDraft row, int delta)
@@ -675,8 +535,6 @@
         _showNewProductModal = !_showNewProductModal;
         if (_showNewProductModal)
         {
-            _editingProductId = null;
-            _editingProductDetail = null;
             _newProductPendingPhotos.Clear();
             _newProductPriceText = string.Empty;
             _newProduct = new SaveProductRequest { BasePrice = 0m, IsVisibleOnSite = true, InitialStockQuantity = 0 };
@@ -811,14 +669,6 @@
             System.Globalization.NumberStyles.Number,
             System.Globalization.CultureInfo.InvariantCulture,
             out parsedPrice) && parsedPrice >= 0m;
-    }
-
-    private void OnInlineVariantColorChanged()
-    {
-        if (!string.IsNullOrWhiteSpace(_inlineVariantForm.Color))
-        {
-            _inlineVariantForm.ColorHex = ClothingStore.Domain.Entities.ProductVariant.ResolveDefaultColorHex(_inlineVariantForm.Color);
-        }
     }
 
     private ProductDetailDto? FindMatchingExistingProductForNewForm()
@@ -1064,209 +914,6 @@
         }
     }
 
-    private void StartQuickEditProduct(ProductDetailDto prod)
-    {
-        _error = null;
-        _success = null;
-        _showNewProductModal = false;
-        _editingProductId = prod.Id;
-        _editingProductDetail = prod;
-        _inlineEditingVariantId = null;
-        _inlineVariantForm = new SaveProductVariantRequest { ColorHex = "#18181B", InitialStockQuantity = 0, LowStockThreshold = 3 };
-        _inlineVariantStockInput = null;
-        _editProductCategorySelection = prod.CategoryId.ToString();
-        _editProductForm = new SaveProductRequest
-        {
-            CategoryId = prod.CategoryId,
-            Name = prod.Name,
-            Description = prod.Description,
-            BasePrice = prod.BasePrice,
-            IsVisibleOnSite = prod.IsVisibleOnSite
-        };
-    }
-
-    private void CancelQuickEditProduct()
-    {
-        _editingProductId = null;
-        _editingProductDetail = null;
-        _inlineEditingVariantId = null;
-        _editProductForm = new SaveProductRequest();
-    }
-
-    private async Task RefreshEditingProductDetailAsync()
-    {
-        if (_editingProductId.HasValue)
-        {
-            _editingProductDetail = await Gateway.GetProductByIdAsync(_editingProductId.Value);
-        }
-        await LoadProductsAsync();
-    }
-
-    private void StartInlineVariantEdit(ProductVariantDto v)
-    {
-        _inlineEditingVariantId = v.Id;
-        _inlineVariantStockInput = v.StockQuantity;
-        _inlineVariantForm = new SaveProductVariantRequest
-        {
-            Color = v.Color,
-            ColorHex = v.ColorHex,
-            Size = v.Size,
-            CustomSku = v.Sku,
-            InitialStockQuantity = v.StockQuantity,
-            LowStockThreshold = v.LowStockThreshold,
-            IsActive = v.IsActive
-        };
-    }
-
-    private void CancelInlineVariantEdit()
-    {
-        _inlineEditingVariantId = null;
-        _inlineVariantStockInput = null;
-        _inlineVariantForm = new SaveProductVariantRequest { ColorHex = "#18181B", InitialStockQuantity = 0, LowStockThreshold = 3 };
-    }
-
-    private async Task SaveInlineVariantAsync()
-    {
-        if (!_editingProductId.HasValue)
-            return;
-
-        _error = null;
-        _success = null;
-        try
-        {
-            var req = new SaveProductVariantRequest
-            {
-                Color = string.IsNullOrWhiteSpace(_inlineVariantForm.Color) ? "Padrão" : _inlineVariantForm.Color.Trim(),
-                ColorHex = string.IsNullOrWhiteSpace(_inlineVariantForm.ColorHex)
-                    ? ClothingStore.Domain.Entities.ProductVariant.ResolveDefaultColorHex(_inlineVariantForm.Color)
-                    : _inlineVariantForm.ColorHex,
-                Size = string.IsNullOrWhiteSpace(_inlineVariantForm.Size) ? "Único" : _inlineVariantForm.Size.Trim(),
-                CustomSku = _inlineVariantForm.CustomSku,
-                InitialStockQuantity = Math.Max(0, _inlineVariantStockInput ?? 0),
-                UpdateStockQuantity = _inlineEditingVariantId.HasValue,
-                LowStockThreshold = _inlineVariantForm.LowStockThreshold > 0 ? _inlineVariantForm.LowStockThreshold : 3,
-                IsActive = true
-            };
-
-            if (_inlineEditingVariantId.HasValue)
-            {
-                await Gateway.UpdateVariantAsync(_inlineEditingVariantId.Value, req);
-                _success = $"✓ Variante {req.Color} / {req.Size} atualizada ({req.InitialStockQuantity} un.)!";
-            }
-            else
-            {
-                await Gateway.AddVariantAsync(_editingProductId.Value, req);
-                _success = $"✓ Variante {req.Color} / {req.Size} ({req.InitialStockQuantity} un.) adicionada ao produto!";
-            }
-
-            CancelInlineVariantEdit();
-            await RefreshEditingProductDetailAsync();
-        }
-        catch (Exception ex)
-        {
-            _error = ex.Message;
-        }
-    }
-
-    private async Task QuickMoveInlineVariantAsync(ProductVariantDto variant, string movementType, int quantity)
-    {
-        _error = null;
-        _success = null;
-        try
-        {
-            var mov = await Gateway.RegisterStockMovementAsync(new CreateStockMovementRequest
-            {
-                ProductVariantId = variant.Id,
-                MovementType = movementType,
-                Quantity = quantity,
-                Reason = movementType == "OUT" ? "Saída rápida no produto" : "Entrada rápida no produto"
-            });
-            await RefreshEditingProductDetailAsync();
-            _success = $"✓ Estoque de {variant.Color} / {variant.Size}: {mov.PreviousQuantity} → {mov.NewQuantity} un.";
-        }
-        catch (Exception ex)
-        {
-            _error = ex.Message;
-        }
-    }
-
-    private async Task DeleteInlineVariantAsync(ProductVariantDto variant)
-    {
-        _error = null;
-        _success = null;
-        try
-        {
-            await Gateway.DeleteVariantAsync(variant.Id);
-            if (_inlineEditingVariantId == variant.Id)
-            {
-                CancelInlineVariantEdit();
-            }
-            await RefreshEditingProductDetailAsync();
-            _success = $"Variante {variant.Color} / {variant.Size} removida.";
-        }
-        catch (Exception ex)
-        {
-            _error = ex.Message;
-        }
-    }
-
-    private async Task SaveQuickEditProductAsync()
-    {
-        if (!_editingProductId.HasValue)
-            return;
-
-        _error = null;
-        _success = null;
-        try
-        {
-            if (_editProductCategorySelection == "__NEW__" || _categories.Count == 0)
-            {
-                _editProductForm.CategoryId = Guid.Empty;
-                if (string.IsNullOrWhiteSpace(_editProductForm.CategoryName))
-                {
-                    _error = "Digite o nome da nova categoria ou selecione uma categoria existente.";
-                    return;
-                }
-            }
-            else if (Guid.TryParse(_editProductCategorySelection, out var selectedCatId))
-            {
-                _editProductForm.CategoryId = selectedCatId;
-                _editProductForm.CategoryName = null;
-            }
-
-            var updated = await Gateway.UpdateProductAsync(_editingProductId.Value, _editProductForm);
-            _editingProductDetail = updated;
-            await LoadCategoriesAndProductsAsync();
-            _success = $"✓ Dados de '{updated.Name}' atualizados com sucesso!";
-        }
-        catch (Exception ex)
-        {
-            _error = ex.Message;
-        }
-    }
-
-    private async Task QuickMoveSingleVariantAsync(ProductDetailDto prod, ProductVariantDto variant, string movementType, int quantity)
-    {
-        _error = null;
-        _success = null;
-        try
-        {
-            var mov = await Gateway.RegisterStockMovementAsync(new CreateStockMovementRequest
-            {
-                ProductVariantId = variant.Id,
-                MovementType = movementType,
-                Quantity = quantity,
-                Reason = movementType == "OUT" ? "Saída rápida na lista" : "Entrada rápida na lista"
-            });
-            await LoadProductsAsync();
-            _success = $"✓ Estoque de '{prod.Name}' ({variant.Color}/{variant.Size}) atualizado: {mov.PreviousQuantity} → {mov.NewQuantity} un.";
-        }
-        catch (Exception ex)
-        {
-            _error = ex.Message;
-        }
-    }
-
     private async Task ToggleVisibilityAsync(ProductDetailDto prod)
     {
         _error = null;
@@ -1290,10 +937,6 @@
         try
         {
             await Gateway.DeleteOrArchiveProductAsync(prod.Id);
-            if (_editingProductId == prod.Id)
-            {
-                _editingProductId = null;
-            }
             await LoadCategoriesAndProductsAsync();
             _success = $"Produto '{prod.Name}' arquivado/removido com sucesso.";
         }
