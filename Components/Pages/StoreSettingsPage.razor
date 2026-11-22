@@ -1138,8 +1138,61 @@ else
         CloudSync.OnSyncStatusChanged += StateHasChanged;
         Gateway.PlanEntitlementActivated += OnPlanEntitlementActivated;
         Gateway.AuthStateChanged += OnGatewayAuthStateChanged;
-        await Gateway.TrySyncCentralCatalogUrlFromAdminAsync();
-        await LoadSettingsAsync();
+
+        if (Gateway.CachedAdminSettings is not null)
+        {
+            ApplyLoadedSettings(Gateway.CachedAdminSettings);
+        }
+
+        await LoadSettingsCoreAsync(refreshCloud: false);
+        _ = RefreshSettingsCloudInBackgroundAsync();
+    }
+
+    private async Task RefreshSettingsCloudInBackgroundAsync()
+    {
+        try
+        {
+            await Gateway.TrySyncCentralCatalogUrlFromAdminAsync();
+            await Gateway.RefreshPlanFromCentralCloudBestEffortAsync(forceRefresh: false);
+            await InvokeAsync(async () =>
+            {
+                await LoadSettingsCoreAsync(refreshCloud: false);
+                StateHasChanged();
+            });
+        }
+        catch
+        {
+        }
+    }
+
+    private void ApplyLoadedSettings(AdminStoreSettingsDto current)
+    {
+        _form = new UpdateStoreSettingsRequest
+        {
+            StoreName = current.StoreName,
+            StoreSlug = current.StoreSlug,
+            WhatsappNumber = current.WhatsappNumber,
+            StoreDescription = current.StoreDescription,
+            LogoPublicUrl = current.LogoPublicUrl,
+            DefaultLowStockThreshold = current.DefaultLowStockThreshold,
+            OnlineBaseUrl = string.IsNullOrWhiteSpace(current.OnlineBaseUrl)
+                ? Gateway.GetPublicPortalBaseUrl()
+                : current.OnlineBaseUrl,
+            AutoSyncOnlineOnSave = current.AutoSyncOnlineOnSave,
+            LastOnlineSyncAt = current.LastOnlineSyncAt,
+            IsSiteActive = current.IsSiteActive,
+            DeactivationReason = current.DeactivationReason,
+            LastActivityAt = current.LastActivityAt,
+            PublishedStoreName = current.PublishedStoreName,
+            PlanTier = current.PlanTier,
+            ManualSalesEnabled = current.ManualSalesEnabled
+        };
+        _basicPlanPrice = current.BasicPlanMonthlyPrice;
+        _intermediaryPlanPrice = current.IntermediaryPlanMonthlyPrice;
+        _premiumPlanPrice = current.PremiumPlanMonthlyPrice;
+        ApplyPlanStateFromSettings(current);
+        ApplyHostingAndGoogleFields(current);
+        LoadVerifiedWhatsappState();
     }
 
     private void OnGatewayAuthStateChanged()
@@ -1177,32 +1230,8 @@ else
             }
 
             var current = await Gateway.GetStoreSettingsAsync();
-            _form = new UpdateStoreSettingsRequest
-            {
-                StoreName = current.StoreName,
-                StoreSlug = current.StoreSlug,
-                WhatsappNumber = current.WhatsappNumber,
-                StoreDescription = current.StoreDescription,
-                LogoPublicUrl = current.LogoPublicUrl,
-                DefaultLowStockThreshold = current.DefaultLowStockThreshold,
-                OnlineBaseUrl = string.IsNullOrWhiteSpace(current.OnlineBaseUrl)
-                    ? Gateway.GetPublicPortalBaseUrl()
-                    : current.OnlineBaseUrl,
-                AutoSyncOnlineOnSave = current.AutoSyncOnlineOnSave,
-                LastOnlineSyncAt = current.LastOnlineSyncAt,
-                IsSiteActive = current.IsSiteActive,
-                DeactivationReason = current.DeactivationReason,
-                LastActivityAt = current.LastActivityAt,
-                PublishedStoreName = current.PublishedStoreName,
-                PlanTier = current.PlanTier,
-                ManualSalesEnabled = current.ManualSalesEnabled
-            };
-            _basicPlanPrice = current.BasicPlanMonthlyPrice;
-            _intermediaryPlanPrice = current.IntermediaryPlanMonthlyPrice;
-            _premiumPlanPrice = current.PremiumPlanMonthlyPrice;
-            ApplyPlanStateFromSettings(current);
-            ApplyHostingAndGoogleFields(current);
-            LoadVerifiedWhatsappState();
+            Gateway.UpdateAdminSettingsCache(current);
+            ApplyLoadedSettings(current);
         }
         catch (Exception ex)
         {

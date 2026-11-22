@@ -1,6 +1,7 @@
 @page "/produtos"
 @inject MauiAdminGateway Gateway
 @inject NavigationManager Navigation
+@implements IDisposable
 
 @if (!_showNewProductModal)
 {
@@ -476,7 +477,7 @@
             </div>
         }
 
-        @if (_products.Count == 0)
+        @if (_products.Count == 0 && !_isInitialLoading)
         {
             <div class="adm-card" style="text-align: center; padding: 2rem 1.25rem; display: flex; flex-direction: column; align-items: center; gap: 0.75rem;">
                 <div style="font-size: 0.96rem; color: var(--adm-muted);">
@@ -490,7 +491,7 @@
                 }
             </div>
         }
-        else
+        else if (_products.Count > 0)
         {
             <div class="yl-product-list-grid">
                 @foreach (var prod in _products)
@@ -574,6 +575,7 @@
 
     private bool _showNewCategoryModal;
     private bool _showNewProductModal;
+    private bool _isInitialLoading = true;
     private bool _isSavingProduct;
     private bool _isPickingNewPhoto;
     private readonly List<PendingProductPhoto> _newProductPendingPhotos = [];
@@ -609,7 +611,15 @@
 
     protected override async Task OnInitializedAsync()
     {
-        await LoadCategoriesAndProductsAsync();
+        Gateway.StoreDataChanged += OnStoreDataChanged;
+
+        if (Gateway.CachedCategories is not null)
+            _categories = Gateway.CachedCategories;
+        if (Gateway.CachedProducts is not null)
+        {
+            _products = Gateway.CachedProducts;
+            _isInitialLoading = false;
+        }
 
         var uri = Navigation.ToAbsoluteUri(Navigation.Uri);
         if (Gateway.CanManageProducts &&
@@ -618,6 +628,26 @@
         {
             OpenNewProductModal();
         }
+
+        await LoadCategoriesAndProductsAsync();
+        _ = Gateway.PullStoreInBackgroundThrottledAsync();
+    }
+
+    private void OnStoreDataChanged()
+    {
+        if (_isSavingProduct)
+            return;
+
+        _ = InvokeAsync(async () =>
+        {
+            await LoadCategoriesAndProductsAsync();
+            StateHasChanged();
+        });
+    }
+
+    public void Dispose()
+    {
+        Gateway.StoreDataChanged -= OnStoreDataChanged;
     }
 
     private void AdjustNewVariantStock(NewVariantDraft row, int delta)
@@ -854,6 +884,10 @@
         {
             _error = ex.Message;
         }
+        finally
+        {
+            _isInitialLoading = false;
+        }
     }
 
     private async Task LoadProductsAsync()
@@ -862,10 +896,18 @@
         {
             Guid? catGuid = Guid.TryParse(_selectedCategoryId, out var parsed) ? parsed : null;
             _products = await Gateway.GetProductsAsync(_search, catGuid);
+            if (string.IsNullOrWhiteSpace(_search) && !catGuid.HasValue)
+            {
+                Gateway.UpdateCatalogCache(_categories, _products);
+            }
         }
         catch (Exception ex)
         {
             _error = ex.Message;
+        }
+        finally
+        {
+            _isInitialLoading = false;
         }
     }
 
@@ -981,6 +1023,8 @@
 
             _newProductPendingPhotos.Clear();
             _showNewProductModal = false;
+            _search = null;
+            _selectedCategoryId = string.Empty;
             _newProductPriceText = string.Empty;
             _newProduct = new SaveProductRequest
             {
@@ -998,11 +1042,17 @@
                 return;
             }
 
+            if (Navigation.Uri.Contains("novo=1", StringComparison.OrdinalIgnoreCase))
+            {
+                Navigation.NavigateTo("/produtos", replace: true);
+            }
+
             await LoadCategoriesAndProductsAsync();
             var photoSuffix = uploadedPhotosCount > 0 ? $" e {uploadedPhotosCount} foto(s)" : string.Empty;
             _success = existedBefore
                 ? $"✓ Novas variantes{photoSuffix} adicionadas dentro de '{created.Name}'!"
                 : $"✓ Produto '{created.Name}' salvo com {created.Variants.Count} variante(s){photoSuffix}!";
+            StateHasChanged();
         }
         catch (Exception ex)
         {

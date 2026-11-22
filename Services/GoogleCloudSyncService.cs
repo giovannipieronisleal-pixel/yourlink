@@ -1566,10 +1566,26 @@ public sealed class GoogleCloudSyncService
 
             var endpoint = $"{targetBase.TrimEnd('/')}/api/cloud/pull-store";
             using var resp = await _externalHttpClient.PostAsJsonAsync(endpoint, req, SyncPayloadJsonOptions, cts.Token);
-            if (!resp.IsSuccessStatusCode)
-                return (false, $"Servidor respondeu HTTP {(int)resp.StatusCode} ao buscar loja na nuvem.");
+            CloudPullStoreResponse? pulled = null;
 
-            var pulled = await resp.Content.ReadFromJsonAsync<CloudPullStoreResponse>(SyncPayloadJsonOptions, cts.Token);
+            if (resp.StatusCode is System.Net.HttpStatusCode.NotFound or System.Net.HttpStatusCode.MethodNotAllowed)
+            {
+                pulled = await TryPullStoreViaPublicFallbackAsync(
+                    targetBase,
+                    email,
+                    slugToQuery,
+                    localSettings,
+                    cts.Token);
+            }
+            else if (!resp.IsSuccessStatusCode)
+            {
+                return (false, $"Servidor respondeu HTTP {(int)resp.StatusCode} ao buscar loja na nuvem.");
+            }
+            else
+            {
+                pulled = await resp.Content.ReadFromJsonAsync<CloudPullStoreResponse>(SyncPayloadJsonOptions, cts.Token);
+            }
+
             if (pulled is null || !pulled.Found || pulled.Payload is null)
                 return (false, pulled?.Message ?? "Nenhuma loja publicada na nuvem encontrada para esta conta.");
 
@@ -1582,7 +1598,9 @@ public sealed class GoogleCloudSyncService
                 pulled.SyncedAt.HasValue &&
                 (!localSettings.LastOnlineSyncAt.HasValue || pulled.SyncedAt.Value > localSettings.LastOnlineSyncAt.Value.AddSeconds(2));
 
-            if (!forceOverwriteLocal && !isLocalDefaultOrEmpty && !remoteIsNewer)
+            var productCountDiffers = remoteProductsCount != localProducts.Count && (remoteProductsCount > 0 || remoteIsNewer);
+
+            if (!forceOverwriteLocal && !isLocalDefaultOrEmpty && !remoteIsNewer && !productCountDiffers)
             {
                 return (false, "Os dados locais já estão atualizados em relação à nuvem.");
             }
@@ -1625,6 +1643,160 @@ public sealed class GoogleCloudSyncService
         finally
         {
             _syncLock.Release();
+        }
+    }
+
+    private async Task<CloudPullStoreResponse?> TryPullStoreViaPublicFallbackAsync(
+        string targetBase,
+        string? email,
+        string? slugHint,
+        StoreSettings localSettings,
+        CancellationToken ct)
+    {
+        try
+        {
+            var baseClean = targetBase.TrimEnd('/');
+            var resolvedSlug = slugHint;
+
+            if (!string.IsNullOrWhiteSpace(email))
+            {
+                try
+                {
+                    var planUrl = $"{baseClean}/api/cloud/plan-status?email={Uri.EscapeDataString(email.Trim())}";
+                    using var planResp = await _externalHttpClient.GetAsync(planUrl, ct);
+                    if (planResp.IsSuccessStatusCode)
+                    {
+                        var planJson = await planResp.Content.ReadAsStringAsync(ct);
+                        using var doc = JsonDocument.Parse(planJson);
+                        if (doc.RootElement.TryGetProperty("storeSlug", out var slugEl) &&
+                            slugEl.ValueKind == JsonValueKind.String &&
+                            !string.IsNullOrWhiteSpace(slugEl.GetString()))
+                        {
+                            resolvedSlug = slugEl.GetString()!.Trim();
+                        }
+                    }
+                }
+                catch
+                {
+                }
+            }
+
+            if (string.IsNullOrWhiteSpace(resolvedSlug) ||
+                string.Equals(resolvedSlug, "minha-loja", StringComparison.OrdinalIgnoreCase))
+            {
+                return null;
+            }
+
+            var encSlug = Uri.EscapeDataString(resolvedSlug);
+            PublicStoreSettingsDto? storeInfo = null;
+            try
+            {
+                storeInfo = await _externalHttpClient.GetFromJsonAsync<PublicStoreSettingsDto>(
+                    $"{baseClean}/api/public/stores/{encSlug}/store-info",
+                    SyncPayloadJsonOptions,
+                    ct);
+            }
+            catch
+            {
+                return null;
+            }
+
+            if (storeInfo is null)
+                return null;
+
+            List<CategoryDto> categories = [];
+            try
+            {
+                categories = await _externalHttpClient.GetFromJsonAsync<List<CategoryDto>>(
+                    $"{baseClean}/api/public/stores/{encSlug}/categories",
+                    SyncPayloadJsonOptions,
+                    ct) ?? [];
+            }
+            catch
+            {
+            }
+
+            List<ProductDetailDto> products = [];
+            try
+            {
+                products = await _externalHttpClient.GetFromJsonAsync<List<ProductDetailDto>>(
+                    $"{baseClean}/api/public/stores/{encSlug}/products",
+                    SyncPayloadJsonOptions,
+                    ct) ?? [];
+            }
+            catch
+            {
+            }
+
+            var settingsReq = new UpdateStoreSettingsRequest
+            {
+                StoreName = !string.IsNullOrWhiteSpace(storeInfo.StoreName) ? storeInfo.StoreName : localSettings.StoreName,
+                StoreSlug = !string.IsNullOrWhiteSpace(storeInfo.StoreSlug) ? storeInfo.StoreSlug : resolvedSlug,
+                WhatsappNumber = !string.IsNullOrWhiteSpace(storeInfo.WhatsappNumber) ? storeInfo.WhatsappNumber : localSettings.WhatsappNumber,
+                StoreDescription = storeInfo.StoreDescription ?? localSettings.StoreDescription,
+                LogoPublicUrl = storeInfo.LogoPublicUrl ?? localSettings.LogoPublicUrl,
+                DefaultLowStockThreshold = localSettings.DefaultLowStockThreshold > 0 ? localSettings.DefaultLowStockThreshold : 3,
+                OnlineBaseUrl = baseClean,
+                AutoSyncOnlineOnSave = true,
+                IsSiteActive = storeInfo.IsSiteActive,
+                Design = storeInfo.Design
+            };
+
+            var catReqs = categories.Select(c => new SaveCategoryRequest
+            {
+                Name = c.Name,
+                Description = c.Description,
+                DisplayOrder = c.DisplayOrder,
+                IsActive = c.IsActive
+            }).ToList();
+
+            var snapshot = products.Select(p => new CloudProductSyncDto
+            {
+                SourceId = p.Id,
+                CategoryName = p.CategoryName,
+                CategorySlug = p.CategorySlug,
+                Name = p.Name,
+                Slug = p.Slug,
+                Description = p.Description,
+                BasePrice = p.BasePrice,
+                IsVisibleOnSite = p.IsVisibleOnSite,
+                Variants = p.Variants.Select(v => new CloudProductVariantSyncDto
+                {
+                    Color = v.Color,
+                    ColorHex = v.ColorHex,
+                    Size = v.Size,
+                    Sku = v.Sku,
+                    StockQuantity = v.StockQuantity,
+                    LowStockThreshold = v.LowStockThreshold,
+                    IsActive = v.IsActive
+                }).ToList(),
+                Images = p.Images.Select(img => new CloudProductImageSyncDto
+                {
+                    PublicUrl = img.PublicUrl,
+                    AltText = img.AltText,
+                    DisplayOrder = img.DisplayOrder,
+                    IsPrimary = img.IsPrimary
+                }).ToList()
+            }).ToList();
+
+            var payload = new CloudCatalogSyncPayload
+            {
+                Settings = settingsReq,
+                Categories = catReqs,
+                CatalogSnapshot = snapshot
+            };
+
+            return new CloudPullStoreResponse(
+                Found: true,
+                StoreSlug: resolvedSlug,
+                PublishToken: null,
+                SyncedAt: DateTimeOffset.UtcNow,
+                Payload: payload,
+                Message: "Loja sincronizada via catálogo online da nuvem.");
+        }
+        catch
+        {
+            return null;
         }
     }
 

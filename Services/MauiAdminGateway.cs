@@ -55,10 +55,68 @@ public sealed class MauiAdminGateway
     private readonly SwitchableClothingStoreRepository? _workspaceRepository;
 
     private DateTimeOffset _skipRemoteApiUntil = DateTimeOffset.MinValue;
+    private DateTimeOffset _hubOnlySkipRemoteUntil = DateTimeOffset.MinValue;
     private DateTimeOffset _lastCentralCatalogCheckAt = DateTimeOffset.MinValue;
     private DateTimeOffset _lastOrdersCloudPullAt = DateTimeOffset.MinValue;
     private DateTimeOffset _lastCloudPlanSyncAt = DateTimeOffset.MinValue;
+    private DateTimeOffset _lastBackgroundStorePullAt = DateTimeOffset.MinValue;
     private readonly SemaphoreSlim _cloudPlanSyncLock = new(1, 1);
+
+    // Cache leve em memória para trocar de aba sem sumir/piscar dados na tela
+    public DashboardSummaryDto? CachedDashboardSummary { get; private set; }
+    public PublicStoreSettingsDto? CachedPublicStore { get; private set; }
+    public SalesReportDto? CachedSalesReport { get; private set; }
+    public IReadOnlyList<CategoryDto>? CachedCategories { get; private set; }
+    public IReadOnlyList<ProductDetailDto>? CachedProducts { get; private set; }
+    public IReadOnlyList<StoreOrderDto>? CachedOrders { get; private set; }
+    public AdminStoreSettingsDto? CachedAdminSettings { get; private set; }
+
+    public void UpdateDashboardCache(
+        DashboardSummaryDto? summary,
+        PublicStoreSettingsDto? publicStore,
+        SalesReportDto? salesReport)
+    {
+        if (summary is not null) CachedDashboardSummary = summary;
+        if (publicStore is not null) CachedPublicStore = publicStore;
+        if (salesReport is not null) CachedSalesReport = salesReport;
+    }
+
+    public void UpdateCatalogCache(
+        IReadOnlyList<CategoryDto>? categories,
+        IReadOnlyList<ProductDetailDto>? products)
+    {
+        if (categories is not null) CachedCategories = categories;
+        if (products is not null) CachedProducts = products;
+    }
+
+    public void UpdateOrdersCache(IReadOnlyList<StoreOrderDto>? orders)
+    {
+        if (orders is not null) CachedOrders = orders;
+    }
+
+    public void UpdateAdminSettingsCache(AdminStoreSettingsDto? settings)
+    {
+        if (settings is not null) CachedAdminSettings = settings;
+    }
+
+    public void InvalidateUiCache()
+    {
+        CachedDashboardSummary = null;
+        CachedPublicStore = null;
+        CachedSalesReport = null;
+        CachedCategories = null;
+        CachedProducts = null;
+        CachedOrders = null;
+        CachedAdminSettings = null;
+    }
+
+    private void NotifyStoreDataMutated()
+    {
+        CachedDashboardSummary = null;
+        CachedProducts = null;
+        CachedCategories = null;
+        StoreDataChanged?.Invoke();
+    }
 
     public EmployeeProfileDto? CurrentEmployee { get; private set; }
     public string? AccessToken { get; private set; }
@@ -84,6 +142,7 @@ public sealed class MauiAdminGateway
     public event Action<AdminStoreSettingsDto>? PlanEntitlementActivated;
     public event Action? PlanPopupNoticeChanged;
     public event Action? RemoteConfigChanged;
+    public event Action? StoreDataChanged;
 
     public RemoteFeatureConfigDto? LatestRemoteConfig { get; private set; }
     private readonly GeminiProductAssistantService _aiAssistant;
@@ -131,9 +190,13 @@ public sealed class MauiAdminGateway
     private void RefreshActiveWorkspaceState(bool resetCloudStatus = true)
     {
         _skipRemoteApiUntil = DateTimeOffset.MinValue;
+        _hubOnlySkipRemoteUntil = DateTimeOffset.MinValue;
+        _hubOnlySkipRemoteUntil = DateTimeOffset.MinValue;
         _lastCentralCatalogCheckAt = DateTimeOffset.MinValue;
         _lastOrdersCloudPullAt = DateTimeOffset.MinValue;
         _lastCloudPlanSyncAt = DateTimeOffset.MinValue;
+        _lastBackgroundStorePullAt = DateTimeOffset.MinValue;
+        InvalidateUiCache();
         LatestAdminCentralServerUrl = null;
         LatestPlatformCatalog = null;
         LatestCompatibilityStatus = null;
@@ -170,6 +233,7 @@ public sealed class MauiAdminGateway
         CancellationToken ct = default)
     {
         _skipRemoteApiUntil = DateTimeOffset.MinValue;
+        _hubOnlySkipRemoteUntil = DateTimeOffset.MinValue;
 
         if (string.IsNullOrWhiteSpace(rawUrl))
         {
@@ -345,7 +409,7 @@ public sealed class MauiAdminGateway
         Func<Task<T>> remoteCall,
         Func<Task<T>> localFallback)
     {
-        if (ShouldTryRemoteApi)
+        if (ShouldTryRemoteApi && DateTimeOffset.UtcNow >= _hubOnlySkipRemoteUntil)
         {
             try
             {
@@ -358,7 +422,9 @@ public sealed class MauiAdminGateway
             }
             catch (Exception ex) when (IsEndpointUnavailableOnHubError(ex))
             {
-                // O servidor conectado atua como hub central e não expõe endpoints de loja única -> usa fallback local sem marcar offline.
+                // O servidor conectado atua como hub central e não expõe endpoints de loja única ->
+                // lembra por 10 minutos para evitar 404 lento a cada troca de aba ou salvamento.
+                _hubOnlySkipRemoteUntil = DateTimeOffset.UtcNow.AddMinutes(10);
             }
         }
 
@@ -1032,6 +1098,7 @@ public sealed class MauiAdminGateway
         var result = await ExecuteWithFallbackAsync(
             () => _apiClient.CreateProductAsync(request),
             () => _productService.CreateProductAsync(request, CurrentEmployee?.EmployeeId));
+        NotifyStoreDataMutated();
         _cloudSyncService?.TriggerAutoSyncIfEnabled();
         return result;
     }
@@ -1042,6 +1109,7 @@ public sealed class MauiAdminGateway
         var result = await ExecuteWithFallbackAsync(
             () => _apiClient.UpdateProductAsync(productId, request),
             () => _productService.UpdateProductAsync(productId, request));
+        NotifyStoreDataMutated();
         _cloudSyncService?.TriggerAutoSyncIfEnabled();
         return result;
     }
@@ -1052,6 +1120,7 @@ public sealed class MauiAdminGateway
         var result = await ExecuteWithFallbackAsync(
             () => _apiClient.ToggleProductVisibilityAsync(productId, isVisibleOnSite),
             () => _productService.ToggleVisibilityAsync(productId, isVisibleOnSite));
+        NotifyStoreDataMutated();
         _cloudSyncService?.TriggerAutoSyncIfEnabled();
         return result;
     }
@@ -1062,6 +1131,7 @@ public sealed class MauiAdminGateway
         await ExecuteWithFallbackAsync(
             () => _apiClient.DeleteOrArchiveProductAsync(productId),
             () => _productService.DeleteOrArchiveProductAsync(productId));
+        NotifyStoreDataMutated();
         _cloudSyncService?.TriggerAutoSyncIfEnabled();
     }
 
@@ -1092,6 +1162,7 @@ public sealed class MauiAdminGateway
                 () => _productService.AddProductImageByUrlAsync(productId, request));
         }
 
+        NotifyStoreDataMutated();
         _cloudSyncService?.TriggerAutoSyncIfEnabled();
         return result;
     }
@@ -1124,6 +1195,7 @@ public sealed class MauiAdminGateway
                 });
         }
 
+        NotifyStoreDataMutated();
         _cloudSyncService?.TriggerAutoSyncIfEnabled();
         return result;
     }
@@ -1142,6 +1214,7 @@ public sealed class MauiAdminGateway
                 () => _productService.SetPrimaryProductImageAsync(productId, imageId));
         }
 
+        NotifyStoreDataMutated();
         _cloudSyncService?.TriggerAutoSyncIfEnabled();
     }
 
@@ -1159,6 +1232,7 @@ public sealed class MauiAdminGateway
                 () => _productService.DeleteProductImageAsync(productId, imageId));
         }
 
+        NotifyStoreDataMutated();
         _cloudSyncService?.TriggerAutoSyncIfEnabled();
     }
 
@@ -1371,9 +1445,33 @@ public sealed class MauiAdminGateway
                 $"{centralUrl.TrimEnd('/')}/api/cloud/email-otp/send",
                 new SendEmailOtpRequest(email, purpose, contextLabel),
                 ct);
-            var body = await resp.Content.ReadFromJsonAsync<SendEmailOtpResponse>(cancellationToken: ct);
-            if (body is not null)
-                return body;
+
+            var rawText = await resp.Content.ReadAsStringAsync(ct);
+            if (!string.IsNullOrWhiteSpace(rawText) && rawText.TrimStart().StartsWith('{'))
+            {
+                try
+                {
+                    var body = System.Text.Json.JsonSerializer.Deserialize<SendEmailOtpResponse>(
+                        rawText,
+                        new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                    if (body is not null)
+                        return body;
+                }
+                catch
+                {
+                }
+            }
+
+            if (resp.StatusCode == System.Net.HttpStatusCode.NotFound)
+            {
+                return new SendEmailOtpResponse(
+                    Sent: false,
+                    ProviderConfigured: false,
+                    MaskedEmail: string.Empty,
+                    ExpiresInSeconds: 0,
+                    ResendAfterSeconds: 0,
+                    Message: "O servidor na nuvem (Render) ainda está na versão anterior e precisa ser reimplantado (Manual Deploy) com um provedor de e-mail (Resend, Brevo ou SMTP) para enviar o código.");
+            }
 
             return new SendEmailOtpResponse(
                 Sent: false,
@@ -1412,9 +1510,30 @@ public sealed class MauiAdminGateway
                 $"{centralUrl.TrimEnd('/')}/api/cloud/email-otp/verify",
                 new VerifyEmailOtpRequest(email, code, purpose),
                 ct);
-            var body = await resp.Content.ReadFromJsonAsync<VerifyEmailOtpResponse>(cancellationToken: ct);
-            if (body is not null)
-                return body;
+
+            var rawText = await resp.Content.ReadAsStringAsync(ct);
+            if (!string.IsNullOrWhiteSpace(rawText) && rawText.TrimStart().StartsWith('{'))
+            {
+                try
+                {
+                    var body = System.Text.Json.JsonSerializer.Deserialize<VerifyEmailOtpResponse>(
+                        rawText,
+                        new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                    if (body is not null)
+                        return body;
+                }
+                catch
+                {
+                }
+            }
+
+            if (resp.StatusCode == System.Net.HttpStatusCode.NotFound)
+            {
+                return new VerifyEmailOtpResponse(
+                    Verified: false,
+                    NormalizedEmail: string.Empty,
+                    Message: "O servidor na nuvem (Render) ainda precisa ser reimplantado para validar códigos por e-mail.");
+            }
 
             return new VerifyEmailOtpResponse(
                 Verified: false,
@@ -2682,8 +2801,11 @@ public sealed class MauiAdminGateway
 
             if (pulled)
             {
+                InvalidateUiCache();
                 var refreshed = await _employeeAndSettingsService.GetAdminStoreSettingsAsync(ct);
+                CachedAdminSettings = refreshed;
                 PlanEntitlementActivated?.Invoke(refreshed);
+                StoreDataChanged?.Invoke();
                 AuthStateChanged?.Invoke();
             }
 
@@ -2692,6 +2814,25 @@ public sealed class MauiAdminGateway
         catch (Exception ex)
         {
             return (false, ex.Message);
+        }
+    }
+
+    public async Task PullStoreInBackgroundThrottledAsync(CancellationToken ct = default)
+    {
+        if (!IsAuthenticated || _cloudSyncService is null)
+            return;
+
+        var now = DateTimeOffset.UtcNow;
+        if (now - _lastBackgroundStorePullAt < TimeSpan.FromSeconds(25))
+            return;
+
+        _lastBackgroundStorePullAt = now;
+        try
+        {
+            await PullStoreSnapshotFromCentralCloudBestEffortAsync(forceOverwriteLocal: false, ct);
+        }
+        catch
+        {
         }
     }
 

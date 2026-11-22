@@ -434,13 +434,44 @@ else
     {
         if (Gateway.IsAuthenticated)
         {
-            await LoadOrdersAsync(forceCloudSync: true);
+            if (Gateway.CachedOrders is not null)
+            {
+                _orders = Gateway.CachedOrders;
+                _loading = false;
+            }
+            if (Gateway.CachedAdminSettings is not null)
+            {
+                _settings = Gateway.CachedAdminSettings;
+            }
+            if (Gateway.CachedSalesReport is not null)
+            {
+                _salesReport = Gateway.CachedSalesReport;
+            }
+
+            await LoadOrdersAsync(forceCloudSync: false);
+            _ = RefreshOrdersFromCloudInBackgroundAsync();
             _autoRefreshCts = new CancellationTokenSource();
             _ = AutoRefreshOrdersLoopAsync(_autoRefreshCts.Token);
         }
         else
         {
             _loading = false;
+        }
+    }
+
+    private async Task RefreshOrdersFromCloudInBackgroundAsync()
+    {
+        try
+        {
+            await Gateway.SyncOrdersFromCloudAsync();
+            await InvokeAsync(async () =>
+            {
+                await LoadOrdersAsync(forceCloudSync: false);
+                StateHasChanged();
+            });
+        }
+        catch
+        {
         }
     }
 
@@ -481,7 +512,8 @@ else
 
     private async Task LoadOrdersAsync(bool forceCloudSync = false)
     {
-        _loading = true;
+        if (_orders.Count == 0)
+            _loading = true;
         _error = null;
         try
         {
@@ -499,6 +531,7 @@ else
             if (Gateway.IsAdmin)
             {
                 _settings = await Gateway.GetStoreSettingsAsync();
+                Gateway.UpdateAdminSettingsCache(_settings);
                 if (string.IsNullOrWhiteSpace(_simOriginCep) && !string.IsNullOrWhiteSpace(_settings.OriginCep))
                     _simOriginCep = _settings.OriginCep;
                 if (_settings.DefaultPackageWeightGrams >= 100)
@@ -506,6 +539,7 @@ else
             }
 
             _orders = await Gateway.GetOrdersAsync();
+            Gateway.UpdateOrdersCache(_orders);
             _salesReport = await Gateway.GetSalesReportAsync("all");
             _drafts.Clear();
         }

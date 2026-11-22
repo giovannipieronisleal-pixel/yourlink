@@ -248,9 +248,58 @@
     {
         Gateway.AuthStateChanged += OnAuthStateChanged;
         Gateway.PlanEntitlementActivated += OnPlanEntitlementActivated;
+        Gateway.StoreDataChanged += OnStoreDataChanged;
         if (Gateway.IsAuthenticated)
         {
-            await LoadDashboardAsync();
+            HydrateFromCache();
+            await LoadDashboardCoreAsync(refreshCloud: false);
+            _ = RefreshCloudInBackgroundAsync();
+        }
+    }
+
+    private void HydrateFromCache()
+    {
+        if (Gateway.CachedDashboardSummary is not null)
+            _summary = Gateway.CachedDashboardSummary;
+        if (Gateway.CachedPublicStore is not null)
+            _publicStore = Gateway.CachedPublicStore;
+        if (Gateway.CachedSalesReport is not null)
+            _salesReport = Gateway.CachedSalesReport;
+        if (_summary is not null)
+            _recentSalesFeed = DashboardRecentSalesHelper.BuildCompactSalesFeed(_summary, _salesReport, maxItems: 3);
+        if (Gateway.CachedOrders is not null && Gateway.IsAdmin)
+        {
+            _pendingOrdersCount = Gateway.CachedOrders.Count(o =>
+                string.Equals(o.Status, BrazilShippingCalculator.OrderStatuses.AwaitingPix, StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(o.Status, BrazilShippingCalculator.OrderStatuses.PaidPreparing, StringComparison.OrdinalIgnoreCase));
+        }
+    }
+
+    private void OnStoreDataChanged()
+    {
+        if (!Gateway.IsAuthenticated)
+            return;
+        _ = InvokeAsync(async () =>
+        {
+            await LoadDashboardCoreAsync(refreshCloud: false);
+            StateHasChanged();
+        });
+    }
+
+    private async Task RefreshCloudInBackgroundAsync()
+    {
+        try
+        {
+            await Gateway.RefreshPlanFromCentralCloudBestEffortAsync(forceRefresh: false);
+            await Gateway.PullStoreInBackgroundThrottledAsync();
+            await InvokeAsync(async () =>
+            {
+                await LoadDashboardCoreAsync(refreshCloud: false);
+                StateHasChanged();
+            });
+        }
+        catch
+        {
         }
     }
 
@@ -258,7 +307,7 @@
     {
         if (Gateway.IsAuthenticated)
         {
-            await LoadDashboardAsync();
+            await LoadDashboardCoreAsync(refreshCloud: false);
         }
         else
         {
@@ -283,8 +332,6 @@
         });
     }
 
-    private Task LoadDashboardAsync() => LoadDashboardCoreAsync(refreshCloud: true);
-
     private async Task LoadDashboardCoreAsync(bool refreshCloud)
     {
         _error = null;
@@ -304,12 +351,14 @@
 
             _salesReport = await Gateway.GetSalesReportAsync("30d");
             _recentSalesFeed = DashboardRecentSalesHelper.BuildCompactSalesFeed(_summary, _salesReport, maxItems: 3);
+            Gateway.UpdateDashboardCache(_summary, _publicStore, _salesReport);
 
             if (Gateway.IsAdmin)
             {
                 try
                 {
                     var orders = await Gateway.GetOrdersAsync();
+                    Gateway.UpdateOrdersCache(orders);
                     _pendingOrdersCount = orders.Count(o =>
                         string.Equals(o.Status, BrazilShippingCalculator.OrderStatuses.AwaitingPix, StringComparison.OrdinalIgnoreCase) ||
                         string.Equals(o.Status, BrazilShippingCalculator.OrderStatuses.PaidPreparing, StringComparison.OrdinalIgnoreCase));
@@ -354,5 +403,6 @@
     {
         Gateway.AuthStateChanged -= OnAuthStateChanged;
         Gateway.PlanEntitlementActivated -= OnPlanEntitlementActivated;
+        Gateway.StoreDataChanged -= OnStoreDataChanged;
     }
 }
