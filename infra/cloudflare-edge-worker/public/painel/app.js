@@ -1881,7 +1881,7 @@
     const addVarBtn = document.getElementById("add-variant-btn");
     if (addVarBtn) {
       addVarBtn.onclick = () => {
-        state.productDraft.variants.push({ color: "", colorHex: "#18181b", size: "", stockQuantity: 5, lowStockThreshold: 3, isActive: true });
+        state.productDraft.variants.push({ color: "", colorHex: "#18181b", size: "", stockQuantity: "", lowStockThreshold: 3, isActive: true });
         render();
       };
     }

@@ -613,14 +613,7 @@
 
     private void AddNewProductVariantRow()
     {
-        var last = _newProductVariants.LastOrDefault();
-        _newProductVariants.Add(new NewVariantDraft
-        {
-            Color = last?.Color ?? string.Empty,
-            ColorHex = last?.ColorHex ?? "#18181B",
-            Size = string.Empty,
-            StockQuantity = null
-        });
+        _newProductVariants.Add(new NewVariantDraft());
     }
 
     private void RemoveNewProductVariantRow(int index)
