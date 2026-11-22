@@ -145,13 +145,6 @@ public sealed class AppUpdateService
         CancellationToken ct = default)
     {
         if (!manualTrigger &&
-            OperatingSystem.IsAndroid() &&
-            Preferences.Default.Get(MainPage.AndroidCloudPanelModePrefKey, false))
-        {
-            return null;
-        }
-
-        if (!manualTrigger &&
             !forceBypassCache &&
             DateTimeOffset.UtcNow - _lastAttemptAt < AutoCheckCooldown)
         {
