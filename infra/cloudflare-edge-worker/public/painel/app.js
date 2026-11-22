@@ -17,12 +17,12 @@
   const API_BASE = resolveApiOrigin();
 
   const STORE_THEMES = [
-    { key: "Minimalista", name: "Minimalista Luxo", tier: "Basico", bg: "#FAF8F5", primary: "#18181B", accent: "#B69158", desc: "Limpo, elegante e atemporal" },
-    { key: "UrbanoClean", name: "Urbano Clean", tier: "Intermediario", bg: "#F8FAFC", primary: "#0F172A", accent: "#2563EB", desc: "Moderno com foco em conversão" },
-    { key: "TerracotaSolar", name: "Terracota Solar", tier: "Intermediario", bg: "#FDF8F4", primary: "#7C2D12", accent: "#EA580C", desc: "Quente e acolhedor para moda" },
-    { key: "EsmeraldaImperial", name: "Esmeralda Imperial", tier: "Intermediario", bg: "#F4FBF7", primary: "#064E3B", accent: "#10B981", desc: "Sofisticado com destaque verde" },
-    { key: "GrafiteStudio", name: "Grafite Studio", tier: "Premium", bg: "#111827", primary: "#F8FAFC", accent: "#D4A853", desc: "Vitrine escura de alto impacto" },
-    { key: "BoutiqueRose", name: "Boutique Rosé", tier: "Premium", bg: "#FFF5F7", primary: "#831843", accent: "#EC4899", desc: "Editorial delicado e marcante" }
+    { key: "minimalista-luxo", name: "Minimalista Luxo", tier: "Basico", bg: "#FAF8F5", primary: "#18181B", accent: "#B69158", desc: "Limpo, elegante e atemporal" },
+    { key: "urban-sartorial", name: "Urban Sartorial", tier: "Intermediario", bg: "#F8FAFC", primary: "#0F172A", accent: "#2563EB", desc: "Moderno com foco em conversão" },
+    { key: "terracota-solar", name: "Terracota Solar", tier: "Intermediario", bg: "#FDF8F4", primary: "#7C2D12", accent: "#EA580C", desc: "Quente e acolhedor para moda" },
+    { key: "esmeralda-imperial", name: "Esmeralda Imperial", tier: "Intermediario", bg: "#F4FBF7", primary: "#064E3B", accent: "#10B981", desc: "Sofisticado com destaque verde" },
+    { key: "grafite-studio", name: "Grafite Studio", tier: "Premium", bg: "#111827", primary: "#F8FAFC", accent: "#D4A853", desc: "Vitrine escura de alto impacto" },
+    { key: "boutique-rose", name: "Boutique Rosé", tier: "Premium", bg: "#FFF5F7", primary: "#831843", accent: "#EC4899", desc: "Editorial delicado e marcante" }
   ];
 
   if ("serviceWorker" in navigator) {
@@ -49,6 +49,7 @@
     filterCategory: "",
     editingProductIndex: null,
     showProductForm: false,
+    storeLoaded: false,
     productDraft: null
   };
 
@@ -65,7 +66,7 @@
       isSiteActive: true,
       autoSyncOnlineOnSave: true,
       planTier: "Basico",
-      designPreset: "Minimalista",
+      designPreset: "minimalista-luxo",
       directPixSalesEnabled: false,
       storePixKey: "",
       storePixReceiverName: ""
@@ -199,179 +200,211 @@
 
   async function loadPublicCatalogMeta() {
     try {
-      const data = await apiJson("/api/platform/public-catalog");
-      if (data?.supportWhatsApp) {
-        state.supportWhatsapp = data.supportWhatsApp;
+      const data = await apiJson("/api/platform-sync/plan-catalog");
+      if (data?.supportWhatsappNumber) {
+        state.supportWhatsapp = data.supportWhatsappNumber;
       }
     } catch {}
   }
 
   async function pullStoreFromCloud(showMessage = false) {
-    if (!state.session) return;
+    if (!state.session?.passwordHash) {
+      state.storeLoaded = true;
+      return;
+    }
     state.busy = true;
     render();
     try {
       const res = await apiJson("/api/cloud/pull-store", {
         method: "POST",
         body: JSON.stringify({
-          login: state.session.email || state.session.username,
+          email: state.session.email || null,
+          username: state.session.username || null,
           passwordHash: state.session.passwordHash,
-          storeSlug: state.session.storeSlug || state.store.storeSlug
+          storeSlug: state.session.storeSlug || null
         })
       });
 
-      if (res?.found && res.snapshot) {
-        applySnapshot(res.snapshot);
-        if (showMessage) setStatus("☁️ Loja sincronizada da nuvem com sucesso!", null);
+      if (res?.found && res.payload) {
+        applyPulledPayload(res);
+        if (showMessage) setStatus(`☁️ Loja '${state.store.storeName}' sincronizada (${state.products.length} produtos)!`, null);
       } else if (showMessage) {
-        setStatus("Sua conta está pronta! Cadastre seu primeiro produto abaixo.", null);
+        setStatus("Sua conta está pronta! Cadastre seu primeiro produto.", null);
       }
+      // Só libera salvar depois de saber o que existe na nuvem (evita apagar o catálogo por engano)
+      state.storeLoaded = true;
     } catch (err) {
-      if (showMessage) setStatus(null, err.message);
+      state.storeLoaded = false;
+      setStatus(null, `Não foi possível carregar sua loja da nuvem: ${err.message}. Toque em "🔄 Atualizar da Nuvem" para tentar de novo.`);
     } finally {
       state.busy = false;
       render();
     }
   }
 
-  function applySnapshot(snap) {
-    const s = snap.store || {};
+  function applyPulledPayload(res) {
+    const p = res.payload || {};
+    const s = p.settings || {};
     state.store = {
       ...createDefaultStore(),
-      ...s,
       storeName: s.storeName || state.session?.storeName || "Minha Loja",
-      storeSlug: s.storeSlug || state.session?.storeSlug || slugify(s.storeName),
+      storeSlug: res.storeSlug || s.storeSlug || slugify(s.storeName),
+      whatsappNumber: s.whatsappNumber || "",
+      storeDescription: s.storeDescription || "Catálogo oficial da loja.",
+      logoPublicUrl: s.logoPublicUrl || null,
+      isSiteActive: s.isSiteActive !== false,
+      autoSyncOnlineOnSave: true,
       planTier: s.planTier || state.session?.planTier || "Basico",
-      designPreset: s.designPreset || "Minimalista"
+      designPreset: s.design?.presetKey || "minimalista-luxo",
+      directPixSalesEnabled: !!s.directPixSalesEnabled,
+      storePixKey: s.storePixKey || "",
+      storePixReceiverName: s.storePixReceiverName || ""
     };
-    state.categories = Array.isArray(snap.categories) ? snap.categories : [];
-    state.products = Array.isArray(snap.products) ? snap.products : [];
+    state.categories = (p.categories || []).map((c, idx) => ({
+      name: c.name || "Geral",
+      description: c.description || "",
+      displayOrder: c.displayOrder || idx + 1,
+      isActive: c.isActive !== false
+    }));
+    state.products = (p.catalogSnapshot || []).map((prod) => ({
+      sourceId: prod.sourceId || cryptoRandomUuid(),
+      name: prod.name || "",
+      slug: prod.slug || slugify(prod.name),
+      categoryName: prod.categoryName || "Geral",
+      description: prod.description || "",
+      basePrice: Number(prod.basePrice || 0),
+      isVisibleOnSite: prod.isVisibleOnSite !== false,
+      variants: (prod.variants || []).map((v) => ({
+        color: v.color || "Padrão",
+        colorHex: v.colorHex || "#18181b",
+        size: v.size || "Único",
+        sku: v.sku || null,
+        stockQuantity: Number(v.stockQuantity || 0),
+        lowStockThreshold: Number(v.lowStockThreshold || 3),
+        isActive: v.isActive !== false
+      })),
+      images: (prod.images || []).map((img, i) => ({
+        publicUrl: img.publicUrl,
+        storagePath: img.storagePath || img.publicUrl,
+        altText: img.altText || prod.name,
+        displayOrder: i,
+        isPrimary: i === 0 || !!img.isPrimary
+      }))
+    }));
+    if (res.publishToken) state.publishToken = res.publishToken;
+    saveSession({ ...state.session, storeSlug: state.store.storeSlug, storeName: state.store.storeName, planTier: state.store.planTier });
   }
 
-  function buildPublishPayload() {
-    const slug = slugify(state.store.storeSlug || state.store.storeName);
-    state.store.storeSlug = slug;
-
-    const catMap = new Map();
-    for (const c of state.categories) {
-      if (c?.name) catMap.set(c.name.trim().toLowerCase(), {
-        sourceId: c.sourceId || cryptoRandomUuid(),
-        name: c.name.trim(),
-        slug: slugify(c.name),
-        description: c.description || "",
-        displayOrder: c.displayOrder || 0,
-        isActive: true
-      });
-    }
+  function buildPublishPayload(slug) {
+    const catNames = new Set(state.categories.map((c) => (c.name || "").trim()).filter(Boolean));
     for (const p of state.products) {
-      const cname = (p.categoryName || "Geral").trim();
-      const key = cname.toLowerCase();
-      if (!catMap.has(key)) {
-        catMap.set(key, {
-          sourceId: cryptoRandomUuid(),
-          name: cname,
-          slug: slugify(cname),
-          description: "",
-          displayOrder: catMap.size,
-          isActive: true
-        });
-      }
+      if (p.categoryName && p.categoryName.trim()) catNames.add(p.categoryName.trim());
     }
-    if (catMap.size === 0) {
-      catMap.set("geral", { sourceId: cryptoRandomUuid(), name: "Geral", slug: "geral", description: "", displayOrder: 0, isActive: true });
-    }
-
-    const categories = Array.from(catMap.values());
-    const products = state.products.map((p) => {
-      const cat = catMap.get((p.categoryName || "Geral").trim().toLowerCase()) || categories[0];
-      const variants = (p.variants || [])
-        .filter((v) => (v.color || "").trim() || (v.size || "").trim() || Number(v.stockQuantity) > 0)
-        .map((v) => ({
-          sourceId: v.sourceId || cryptoRandomUuid(),
-          sku: v.sku || `${slugify(p.name).slice(0, 6).toUpperCase()}-${slugify(v.color || "PAD").slice(0, 4).toUpperCase()}-${slugify(v.size || "U").toUpperCase()}`,
-          color: (v.color || "Padrão").trim(),
-          colorHex: v.colorHex || "#18181b",
-          size: (v.size || "Único").trim(),
-          stockQuantity: Math.max(0, parseInt(v.stockQuantity, 10) || 0),
-          lowStockThreshold: Math.max(0, parseInt(v.lowStockThreshold ?? 3, 10) || 3),
-          priceOverride: null,
-          isActive: v.isActive !== false
-        }));
-
-      if (variants.length === 0) {
-        variants.push({
-          sourceId: cryptoRandomUuid(),
-          sku: `${slugify(p.name).slice(0, 6).toUpperCase()}-PAD-U`,
-          color: "Padrão",
-          colorHex: "#18181b",
-          size: "Único",
-          stockQuantity: 1,
-          lowStockThreshold: 3,
-          priceOverride: null,
-          isActive: true
-        });
-      }
-
-      return {
-        sourceId: p.sourceId || cryptoRandomUuid(),
-        categorySourceId: cat.sourceId,
-        categoryName: cat.name,
-        name: (p.name || "Produto").trim(),
-        slug: slugify(p.slug || p.name),
-        description: p.description || "",
-        basePrice: parsePrice(p.basePrice),
-        isVisibleOnSite: p.isVisibleOnSite !== false,
-        variants,
-        images: (p.images || []).map((img, i) => ({
-          sourceId: img.sourceId || cryptoRandomUuid(),
-          publicUrl: img.publicUrl || img.storagePath || "",
-          storagePath: img.storagePath || img.publicUrl || "",
-          altText: img.altText || p.name || "Produto",
-          displayOrder: i,
-          isPrimary: i === 0
-        })).filter((i) => i.publicUrl)
-      };
-    });
+    if (catNames.size === 0) catNames.add("Geral");
 
     return {
-      storeSlug: slug,
-      ownerEmail: state.session?.email || "",
-      ownerName: state.session?.fullName || state.session?.username || "Lojista",
-      store: {
-        ...state.store,
-        storeSlug: slug
+      settings: {
+        storeName: (state.store.storeName || "Minha Loja").trim(),
+        storeSlug: slug,
+        whatsappNumber: (state.store.whatsappNumber || "").trim() || "5511900000000",
+        storeDescription: (state.store.storeDescription || "Catálogo digital oficial da loja.").trim(),
+        logoPublicUrl: state.store.logoPublicUrl || null,
+        defaultLowStockThreshold: 3,
+        onlineBaseUrl: DEFAULT_API_ORIGIN,
+        autoSyncOnlineOnSave: true,
+        isSiteActive: state.store.isSiteActive !== false,
+        planTier: state.store.planTier || "Basico",
+        directPixSalesEnabled: !!state.store.directPixSalesEnabled,
+        storePixKey: state.store.storePixKey || null,
+        storePixReceiverName: state.store.storePixReceiverName || null,
+        serverHostingMode: "PlatformShared",
+        centralCatalogBaseUrl: DEFAULT_API_ORIGIN
       },
-      categories,
-      products
+      categories: Array.from(catNames).map((name, idx) => ({
+        name,
+        description: "",
+        displayOrder: idx + 1,
+        isActive: true
+      })),
+      products: state.products.map((p) => ({
+        categoryName: p.categoryName || "Geral",
+        name: p.name,
+        description: p.description || "",
+        basePrice: Number(p.basePrice || 0),
+        isVisibleOnSite: p.isVisibleOnSite !== false
+      })),
+      catalogSnapshot: state.products.map((p) => ({
+        sourceId: p.sourceId || cryptoRandomUuid(),
+        categoryName: p.categoryName || "Geral",
+        categorySlug: slugify(p.categoryName || "Geral"),
+        name: p.name,
+        slug: p.slug || slugify(p.name),
+        description: p.description || "",
+        basePrice: Number(p.basePrice || 0),
+        isVisibleOnSite: p.isVisibleOnSite !== false,
+        variants: (() => {
+          const mapped = (p.variants || [])
+            .filter((v) => (v.color || "").trim() || (v.size || "").trim() || Number(v.stockQuantity) > 0)
+            .map((v) => ({
+              color: (v.color || "Padrão").trim() || "Padrão",
+              colorHex: v.colorHex || "#18181b",
+              size: (v.size || "Único").trim().toUpperCase() || "Único",
+              sku: v.sku || null,
+              stockQuantity: Math.max(0, Number(v.stockQuantity || 0)),
+              lowStockThreshold: Number(v.lowStockThreshold || 3),
+              isActive: true
+            }));
+          return mapped.length > 0
+            ? mapped
+            : [{ color: "Padrão", colorHex: "#18181b", size: "Único", sku: null, stockQuantity: 0, lowStockThreshold: 3, isActive: true }];
+        })(),
+        images: (p.images || []).filter((img) => img.publicUrl).map((img, i) => ({
+          publicUrl: img.publicUrl,
+          storagePath: img.storagePath || img.publicUrl,
+          altText: img.altText || p.name,
+          displayOrder: i,
+          isPrimary: i === 0
+        }))
+      }))
     };
   }
 
   async function publishStoreToCloud(successMessage = "☁️ Alterações salvas e publicadas no site!") {
     if (!state.session) return;
+    if (!state.storeLoaded) {
+      setStatus(null, "Ainda não conseguimos carregar sua loja da nuvem. Toque em \"🔄 Atualizar da Nuvem\" antes de salvar para não perder produtos.");
+      return;
+    }
     state.busy = true;
+    state.msgErr = null;
     render();
     try {
-      const payload = buildPublishPayload();
-      const res = await apiJson("/api/cloud/publish-store", {
+      const slug = slugify(state.store.storeSlug || state.store.storeName);
+      state.store.storeSlug = slug;
+
+      const headers = {
+        "X-YouLink-Store-Slug": slug,
+        "X-YouLink-Owner-Email": state.session.email || ""
+      };
+      if (state.publishToken) headers["X-YouLink-Publish-Token"] = state.publishToken;
+
+      const res = await apiJson(`/api/cloud/publish-store?storeSlug=${encodeURIComponent(slug)}`, {
         method: "POST",
-        body: JSON.stringify(payload)
+        headers,
+        body: JSON.stringify(buildPublishPayload(slug))
       });
-      if (res?.storeSlug) {
-        state.store.storeSlug = res.storeSlug;
-        if (state.session) {
-          state.session.storeSlug = res.storeSlug;
-          saveSession(state.session);
-        }
-      }
+
+      if (res?.publishToken) state.publishToken = res.publishToken;
+      if (res?.storeSlug) state.store.storeSlug = res.storeSlug;
+      saveSession({ ...state.session, storeSlug: state.store.storeSlug, storeName: state.store.storeName });
       setStatus(successMessage, null);
     } catch (err) {
-      setStatus(null, err.message);
+      setStatus(null, `Não foi possível publicar agora: ${err.message}`);
     } finally {
       state.busy = false;
       render();
     }
   }
-
   function findDuplicateGroups() {
     const groups = new Map();
     state.products.forEach((p, idx) => {
@@ -967,29 +1000,31 @@
   }
 
   function renderDesignTab() {
+    const current = STORE_THEMES.find((t) => t.key === state.store.designPreset) || STORE_THEMES[0];
     return `
       <div class="yl-home-header">
         <div>
           <h1 class="yl-home-title">Aparência da Loja</h1>
-          <div class="yl-home-status-line">Escolha o visual do seu catálogo público</div>
+          <div class="yl-home-status-line">Tema atual da sua vitrine: <strong>${esc(current.name)}</strong></div>
         </div>
-        <button type="button" class="adm-btn adm-btn-success" id="save-design-btn" ${state.busy ? "disabled" : ""}>
-          ${state.busy ? "Salvando..." : "💾 Aplicar no Site"}
-        </button>
+      </div>
+
+      <div class="banner banner-warn">
+        🎨 A troca de tema ainda é feita pelo app no computador (menu <strong>Aparência da Loja</strong>). Em breve também por aqui.
       </div>
 
       <div class="adm-card">
         <div class="theme-cards-grid">
           ${STORE_THEMES.map((t) => `
-            <button type="button" class="theme-card ${(state.store.designPreset || "Minimalista") === t.key ? "selected" : ""}" data-select-theme="${t.key}">
+            <div class="theme-card ${current.key === t.key ? "selected" : ""}" style="cursor:default;">
               <div class="theme-preview-bar">
                 <div style="flex:2;background:${t.bg};"></div>
                 <div style="flex:1;background:${t.primary};"></div>
                 <div style="flex:1;background:${t.accent};"></div>
               </div>
-              <div style="font-weight:800;font-size:0.92rem;">${t.name}</div>
+              <div style="font-weight:800;font-size:0.92rem;">${t.name}${current.key === t.key ? " ✓" : ""}</div>
               <div style="font-size:0.75rem;color:var(--adm-muted);margin-top:0.2rem;">${t.desc}</div>
-            </button>
+            </div>
           `).join("")}
         </div>
       </div>
@@ -1132,7 +1167,7 @@
         try {
           const res = await apiJson("/api/cloud/accounts/verify-login", {
             method: "POST",
-            body: JSON.stringify({ login: fd.get("login"), password: fd.get("password") })
+            body: JSON.stringify({ email: String(fd.get("login") || "").trim(), password: fd.get("password") })
           });
           if (!res?.verified || !res.account) {
             throw new Error(res?.message || "Usuário ou senha inválidos.");
@@ -1171,6 +1206,10 @@
             throw new Error(res?.message || "Não foi possível criar a conta.");
           }
           saveSession(res.account);
+          state.storeLoaded = true;
+          state.products = [];
+          state.categories = [];
+          state.store = { ...createDefaultStore(), storeName: res.account.storeName || "Minha Loja" };
           state.activeTab = "settings";
           setStatus("🎉 Conta criada! Preencha o nome e WhatsApp da sua loja abaixo.", null);
         } catch (err) {
@@ -1196,6 +1235,13 @@
 
   function logout() {
     saveSession(null);
+    state.storeLoaded = false;
+    state.products = [];
+    state.categories = [];
+    state.store = createDefaultStore();
+    state.publishToken = null;
+    state.activeTab = "home";
+    state.showProductForm = false;
     state.showMoreSheet = false;
     state.showProfileModal = false;
     state.msgOk = null;
@@ -1431,15 +1477,7 @@
     const stockSaveBtn = document.getElementById("stock-save-all-btn");
     if (stockSaveBtn) stockSaveBtn.onclick = () => publishStoreToCloud("📦 Estoque atualizado no site!");
 
-    document.querySelectorAll("[data-select-theme]").forEach((el) => {
-      el.onclick = () => {
-        state.store.designPreset = el.getAttribute("data-select-theme");
-        render();
-      };
-    });
 
-    const saveDesignBtn = document.getElementById("save-design-btn");
-    if (saveDesignBtn) saveDesignBtn.onclick = () => publishStoreToCloud("🎨 Aparência da loja atualizada!");
 
     document.querySelectorAll("[data-store]").forEach((el) => {
       el.oninput = (e) => { state.store[el.getAttribute("data-store")] = e.target.value; };
