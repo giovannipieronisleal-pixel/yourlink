@@ -1531,6 +1531,135 @@ app.MapPost("/api/cloud/email-otp/verify", (
         : Results.BadRequest(result);
 }).DisableAntiforgery().RequireCors("YouLinkPwaCors").RequireRateLimiting("giftcard-strict");
 
+app.MapPost("/api/cloud/accounts/password-reset/send", async (
+    CloudPasswordResetSendRequest request,
+    CloudAccountRegistryService accountRegistry,
+    EmailOtpService emailOtp,
+    CancellationToken ct) =>
+{
+    var id = (request.Identifier ?? string.Empty).Trim();
+    if (string.IsNullOrWhiteSpace(id))
+    {
+        return Results.BadRequest(new SendEmailOtpResponse(
+            Sent: false,
+            ProviderConfigured: emailOtp.IsConfigured,
+            MaskedEmail: string.Empty,
+            ExpiresInSeconds: 0,
+            ResendAfterSeconds: 0,
+            Message: "Informe o seu e-mail ou nome de usuário cadastrado."));
+    }
+
+    var allAccounts = await accountRegistry.GetAllAccountsAsync(ct);
+    var account = allAccounts.FirstOrDefault(a =>
+        (!string.IsNullOrWhiteSpace(a.Email) && string.Equals(a.Email.Trim(), id, StringComparison.OrdinalIgnoreCase)) ||
+        (!string.IsNullOrWhiteSpace(a.Username) && string.Equals(a.Username.Trim(), id, StringComparison.OrdinalIgnoreCase)));
+
+    if (account is null || string.IsNullOrWhiteSpace(account.Email) || !account.Email.Contains('@', StringComparison.Ordinal))
+    {
+        return Results.Ok(new SendEmailOtpResponse(
+            Sent: true,
+            ProviderConfigured: emailOtp.IsConfigured,
+            MaskedEmail: EmailOtpService.MaskEmail(id.Contains('@') ? id : "usuario@exemplo.com"),
+            ExpiresInSeconds: 600,
+            ResendAfterSeconds: 45,
+            Message: "Se existir uma conta ativa com este e-mail ou usuário, enviamos um código de 6 dígitos para a caixa de entrada cadastrada."));
+    }
+
+    var otpResult = await emailOtp.SendOtpAsync(
+        new SendEmailOtpRequest(
+            Email: account.Email.Trim(),
+            Purpose: "password_reset",
+            ContextLabel: "redefinição de senha YouLink"),
+        ct);
+
+    return otpResult.Sent
+        ? Results.Ok(otpResult)
+        : Results.BadRequest(otpResult);
+}).DisableAntiforgery().RequireCors("YouLinkPwaCors").RequireRateLimiting("giftcard-strict");
+
+app.MapPost("/api/cloud/accounts/password-reset/confirm", async (
+    HttpContext httpContext,
+    CloudPasswordResetConfirmRequest request,
+    CloudAccountRegistryService accountRegistry,
+    EmailOtpService emailOtp,
+    IPasswordHasher passwordHasher,
+    CancellationToken ct) =>
+{
+    var id = (request.Identifier ?? string.Empty).Trim();
+    var code = (request.Code ?? string.Empty).Trim();
+    var newPassword = request.NewPassword ?? string.Empty;
+
+    if (string.IsNullOrWhiteSpace(id) || code.Length != 6)
+    {
+        return Results.BadRequest(new CloudPasswordResetConfirmResponse(
+            Success: false,
+            NormalizedEmail: string.Empty,
+            NewPasswordHash: null,
+            Message: "Informe seu e-mail/usuário e o código de 6 dígitos recebido no e-mail."));
+    }
+
+    if (newPassword.Trim().Length < 4)
+    {
+        return Results.BadRequest(new CloudPasswordResetConfirmResponse(
+            Success: false,
+            NormalizedEmail: string.Empty,
+            NewPasswordHash: null,
+            Message: "A nova senha deve ter no mínimo 4 caracteres."));
+    }
+
+    var allAccounts = await accountRegistry.GetAllAccountsAsync(ct);
+    var account = allAccounts.FirstOrDefault(a =>
+        (!string.IsNullOrWhiteSpace(a.Email) && string.Equals(a.Email.Trim(), id, StringComparison.OrdinalIgnoreCase)) ||
+        (!string.IsNullOrWhiteSpace(a.Username) && string.Equals(a.Username.Trim(), id, StringComparison.OrdinalIgnoreCase)));
+
+    if (account is null || string.IsNullOrWhiteSpace(account.Email))
+    {
+        return Results.BadRequest(new CloudPasswordResetConfirmResponse(
+            Success: false,
+            NormalizedEmail: string.Empty,
+            NewPasswordHash: null,
+            Message: "Código inválido ou expirado. Solicite um novo código por e-mail."));
+    }
+
+    var verify = emailOtp.VerifyOtp(new VerifyEmailOtpRequest(account.Email.Trim(), code, "password_reset"));
+    if (!verify.Verified)
+    {
+        return Results.BadRequest(new CloudPasswordResetConfirmResponse(
+            Success: false,
+            NormalizedEmail: verify.NormalizedEmail,
+            NewPasswordHash: null,
+            Message: verify.Message));
+    }
+
+    var newHash = passwordHasher.HashPassword(newPassword);
+    var upsert = await accountRegistry.UpsertAccountAsync(new CloudAccountCredentialSyncDto(
+        FullName: string.IsNullOrWhiteSpace(account.FullName) ? account.Username : account.FullName,
+        Username: account.Username,
+        Email: account.Email.Trim(),
+        PasswordHash: newHash,
+        Phone: account.Phone,
+        StoreName: account.StoreName,
+        StoreSlug: account.StoreSlug),
+        hasValidSyncKey: true,
+        ct);
+
+    if (!upsert.Success)
+    {
+        return Results.Json(new CloudPasswordResetConfirmResponse(
+            Success: false,
+            NormalizedEmail: account.Email.Trim(),
+            NewPasswordHash: null,
+            Message: upsert.Message), statusCode: upsert.StatusCode);
+    }
+
+    await TryFlushCloudMirrorAsync(httpContext, ct);
+    return Results.Ok(new CloudPasswordResetConfirmResponse(
+        Success: true,
+        NormalizedEmail: account.Email.Trim(),
+        NewPasswordHash: newHash,
+        Message: "✓ Senha redefinida com sucesso! Agora entre com sua nova senha."));
+}).DisableAntiforgery().RequireCors("YouLinkPwaCors").RequireRateLimiting("giftcard-strict");
+
 app.MapGet("/api/cloud/plan-status", async (
     string? email,
     string? username,

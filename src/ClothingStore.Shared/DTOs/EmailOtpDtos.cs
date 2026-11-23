@@ -27,3 +27,17 @@ public sealed record EmailOtpStatusDto(
     bool IsConfigured,
     string Provider,
     string Message);
+
+public sealed record CloudPasswordResetSendRequest(
+    string Identifier);
+
+public sealed record CloudPasswordResetConfirmRequest(
+    string Identifier,
+    string Code,
+    string NewPassword);
+
+public sealed record CloudPasswordResetConfirmResponse(
+    bool Success,
+    string NormalizedEmail,
+    string? NewPasswordHash,
+    string Message);

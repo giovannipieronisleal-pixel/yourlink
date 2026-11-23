@@ -572,6 +572,10 @@ public sealed class MauiAdminGateway
     {
         if (_workspaceRepository is not null)
         {
+            // Verifica primeiro na nuvem se este e-mail ou nome de usuário já existe em outro aparelho
+            // para impedir contas duplicadas com o mesmo e-mail.
+            await EnsureCloudAccountRegisteredOrThrowAsync(request);
+
             var provisioned = await _workspaceRepository.ProvisionIsolatedWorkspaceForNewAccountAsync(
                 request.Email,
                 request.Username);
@@ -906,8 +910,117 @@ public sealed class MauiAdminGateway
         AuthStateChanged?.Invoke();
     }
 
+    private async Task EnsureCloudAccountRegisteredOrThrowAsync(
+        RegisterUserAccountRequest request,
+        CancellationToken ct = default)
+    {
+        if (HasCustomServerUrl)
+            return;
+
+        var centralUrl = WhatsAppLinkBuilder.NormalizePublicServerUrl(LatestAdminCentralServerUrl);
+        if (string.IsNullOrWhiteSpace(centralUrl))
+            centralUrl = AppUpdateCatalog.DefaultCentralPlatformServerUrl;
+
+        try
+        {
+            using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(12) };
+            using var resp = await client.PostAsJsonAsync(
+                $"{centralUrl.TrimEnd('/')}/api/cloud/accounts/register",
+                request,
+                ct);
+
+            if (resp.StatusCode == System.Net.HttpStatusCode.Conflict)
+            {
+                var errMsg = await TryReadErrorMessageAsync(resp, ct)
+                    ?? "Já existe uma conta cadastrada com este e-mail ou usuário. Use a aba 'Entrar' ou recupere sua senha.";
+                throw new DomainException(errMsg);
+            }
+
+            if (resp.StatusCode == System.Net.HttpStatusCode.BadRequest)
+            {
+                var errMsg = await TryReadErrorMessageAsync(resp, ct)
+                    ?? "Verifique os dados informados para criar a conta.";
+                throw new DomainException(errMsg);
+            }
+        }
+        catch (DomainException)
+        {
+            throw;
+        }
+        catch
+        {
+            // Sem internet no momento: prossegue com validação local entre workspaces do dispositivo.
+        }
+    }
+
+    private static async Task<string?> TryReadErrorMessageAsync(HttpResponseMessage resp, CancellationToken ct)
+    {
+        try
+        {
+            var raw = await resp.Content.ReadAsStringAsync(ct);
+            if (string.IsNullOrWhiteSpace(raw) || !raw.TrimStart().StartsWith('{'))
+                return null;
+
+            using var doc = System.Text.Json.JsonDocument.Parse(raw);
+            if (doc.RootElement.TryGetProperty("error", out var err) && err.ValueKind == System.Text.Json.JsonValueKind.String)
+                return err.GetString();
+            if (doc.RootElement.TryGetProperty("message", out var msg) && msg.ValueKind == System.Text.Json.JsonValueKind.String)
+                return msg.GetString();
+        }
+        catch
+        {
+        }
+        return null;
+    }
+
     public async Task<ForgotPasswordResponse> ForgotPasswordAsync(ForgotPasswordRequest request)
     {
+        var identifier = (request.Email ?? string.Empty).Trim();
+        if (string.IsNullOrWhiteSpace(identifier))
+            throw new DomainException("Informe seu login ou e-mail cadastrado.");
+
+        // Envia primeiro pelo mesmo serviço de e-mail da nuvem (Brevo/Resend/SMTP) usado na confirmação do WhatsApp.
+        if (!HasCustomServerUrl)
+        {
+            var centralUrl = WhatsAppLinkBuilder.NormalizePublicServerUrl(LatestAdminCentralServerUrl);
+            if (string.IsNullOrWhiteSpace(centralUrl))
+                centralUrl = AppUpdateCatalog.DefaultCentralPlatformServerUrl;
+
+            try
+            {
+                using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(18) };
+                using var resp = await client.PostAsJsonAsync(
+                    $"{centralUrl.TrimEnd('/')}/api/cloud/accounts/password-reset/send",
+                    new CloudPasswordResetSendRequest(identifier));
+
+                if (resp.StatusCode != System.Net.HttpStatusCode.NotFound)
+                {
+                    var rawText = await resp.Content.ReadAsStringAsync();
+                    if (!string.IsNullOrWhiteSpace(rawText) && rawText.TrimStart().StartsWith('{'))
+                    {
+                        var body = System.Text.Json.JsonSerializer.Deserialize<SendEmailOtpResponse>(
+                            rawText,
+                            new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                        if (body is not null)
+                        {
+                            if (!body.Sent)
+                                throw new DomainException(body.Message);
+
+                            return new ForgotPasswordResponse(body.Message);
+                        }
+                    }
+                }
+            }
+            catch (DomainException)
+            {
+                throw;
+            }
+            catch
+            {
+                // Sem internet / servidor indisponível -> tenta fluxo local abaixo.
+            }
+        }
+
         await SwitchWorkspaceForIdentifierAsync(request.Email);
         return await ExecuteWithFallbackAsync(
             () => _apiClient.ForgotPasswordAsync(request),
@@ -916,9 +1029,72 @@ public sealed class MauiAdminGateway
 
     public async Task ResetPasswordAsync(ResetPasswordRequest request)
     {
-        await SwitchWorkspaceForIdentifierAsync(request.Email);
+        var identifier = (request.Email ?? string.Empty).Trim();
+        if (string.IsNullOrWhiteSpace(identifier))
+            throw new DomainException("Informe seu login ou e-mail cadastrado.");
+
+        // Valida primeiro o código de 6 dígitos na nuvem (mesmo serviço Brevo/Resend/SMTP) e atualiza a senha lá e aqui.
+        if (!HasCustomServerUrl)
+        {
+            var centralUrl = WhatsAppLinkBuilder.NormalizePublicServerUrl(LatestAdminCentralServerUrl);
+            if (string.IsNullOrWhiteSpace(centralUrl))
+                centralUrl = AppUpdateCatalog.DefaultCentralPlatformServerUrl;
+
+            try
+            {
+                using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(18) };
+                using var resp = await client.PostAsJsonAsync(
+                    $"{centralUrl.TrimEnd('/')}/api/cloud/accounts/password-reset/confirm",
+                    new CloudPasswordResetConfirmRequest(identifier, (request.ResetToken ?? string.Empty).Trim(), request.NewPassword));
+
+                if (resp.StatusCode != System.Net.HttpStatusCode.NotFound)
+                {
+                    var rawText = await resp.Content.ReadAsStringAsync();
+                    if (!string.IsNullOrWhiteSpace(rawText) && rawText.TrimStart().StartsWith('{'))
+                    {
+                        var body = System.Text.Json.JsonSerializer.Deserialize<CloudPasswordResetConfirmResponse>(
+                            rawText,
+                            new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                        if (body is not null)
+                        {
+                            if (!body.Success)
+                                throw new DomainException(body.Message);
+
+                            // Atualiza também a senha no workspace local (se existir neste aparelho)
+                            if (!string.IsNullOrWhiteSpace(body.NewPasswordHash) && _workspaceRepository is not null)
+                            {
+                                await SwitchWorkspaceForIdentifierAsync(
+                                    !string.IsNullOrWhiteSpace(body.NormalizedEmail) ? body.NormalizedEmail : identifier);
+                                var localUser = await _workspaceRepository.GetUserByEmailAsync(
+                                    !string.IsNullOrWhiteSpace(body.NormalizedEmail) ? body.NormalizedEmail : identifier);
+                                if (localUser is not null)
+                                {
+                                    var localEmp = await _workspaceRepository.GetEmployeeByUserIdAsync(localUser.Id);
+                                    if (localEmp is not null)
+                                    {
+                                        localUser.SetPasswordHash(body.NewPasswordHash);
+                                        await _workspaceRepository.UpdateEmployeeAsync(localEmp, localUser);
+                                    }
+                                }
+                            }
+                            return;
+                        }
+                    }
+                }
+            }
+            catch (DomainException)
+            {
+                throw;
+            }
+            catch
+            {
+                // Sem internet / servidor indisponível -> tenta fluxo local abaixo.
+            }
+        }
+
+        await SwitchWorkspaceForIdentifierAsync(identifier);
         User? previousUser = _workspaceRepository is not null
-            ? await _workspaceRepository.GetUserByEmailAsync(request.Email)
+            ? await _workspaceRepository.GetUserByEmailAsync(identifier)
             : null;
         var previousHash = previousUser?.PasswordHash;
         var previousEmail = previousUser?.Email;
@@ -929,7 +1105,7 @@ public sealed class MauiAdminGateway
 
         if (!HasCustomServerUrl && _workspaceRepository is not null)
         {
-            var updatedUser = await _workspaceRepository.GetUserByEmailAsync(previousEmail ?? request.Email);
+            var updatedUser = await _workspaceRepository.GetUserByEmailAsync(previousEmail ?? identifier);
             if (updatedUser is not null)
             {
                 _ = SyncAccountByUserIdToCloudAsync(updatedUser.Id, previousEmail, previousHash);
