@@ -7,7 +7,7 @@
             <span class="cpw-eyebrow">Publicação Fácil • Site 24h Grátis</span>
             <h2 class="cpw-title">🌐 Publique Sua Loja Online em 1 Clique</h2>
             <p class="cpw-subtitle">
-                Publique ou atualize sua vitrine online direto no servidor oficial YouLink e compartilhe seu <strong>Link da Loja</strong>, <strong>WhatsApp</strong> e <strong>QR Code</strong> na hora.
+                Publique ou atualize seu catálogo online direto no servidor oficial YouLink e compartilhe seu <strong>Link da Loja</strong> e <strong>QR Code</strong> na hora.
             </p>
         </div>
         <div class="cpw-status-wrap">
@@ -49,9 +49,12 @@
                 <button type="button" class="adm-btn adm-btn-outline" @onclick="OnCopyCatalogUrl">
                     📋 Copiar Link
                 </button>
-                <button type="button" class="adm-btn cpw-whatsapp-btn" @onclick="OnShareWhatsApp">
-                    💬 WhatsApp
-                </button>
+                @if (CatalogFeatureFlags.PhoneFeaturesEnabled)
+                {
+                    <button type="button" class="adm-btn cpw-whatsapp-btn" @onclick="OnShareWhatsApp">
+                        💬 WhatsApp
+                    </button>
+                }
                 <button type="button" class="adm-btn adm-btn-primary" @onclick="OnOpenCatalogUrl">
                     🌐 Abrir Site 24h
                 </button>
@@ -64,7 +67,7 @@
             <div>
                 <h3 class="cpw-central-title">🚀 Publicação Instantânea (1 Clique)</h3>
                 <p class="cpw-central-desc">
-                    Clique abaixo para enviar seus produtos, fotos, preços e chave Pix direto para o ar no seu endereço oficial.
+                    Clique abaixo para enviar seus produtos, fotos e preços direto para o ar no seu endereço oficial.
                 </p>
             </div>
             <span class="pill-badge pill-green">✓ Servidor Oficial Ativo</span>

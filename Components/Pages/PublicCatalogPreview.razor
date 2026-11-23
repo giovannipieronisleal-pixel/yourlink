@@ -417,7 +417,7 @@
                         </div>
                     }
 
-                    @if (_store.DirectPixSalesReady)
+                    @if (CatalogFeatureFlags.SalesAndOrdersEnabled && _store.DirectPixSalesReady)
                     {
                         var selectedVariant = SelectedDetailVariant;
                         <div style="margin-bottom: 1.15rem; border: 1.5px solid #16A34A; background: var(--brand-bg); border-radius: 12px; padding: 1.15rem;">
@@ -567,7 +567,7 @@
                             }
                         </div>
                     }
-                    else if (Gateway.IsAdmin)
+                    else if (CatalogFeatureFlags.SalesAndOrdersEnabled && Gateway.IsAdmin)
                     {
                         <div style="margin-bottom: 1rem; padding: 0.85rem; border-radius: 10px; border: 1px dashed var(--brand-border); background: var(--brand-surface-subtle); font-size: 0.84rem;">
                             <strong>💸 Quer receber vendas direto pelo celular (Pix) sem depender do WhatsApp?</strong>
@@ -579,7 +579,7 @@
                         </div>
                     }
 
-                    @if (!string.IsNullOrWhiteSpace(_store.WhatsappNumber))
+                    @if (CatalogFeatureFlags.PhoneFeaturesEnabled && !string.IsNullOrWhiteSpace(_store.WhatsappNumber))
                     {
                         <button type="button"
                                 class="adm-btn adm-btn-success"

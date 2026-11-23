@@ -65,7 +65,7 @@ else if (_store is { IsSiteActive: false })
             @(_store.DeactivationReason ?? "Estamos atualizando nossa vitrine com novos produtos. Você já pode falar direto com nossa equipe pelo WhatsApp!")
         </p>
 
-        @if (!string.IsNullOrWhiteSpace(_store.WhatsappNumber))
+        @if (CatalogFeatureFlags.PhoneFeaturesEnabled && !string.IsNullOrWhiteSpace(_store.WhatsappNumber))
         {
             <a href="@WhatsAppLinkBuilder.BuildGeneralStoreLink(_store.WhatsappNumber, _store.StoreName)"
                target="_blank"
@@ -108,7 +108,7 @@ else
             <div class="lux-hero-actions">
                 <a href="@CatalogHref()" class="lux-btn lux-btn-outline lux-btn-sm">Ver Catálogo</a>
 
-                @if (_store is not null && !string.IsNullOrWhiteSpace(_store.WhatsappNumber))
+                @if (CatalogFeatureFlags.PhoneFeaturesEnabled && _store is not null && !string.IsNullOrWhiteSpace(_store.WhatsappNumber))
                 {
                     <a href="@WhatsAppLinkBuilder.BuildGeneralStoreLink(_store.WhatsappNumber, _store.StoreName)"
                        target="_blank"

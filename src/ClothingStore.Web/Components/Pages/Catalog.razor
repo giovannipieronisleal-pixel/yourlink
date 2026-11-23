@@ -36,7 +36,7 @@ else if (_store is { IsSiteActive: false })
         <p class="lux-hero-subtitle" style="margin-left: auto; margin-right: auto;">
             @(_store.DeactivationReason ?? "Este catálogo está sendo atualizado com novidades.")
         </p>
-        @if (!string.IsNullOrWhiteSpace(_store.WhatsappNumber))
+        @if (CatalogFeatureFlags.PhoneFeaturesEnabled && !string.IsNullOrWhiteSpace(_store.WhatsappNumber))
         {
             <a href="@WhatsAppLinkBuilder.BuildGeneralStoreLink(_store.WhatsappNumber, _store.StoreName)"
                target="_blank"

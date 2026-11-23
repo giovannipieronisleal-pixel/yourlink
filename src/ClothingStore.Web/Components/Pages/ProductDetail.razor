@@ -169,56 +169,64 @@ else
                     else
                     {
                         <strong>@(HasMeaningfulColors || HasMeaningfulSizes ? "Esta opção acabou no momento (0 un.)" : "Produto esgotado no momento (0 un.)")</strong>
-                        <span> — Chame nossa equipe no WhatsApp para saber sobre reposição.</span>
                     }
                 }
                 else if (_product.HasAvailableStock)
                 {
                     <strong>✓ @_product.TotalStockQuantity unidade(s) em estoque</strong>
-                    <span> — Produto à pronta entrega.</span>
+                    <span> — Produto disponível no catálogo.</span>
                 }
                 else
                 {
-                    <span>Fale com nossa equipe no WhatsApp para confirmar disponibilidade imediata.</span>
+                    <span>Produto indisponível no momento.</span>
                 }
             </div>
 
-            @if (_store is not null && !string.IsNullOrWhiteSpace(_store.WhatsappNumber))
+            @if (_store is not null)
             {
-                <div class="lux-detail-actions-stack">
-                    <div class="lux-detail-qty-bar">
-                        <span style="font-size: 0.82rem; font-weight: 700;">Quantidade:</span>
-                        <button type="button" class="lux-qty-btn" @onclick="() => AdjustDetailQuantity(-1)" aria-label="Diminuir quantidade">−</button>
-                        <span class="lux-qty-val">@_orderQuantity</span>
-                        <button type="button" class="lux-qty-btn" @onclick="() => AdjustDetailQuantity(1)" aria-label="Aumentar quantidade">+</button>
-                    </div>
+                @if (CatalogFeatureFlags.SalesAndOrdersEnabled || CatalogFeatureFlags.PhoneFeaturesEnabled)
+                {
+                    <div class="lux-detail-actions-stack">
+                        @if (CatalogFeatureFlags.SalesAndOrdersEnabled)
+                        {
+                            <div class="lux-detail-qty-bar">
+                                <span style="font-size: 0.82rem; font-weight: 700;">Quantidade:</span>
+                                <button type="button" class="lux-qty-btn" @onclick="() => AdjustDetailQuantity(-1)" aria-label="Diminuir quantidade">−</button>
+                                <span class="lux-qty-val">@_orderQuantity</span>
+                                <button type="button" class="lux-qty-btn" @onclick="() => AdjustDetailQuantity(1)" aria-label="Aumentar quantidade">+</button>
+                            </div>
 
-                    <button type="button"
-                            class="lux-btn lux-btn-primary"
-                            style="width: 100%; font-size: 0.96rem; padding: 0.9rem 1.2rem;"
-                            disabled="@(SelectedVariant is null || SelectedVariant.StockQuantity <= 0)"
-                            @onclick="AddToCartAsync">
-                        🛍️ Adicionar à Sacola (@((_product.BasePrice * Math.Max(1, _orderQuantity)).ToString("C", PtBr)))
-                    </button>
-
-                    @if (_addedToCartFeedback)
-                    {
-                        <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; flex-wrap: wrap; background: rgba(22,163,74,0.12); border: 1px solid #16A34A; border-radius: 8px; padding: 0.55rem 0.75rem; font-size: 0.84rem;">
-                            <strong style="color: #166534;">✓ Item adicionado à sacola!</strong>
-                            <button type="button" class="lux-btn lux-btn-outline lux-btn-sm" @onclick="CartService.OpenDrawer">
-                                Ver Sacola (@CartService.TotalQuantity)
+                            <button type="button"
+                                    class="lux-btn lux-btn-primary"
+                                    style="width: 100%; font-size: 0.96rem; padding: 0.9rem 1.2rem;"
+                                    disabled="@(SelectedVariant is null || SelectedVariant.StockQuantity <= 0)"
+                                    @onclick="AddToCartAsync">
+                                🛍️ Adicionar à Sacola (@((_product.BasePrice * Math.Max(1, _orderQuantity)).ToString("C", PtBr)))
                             </button>
-                        </div>
-                    }
 
-                    <a href="@WhatsAppLinkBuilder.BuildProductConsultationLink(_store.WhatsappNumber, _product.Name, _selectedColor, _selectedSize)"
-                       target="_blank"
-                       rel="noopener noreferrer"
-                       class="lux-btn lux-btn-whatsapp"
-                       style="width: 100%; font-size: 0.98rem; padding: 0.95rem 1.25rem;">
-                        💬 Pedir este Produto no WhatsApp
-                    </a>
-                </div>
+                            @if (_addedToCartFeedback)
+                            {
+                                <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; flex-wrap: wrap; background: rgba(22,163,74,0.12); border: 1px solid #16A34A; border-radius: 8px; padding: 0.55rem 0.75rem; font-size: 0.84rem;">
+                                    <strong style="color: #166534;">✓ Item adicionado à sacola!</strong>
+                                    <button type="button" class="lux-btn lux-btn-outline lux-btn-sm" @onclick="CartService.OpenDrawer">
+                                        Ver Sacola (@CartService.TotalQuantity)
+                                    </button>
+                                </div>
+                            }
+                        }
+
+                        @if (CatalogFeatureFlags.PhoneFeaturesEnabled && !string.IsNullOrWhiteSpace(_store.WhatsappNumber))
+                        {
+                            <a href="@WhatsAppLinkBuilder.BuildProductConsultationLink(_store.WhatsappNumber, _product.Name, _selectedColor, _selectedSize)"
+                               target="_blank"
+                               rel="noopener noreferrer"
+                               class="lux-btn lux-btn-whatsapp"
+                               style="width: 100%; font-size: 0.98rem; padding: 0.95rem 1.25rem;">
+                                💬 Pedir este Produto no WhatsApp
+                            </a>
+                        }
+                    </div>
+                }
 
                 <div class="lux-detail-share-row">
                     <button type="button" class="lux-btn lux-btn-outline lux-btn-sm" style="flex: 1 1 140px;" aria-label="Compartilhar Produto" @onclick="ShareProductAsync">
@@ -246,7 +254,7 @@ else
                     </div>
                 }
 
-                @if (_store.DirectPixSalesReady)
+                @if (CatalogFeatureFlags.SalesAndOrdersEnabled && _store.DirectPixSalesReady)
                 {
                     <div style="margin-top: 1.25rem; border: 1.5px solid #16A34A; background: var(--brand-bg, #FAF8F5); border-radius: 12px; padding: 1.15rem;">
                         <div style="display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 0.5rem;">

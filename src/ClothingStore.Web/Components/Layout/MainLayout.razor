@@ -72,7 +72,7 @@
                         📲 Instalar
                     </button>
 
-                    @if (_store is { IsSiteActive: true })
+                    @if (CatalogFeatureFlags.SalesAndOrdersEnabled && _store is { IsSiteActive: true })
                     {
                         <button type="button"
                                 class="lux-btn lux-btn-outline lux-btn-sm lux-cart-nav-btn"
@@ -86,7 +86,7 @@
                         </button>
                     }
 
-                    @if (_store is { IsSiteActive: true } && !string.IsNullOrWhiteSpace(_store.WhatsappNumber))
+                    @if (CatalogFeatureFlags.PhoneFeaturesEnabled && _store is { IsSiteActive: true } && !string.IsNullOrWhiteSpace(_store.WhatsappNumber))
                     {
                         <a href="@WhatsAppLinkBuilder.BuildGeneralStoreLink(_store.WhatsappNumber, _store.StoreName)"
                            target="_blank"
@@ -140,7 +140,7 @@
                     <strong>@(_store?.StoreName ?? "Loja Online")</strong> — @(_store?.StoreDescription ?? "Produtos selecionados com atendimento direto.")
                 </div>
                 <div class="ylk-footer-links">
-                    @if (_store is not null && !string.IsNullOrWhiteSpace(_store.WhatsappNumber))
+                    @if (CatalogFeatureFlags.PhoneFeaturesEnabled && _store is not null && !string.IsNullOrWhiteSpace(_store.WhatsappNumber))
                     {
                         <a href="@WhatsAppLinkBuilder.BuildGeneralStoreLink(_store.WhatsappNumber, _store.StoreName)"
                            target="_blank"
@@ -156,7 +156,7 @@
         </div>
     </footer>
 
-    @if (!_isPortalMode && _store is { IsSiteActive: true } && !string.IsNullOrWhiteSpace(_store.WhatsappNumber))
+    @if ((CatalogFeatureFlags.SalesAndOrdersEnabled || CatalogFeatureFlags.PhoneFeaturesEnabled) && !_isPortalMode && _store is { IsSiteActive: true } && !string.IsNullOrWhiteSpace(_store.WhatsappNumber))
     {
         <div class="lux-mobile-wa-bar">
             <a href="@CatalogHref" class="lux-btn lux-btn-outline lux-btn-sm" style="flex: 1;">
@@ -184,7 +184,7 @@
         </div>
     }
 
-    @if (CartService.IsDrawerOpen && !_isPortalMode && _store is { IsSiteActive: true })
+    @if (CatalogFeatureFlags.SalesAndOrdersEnabled && CartService.IsDrawerOpen && !_isPortalMode && _store is { IsSiteActive: true })
     {
         <div class="lux-cart-backdrop" @onclick="CartService.CloseDrawer">
             <aside class="lux-cart-drawer" aria-label="Sacola de produtos" @onclick:stopPropagation="true">

@@ -100,7 +100,7 @@
                 <span class="yl-tint-icon yl-tint-blue" aria-hidden="true">🏪</span>
                 <span class="yl-hub-row-body">
                     <span class="yl-hub-row-title">Dados da loja</span>
-                    <span class="yl-hub-row-desc">Nome, logotipo, descrição e WhatsApp</span>
+                    <span class="yl-hub-row-desc">Nome, logotipo, descrição e link oficial</span>
                 </span>
                 <span class="yl-hub-chevron" aria-hidden="true">›</span>
             </button>
@@ -114,14 +114,17 @@
                 <span class="yl-hub-chevron" aria-hidden="true">›</span>
             </button>
 
-            <button type="button" class="yl-hub-row" @onclick='() => OpenSettingsSection("vendas")'>
-                <span class="yl-tint-icon yl-tint-green" aria-hidden="true">💳</span>
-                <span class="yl-hub-row-body">
-                    <span class="yl-hub-row-title">Pagamentos e entrega</span>
-                    <span class="yl-hub-row-desc">Pix, Mercado Pago e CEP de frete</span>
-                </span>
-                <span class="yl-hub-chevron" aria-hidden="true">›</span>
-            </button>
+            @if (CatalogFeatureFlags.SalesAndOrdersEnabled)
+            {
+                <button type="button" class="yl-hub-row" @onclick='() => OpenSettingsSection("vendas")'>
+                    <span class="yl-tint-icon yl-tint-green" aria-hidden="true">💳</span>
+                    <span class="yl-hub-row-body">
+                        <span class="yl-hub-row-title">Pagamentos e entrega</span>
+                        <span class="yl-hub-row-desc">Pix, Mercado Pago e CEP de frete</span>
+                    </span>
+                    <span class="yl-hub-chevron" aria-hidden="true">›</span>
+                </button>
+            }
 
             <button type="button" class="yl-hub-row" @onclick='() => OpenSettingsSection("plano")'>
                 <span class="yl-tint-icon yl-tint-gold" aria-hidden="true">👑</span>
@@ -159,7 +162,10 @@ else
         <nav class="yl-subpage-pills" aria-label="Atalho entre seções">
             <button type="button" class="yl-subpage-pill @(_activeSettingsTab == "loja" ? "is-active" : string.Empty)" @onclick='() => OpenSettingsSection("loja")'>🏪 Dados da loja</button>
             <button type="button" class="yl-subpage-pill @(_activeSettingsTab == "visual" ? "is-active" : string.Empty)" @onclick='() => OpenSettingsSection("visual")'>🎨 Aparência da vitrine</button>
-            <button type="button" class="yl-subpage-pill @(_activeSettingsTab == "vendas" ? "is-active" : string.Empty)" @onclick='() => OpenSettingsSection("vendas")'>💳 Pagamentos e entrega</button>
+            @if (CatalogFeatureFlags.SalesAndOrdersEnabled)
+            {
+                <button type="button" class="yl-subpage-pill @(_activeSettingsTab == "vendas" ? "is-active" : string.Empty)" @onclick='() => OpenSettingsSection("vendas")'>💳 Pagamentos e entrega</button>
+            }
             <button type="button" class="yl-subpage-pill @(_activeSettingsTab == "plano" ? "is-active" : string.Empty)" @onclick='() => OpenSettingsSection("plano")'>👑 Planos e VIP</button>
             <button type="button" class="yl-subpage-pill @(_activeSettingsTab == "conta" ? "is-active" : string.Empty)" @onclick='() => OpenSettingsSection("conta")'>👤 Minha conta e tema</button>
         </nav>
@@ -185,7 +191,7 @@ else
         <div style="display: flex; flex-direction: column; gap: 1.15rem;">
             <section class="adm-card">
                 <h2 style="font-size: 1.1rem; font-weight: 700; margin-top: 0; margin-bottom: 1rem; color: var(--adm-text);">
-                    🏪 Identidade da Loja &amp; WhatsApp
+                    🏪 Identidade da Loja
                 </h2>
 
                 <div style="display: flex; flex-direction: column; gap: 1.05rem;">
@@ -272,74 +278,38 @@ else
                         }
                     </div>
 
-                    <div>
-                        @{
-                            var waCheck = WhatsAppLinkBuilder.ValidateBrazilianWhatsAppNumber(_form.WhatsappNumber);
-                            var isWaVerified = waCheck.IsValid &&
-                                               !string.IsNullOrWhiteSpace(_verifiedWhatsappNumber) &&
-                                               string.Equals(waCheck.NormalizedNumber, _verifiedWhatsappNumber, StringComparison.Ordinal);
-                        }
-                        <div style="display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 0.35rem;">
-                            <label class="adm-label" style="margin: 0;">Número do WhatsApp (DDD + Celular) *</label>
-                            <span class="pill-badge @(isWaVerified ? "pill-green" : "pill-amber")">
-                                @(isWaVerified ? $"✓ WhatsApp Autenticado ({waCheck.FormattedDisplay})" : "⚠️ Não autenticado")
-                            </span>
-                        </div>
-                        <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
-                            <input type="text"
-                                   class="adm-input"
-                                   style="flex: 1 1 200px; min-width: 0;"
-                                   @bind="_form.WhatsappNumber"
-                                   @bind:event="oninput"
-                                   @bind:after="OnWhatsappInputChanged"
-                                   placeholder="Ex.: 11999990000" />
-                            <button type="button"
-                                    class="adm-btn @(isWaVerified ? "adm-btn-outline" : "adm-btn-success")"
-                                    style="white-space: nowrap;"
-                                    @onclick="SendWhatsappVerificationCodeAsync">
-                                @(isWaVerified ? "🔄 Reconfirmar por E-mail" : "📧 Confirmar por E-mail")
-                            </button>
-                        </div>
-                        <span style="font-size: 0.78rem; color: var(--adm-muted); display: block; margin-top: 0.3rem;">
-                            Pode digitar apenas o DDD + número (ex.: <strong>11999990000</strong>). Enviamos automaticamente um código de 6 dígitos para o seu e-mail de cadastro!
-                        </span>
-
-                        @if (!string.IsNullOrWhiteSpace(_whatsappAuthFeedback))
-                        {
-                            <div style="margin-top: 0.45rem; font-size: 0.82rem; font-weight: 600; color: @(_whatsappAuthFeedbackOk ? "var(--adm-success)" : "var(--adm-danger)");">
-                                @_whatsappAuthFeedback
+                    @if (CatalogFeatureFlags.PhoneFeaturesEnabled)
+                    {
+                        <div>
+                            @{
+                                var waCheck = WhatsAppLinkBuilder.ValidateBrazilianWhatsAppNumber(_form.WhatsappNumber);
+                                var isWaVerified = waCheck.IsValid &&
+                                                   !string.IsNullOrWhiteSpace(_verifiedWhatsappNumber) &&
+                                                   string.Equals(waCheck.NormalizedNumber, _verifiedWhatsappNumber, StringComparison.Ordinal);
+                            }
+                            <div style="display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 0.35rem;">
+                                <label class="adm-label" style="margin: 0;">Número do WhatsApp (DDD + Celular) *</label>
+                                <span class="pill-badge @(isWaVerified ? "pill-green" : "pill-amber")">
+                                    @(isWaVerified ? $"✓ WhatsApp Autenticado ({waCheck.FormattedDisplay})" : "⚠️ Não autenticado")
+                                </span>
                             </div>
-                        }
-
-                        @if (!string.IsNullOrWhiteSpace(_pendingWhatsappVerificationCode))
-                        {
-                            <div style="margin-top: 0.65rem; padding: 0.85rem; border-radius: 10px; border: 1.5px solid var(--adm-success); background: rgba(22, 163, 74, 0.08); display: flex; flex-direction: column; gap: 0.6rem;">
-                                <div style="font-size: 0.84rem; color: var(--adm-text); line-height: 1.45;">
-                                    📧 <strong>Digite o código de 6 dígitos enviado para o seu e-mail</strong> para confirmar o número <strong>@(waCheck.IsValid ? waCheck.FormattedDisplay : _form.WhatsappNumber)</strong>:
-                                </div>
-                                <div style="display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center;">
-                                    <input type="text"
-                                           maxlength="6"
-                                           class="adm-input"
-                                           style="max-width: 160px; font-family: monospace; font-weight: 800; font-size: 1.05rem; letter-spacing: 0.18em; text-align: center;"
-                                           @bind="_whatsappVerificationCodeInput"
-                                           @bind:event="oninput"
-                                           placeholder="000000" />
-                                    <button type="button"
-                                            class="adm-btn adm-btn-success"
-                                            style="font-weight: 700;"
-                                            @onclick="ConfirmWhatsappVerificationCodeAsync">
-                                        ✓ Confirmar Código
-                                    </button>
-                                    <button type="button"
-                                            class="adm-btn adm-btn-outline"
-                                            @onclick="SendWhatsappVerificationCodeAsync">
-                                        Reenviar E-mail
-                                    </button>
-                                </div>
+                            <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+                                <input type="text"
+                                       class="adm-input"
+                                       style="flex: 1 1 200px; min-width: 0;"
+                                       @bind="_form.WhatsappNumber"
+                                       @bind:event="oninput"
+                                       @bind:after="OnWhatsappInputChanged"
+                                       placeholder="Ex.: 11999990000" />
+                                <button type="button"
+                                        class="adm-btn @(isWaVerified ? "adm-btn-outline" : "adm-btn-success")"
+                                        style="white-space: nowrap;"
+                                        @onclick="SendWhatsappVerificationCodeAsync">
+                                    @(isWaVerified ? "🔄 Reconfirmar por E-mail" : "📧 Confirmar por E-mail")
+                                </button>
                             </div>
-                        }
-                    </div>
+                        </div>
+                    }
 
                     <div>
                         <label class="adm-label">Descrição e Bio da Loja *</label>
@@ -921,7 +891,7 @@ else
                         class="adm-btn adm-btn-outline"
                         style="flex: 1 1 200px; min-height: 46px; justify-content: center;"
                         @onclick='() => OpenSettingsSection("loja")'>
-                    📧 Verificar e-mail / WhatsApp
+                    🏪 Dados da loja
                 </button>
                 @if (Gateway.IsAdmin)
                 {
@@ -1010,7 +980,7 @@ else
 
     private string CurrentSectionSubtitle => _activeSettingsTab switch
     {
-        "loja" => "Nome, logotipo, descrição, link oficial e WhatsApp.",
+        "loja" => "Nome, logotipo, descrição e link oficial do catálogo.",
         "visual" => "Escolha um tema pronto e personalize as cores da sua vitrine.",
         "vendas" => "Configure chave Pix, Mercado Pago, entregas locais e CEP de frete.",
         "plano" => "Acompanhe seu plano atual, ative Gift Card e verifique o status VIP.",
@@ -1395,24 +1365,31 @@ else
         _success = null;
         try
         {
-            var waCheck = WhatsAppLinkBuilder.ValidateBrazilianWhatsAppNumber(_form.WhatsappNumber);
-            if (!waCheck.IsValid)
+            if (CatalogFeatureFlags.PhoneFeaturesEnabled)
             {
-                _error = !string.IsNullOrWhiteSpace(waCheck.Message)
-                    ? waCheck.Message
-                    : "Informe um número de WhatsApp válido (DDD + celular).";
-                return;
-            }
+                var waCheck = WhatsAppLinkBuilder.ValidateBrazilianWhatsAppNumber(_form.WhatsappNumber);
+                if (!waCheck.IsValid)
+                {
+                    _error = !string.IsNullOrWhiteSpace(waCheck.Message)
+                        ? waCheck.Message
+                        : "Informe um número de WhatsApp válido (DDD + celular).";
+                    return;
+                }
 
-            if (!IsCurrentWhatsappVerified())
+                if (!IsCurrentWhatsappVerified())
+                {
+                    _whatsappAuthFeedbackOk = false;
+                    _whatsappAuthFeedback = "⚠️ Este número de WhatsApp ainda não foi autorizado. Toque em '📧 Confirmar por E-mail' e digite o código de 6 dígitos antes de salvar.";
+                    _error = "Não é possível salvar ou usar este número de WhatsApp sem antes confirmá-lo pelo código enviado ao seu e-mail.";
+                    return;
+                }
+
+                _form.WhatsappNumber = waCheck.NormalizedNumber;
+            }
+            else if (string.IsNullOrWhiteSpace(_form.WhatsappNumber))
             {
-                _whatsappAuthFeedbackOk = false;
-                _whatsappAuthFeedback = "⚠️ Este número de WhatsApp ainda não foi autorizado. Toque em '📧 Confirmar por E-mail' e digite o código de 6 dígitos antes de salvar.";
-                _error = "Não é possível salvar ou usar este número de WhatsApp sem antes confirmá-lo pelo código enviado ao seu e-mail.";
-                return;
+                _form.WhatsappNumber = "5511900000000";
             }
-
-            _form.WhatsappNumber = waCheck.NormalizedNumber;
             if (_autoSyncSlugWithName || string.IsNullOrWhiteSpace(_form.StoreSlug))
             {
                 _form.StoreSlug = WhatsAppLinkBuilder.GenerateStoreSlug(_form.StoreName);
@@ -2107,23 +2084,30 @@ else
 
         if (string.IsNullOrWhiteSpace(_form.StoreName))
         {
-            _publishWizardMessage = "Preencha o Nome da Loja no card Identidade da Loja & WhatsApp antes de publicar.";
+            _publishWizardMessage = "Preencha o Nome da Loja no card Identidade da Loja antes de publicar.";
             return;
         }
 
-        if (string.IsNullOrWhiteSpace(_form.WhatsappNumber))
+        if (CatalogFeatureFlags.PhoneFeaturesEnabled)
         {
-            _publishWizardMessage = "Preencha o WhatsApp de Atendimento da loja antes de publicar.";
-            return;
-        }
+            if (string.IsNullOrWhiteSpace(_form.WhatsappNumber))
+            {
+                _publishWizardMessage = "Preencha o WhatsApp de Atendimento da loja antes de publicar.";
+                return;
+            }
 
-        if (!IsCurrentWhatsappVerified())
+            if (!IsCurrentWhatsappVerified())
+            {
+                _whatsappAuthFeedbackOk = false;
+                _whatsappAuthFeedback = "⚠️ Autentique o número de WhatsApp pelo código enviado ao seu e-mail antes de publicar.";
+                _publishWizardMessage = "⚠️ Confirme o número de WhatsApp por e-mail (código de 6 dígitos) antes de publicar a loja.";
+                _error = _publishWizardMessage;
+                return;
+            }
+        }
+        else if (string.IsNullOrWhiteSpace(_form.WhatsappNumber))
         {
-            _whatsappAuthFeedbackOk = false;
-            _whatsappAuthFeedback = "⚠️ Autentique o número de WhatsApp pelo código enviado ao seu e-mail antes de publicar.";
-            _publishWizardMessage = "⚠️ Confirme o número de WhatsApp por e-mail (código de 6 dígitos) antes de publicar a loja.";
-            _error = _publishWizardMessage;
-            return;
+            _form.WhatsappNumber = "5511900000000";
         }
 
         _publishingOneClick = true;

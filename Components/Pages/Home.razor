@@ -39,11 +39,22 @@
                         @onclick="CopyStoreLinkAsync">
                     @(_copiedLink ? "✓ Copiado!" : "Copiar link")
                 </button>
-                <button type="button"
-                        class="adm-btn adm-btn-success yl-share-btn"
-                        @onclick="ShareStoreOnWhatsAppAsync">
-                    WhatsApp
-                </button>
+                @if (CatalogFeatureFlags.PhoneFeaturesEnabled)
+                {
+                    <button type="button"
+                            class="adm-btn adm-btn-success yl-share-btn"
+                            @onclick="ShareStoreOnWhatsAppAsync">
+                        WhatsApp
+                    </button>
+                }
+                else
+                {
+                    <button type="button"
+                            class="adm-btn adm-btn-outline yl-share-btn"
+                            @onclick="() => Gateway.OpenExternalUrlSafeAsync(PublicStoreUrl)">
+                        🌐 Abrir catálogo
+                    </button>
+                }
             </div>
         </section>
     }
@@ -64,26 +75,29 @@
 
     @if (_summary is not null)
     {
-        <!-- Grade 2x2 Limpa de Resumo (Sem texto repetitivo, Vendas Hoje em Verde) -->
+        <!-- Grade Limpa de Resumo -->
         <section class="yl-summary-grid" aria-label="Resumo rápido da loja">
-            <a href="/vendas" class="yl-summary-card">
-                <span class="yl-summary-label">Vendas hoje</span>
-                @if (_salesReport?.IsUnlocked == true)
-                {
-                    <strong class="yl-summary-value yl-summary-value-green">@_salesReport.TodayConfirmedRevenue.ToString("C", PtBr)</strong>
-                }
-                else
-                {
-                    <strong class="yl-summary-value yl-summary-value-muted">Ver vendas</strong>
-                }
-            </a>
+            @if (CatalogFeatureFlags.SalesAndOrdersEnabled)
+            {
+                <a href="/vendas" class="yl-summary-card">
+                    <span class="yl-summary-label">Vendas hoje</span>
+                    @if (_salesReport?.IsUnlocked == true)
+                    {
+                        <strong class="yl-summary-value yl-summary-value-green">@_salesReport.TodayConfirmedRevenue.ToString("C", PtBr)</strong>
+                    }
+                    else
+                    {
+                        <strong class="yl-summary-value yl-summary-value-muted">Ver vendas</strong>
+                    }
+                </a>
 
-            <a href="@(Gateway.IsAdmin ? "/pedidos" : "/estoque")" class="yl-summary-card">
-                <span class="yl-summary-label">@(Gateway.IsAdmin ? "Pedidos novos" : "Estoque baixo")</span>
-                <strong class="yl-summary-value @(PendingOrdersOrAlertsCount > 0 ? "yl-summary-value-amber" : string.Empty)">
-                    @PendingOrdersOrAlertsCount
-                </strong>
-            </a>
+                <a href="@(Gateway.IsAdmin ? "/pedidos" : "/estoque")" class="yl-summary-card">
+                    <span class="yl-summary-label">@(Gateway.IsAdmin ? "Pedidos novos" : "Estoque baixo")</span>
+                    <strong class="yl-summary-value @(PendingOrdersOrAlertsCount > 0 ? "yl-summary-value-amber" : string.Empty)">
+                        @PendingOrdersOrAlertsCount
+                    </strong>
+                </a>
+            }
 
             <a href="/produtos" class="yl-summary-card">
                 <span class="yl-summary-label">Produtos ativos</span>
@@ -103,32 +117,35 @@
             </a>
         </section>
 
-        <!-- Cartão Único e Calmo: Últimas Vendas -->
-        <section class="adm-card adm-sales-mini-card">
-            <div class="adm-sales-mini-header">
-                <h2 class="adm-sales-mini-title">Últimas Vendas</h2>
-                <a href="@(_salesReport?.IsUnlocked == true ? "/vendas" : "/pedidos")" class="adm-sales-mini-link">
-                    Ver todas
-                </a>
-            </div>
+        @if (CatalogFeatureFlags.SalesAndOrdersEnabled)
+        {
+            <!-- Cartão Único e Calmo: Últimas Vendas -->
+            <section class="adm-card adm-sales-mini-card">
+                <div class="adm-sales-mini-header">
+                    <h2 class="adm-sales-mini-title">Últimas Vendas</h2>
+                    <a href="@(_salesReport?.IsUnlocked == true ? "/vendas" : "/pedidos")" class="adm-sales-mini-link">
+                        Ver todas
+                    </a>
+                </div>
 
-            @if (_recentSalesFeed.Count == 0)
-            {
-                <p class="adm-sales-mini-empty">Nenhuma venda registrada ainda. Compartilhe o link da sua loja acima para começar.</p>
-            }
-            else
-            {
-                <ul class="adm-sales-mini-list">
-                    @foreach (var sale in _recentSalesFeed)
-                    {
-                        <li class="adm-sales-mini-item">
-                            <span class="adm-sales-mini-what" title="@sale.WhatSold">@sale.WhatSold</span>
-                            <span class="adm-sales-mini-who" title="@sale.Who">@sale.Who</span>
-                        </li>
-                    }
-                </ul>
-            }
-        </section>
+                @if (_recentSalesFeed.Count == 0)
+                {
+                    <p class="adm-sales-mini-empty">Nenhuma venda registrada ainda. Compartilhe o link da sua loja acima para começar.</p>
+                }
+                else
+                {
+                    <ul class="adm-sales-mini-list">
+                        @foreach (var sale in _recentSalesFeed)
+                        {
+                            <li class="adm-sales-mini-item">
+                                <span class="adm-sales-mini-what" title="@sale.WhatSold">@sale.WhatSold</span>
+                                <span class="adm-sales-mini-who" title="@sale.Who">@sale.Who</span>
+                            </li>
+                        }
+                    </ul>
+                }
+            </section>
+        }
 
         <!-- Faixa Discreta de Reposição (só aparece se houver alerta e expande sob demanda) -->
         @if (_summary.StockAlerts.Count > 0)

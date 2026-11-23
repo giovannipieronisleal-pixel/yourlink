@@ -1,4 +1,5 @@
 @using ClothingStore.Application.Services
+@using ClothingStore.Shared.Helpers
 @inject MauiAdminGateway Gateway
 @inject CatalogService CatalogService
 @inject StoreBrandStateService BrandState
@@ -19,10 +20,13 @@
 
     @if (Gateway.IsAdmin)
     {
-        <NavLink class="adm-nav-item" href="/pedidos">
-            <span class="adm-nav-icon">🧾</span>
-            <span>Pedidos</span>
-        </NavLink>
+        @if (CatalogFeatureFlags.SalesAndOrdersEnabled)
+        {
+            <NavLink class="adm-nav-item" href="/pedidos">
+                <span class="adm-nav-icon">🧾</span>
+                <span>Pedidos</span>
+            </NavLink>
+        }
 
         <NavLink class="adm-nav-item" href="/configuracoes-loja" @onclick="() => Gateway.RequestSettingsHub()">
             <span class="adm-nav-icon">🏪</span>
@@ -57,10 +61,13 @@
         {
             var hasPaidSales = BrandState.IsIntermediatePlan || BrandState.IsPremiumPlan;
             <div class="adm-nav-desktop-sub">
-                <NavLink class="adm-nav-item adm-nav-secondary" href="/vendas">
-                    <span class="adm-nav-icon">💰</span>
-                    <span>Vendas@(hasPaidSales ? string.Empty : " 🔒")</span>
-                </NavLink>
+                @if (CatalogFeatureFlags.SalesAndOrdersEnabled)
+                {
+                    <NavLink class="adm-nav-item adm-nav-secondary" href="/vendas">
+                        <span class="adm-nav-icon">💰</span>
+                        <span>Vendas@(hasPaidSales ? string.Empty : " 🔒")</span>
+                    </NavLink>
+                }
                 @if (Gateway.IsAdmin)
                 {
                     <NavLink class="adm-nav-item adm-nav-secondary" href="/estoque">
@@ -193,7 +200,7 @@
                     </span>
                     <span class="adm-mobile-sheet-chevron" aria-hidden="true">›</span>
                 </NavLink>
-                @if (Gateway.IsAdmin || Gateway.CanManageStock)
+                @if (CatalogFeatureFlags.SalesAndOrdersEnabled && (Gateway.IsAdmin || Gateway.CanManageStock))
                 {
                     <NavLink class="adm-mobile-sheet-link" href="/vendas" @onclick="CloseMobileMore">
                         <span class="adm-mobile-sheet-icon">💰</span>
@@ -206,14 +213,17 @@
                 }
                 @if (Gateway.IsAdmin)
                 {
-                    <NavLink class="adm-mobile-sheet-link" href="/pedidos" @onclick="CloseMobileMore">
-                        <span class="adm-mobile-sheet-icon">🧾</span>
-                        <span class="adm-mobile-sheet-copy">
-                            <span class="adm-mobile-sheet-item-title">Pedidos Pix</span>
-                            <span class="adm-mobile-sheet-item-desc">Confirmar pagamentos e entregas</span>
-                        </span>
-                        <span class="adm-mobile-sheet-chevron" aria-hidden="true">›</span>
-                    </NavLink>
+                    @if (CatalogFeatureFlags.SalesAndOrdersEnabled)
+                    {
+                        <NavLink class="adm-mobile-sheet-link" href="/pedidos" @onclick="CloseMobileMore">
+                            <span class="adm-mobile-sheet-icon">🧾</span>
+                            <span class="adm-mobile-sheet-copy">
+                                <span class="adm-mobile-sheet-item-title">Pedidos Pix</span>
+                                <span class="adm-mobile-sheet-item-desc">Confirmar pagamentos e entregas</span>
+                            </span>
+                            <span class="adm-mobile-sheet-chevron" aria-hidden="true">›</span>
+                        </NavLink>
+                    }
                     <NavLink class="adm-mobile-sheet-link" href="/configuracoes-loja" @onclick="CloseMobileMore">
                         <span class="adm-mobile-sheet-icon">🎨</span>
                         <span class="adm-mobile-sheet-copy">
@@ -264,7 +274,7 @@
                 Consulte o guia de instalação no Windows/Android, documentos de privacidade ou fale com nosso suporte quando disponível.
             </p>
             <div style="display: flex; flex-direction: column; gap: 0.55rem;">
-                @if (!string.IsNullOrWhiteSpace(SupportWhatsappUrl))
+                @if (CatalogFeatureFlags.PhoneFeaturesEnabled && !string.IsNullOrWhiteSpace(SupportWhatsappUrl))
                 {
                     <button type="button"
                             class="adm-btn adm-btn-success"
