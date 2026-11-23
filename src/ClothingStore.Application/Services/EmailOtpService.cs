@@ -189,7 +189,7 @@ public sealed class EmailOtpService
             MaskedEmail: masked,
             ExpiresInSeconds: OtpExpirySeconds,
             ResendAfterSeconds: ResendCooldownSeconds,
-            Message: $"Código de 6 dígitos enviado para {masked}! Verifique também a caixa de spam (válido por 10 min).");
+            Message: $"Código de 6 dígitos enviado para {masked}! Verifique a Caixa de Entrada (ou abas Atualizações/Promoções/Spam — válido por 10 min).");
     }
 
     public VerifyEmailOtpResponse VerifyOtp(VerifyEmailOtpRequest request)
@@ -281,9 +281,13 @@ public sealed class EmailOtpService
         {
             from = $"{fromName} <{fromEmail}>",
             to = new[] { recipientEmail },
-            subject = $"Seu código de verificação YouLink: {code}",
+            subject = BuildEmailSubject(code),
             html = BuildEmailHtml(code, contextLabel),
-            text = BuildEmailPlainText(code, contextLabel)
+            text = BuildEmailPlainText(code, contextLabel),
+            headers = new Dictionary<string, string>
+            {
+                ["X-Entity-Ref-ID"] = Guid.NewGuid().ToString("N")
+            }
         };
 
         using var req = new HttpRequestMessage(HttpMethod.Post, "https://api.resend.com/emails");
@@ -305,9 +309,13 @@ public sealed class EmailOtpService
         {
             sender = new { name = fromName, email = cfg.FromEmail!.Trim() },
             to = new[] { new { email = recipientEmail } },
-            subject = $"Seu código de verificação YouLink: {code}",
+            subject = BuildEmailSubject(code),
             htmlContent = BuildEmailHtml(code, contextLabel),
-            textContent = BuildEmailPlainText(code, contextLabel)
+            textContent = BuildEmailPlainText(code, contextLabel),
+            headers = new Dictionary<string, string>
+            {
+                ["X-Entity-Ref-ID"] = Guid.NewGuid().ToString("N")
+            }
         };
 
         using var req = new HttpRequestMessage(HttpMethod.Post, "https://api.brevo.com/v3/smtp/email");
@@ -332,11 +340,12 @@ public sealed class EmailOtpService
             using var message = new MailMessage
             {
                 From = new MailAddress(fromEmail, fromName),
-                Subject = $"Seu código de verificação YouLink: {code}",
+                Subject = BuildEmailSubject(code),
                 Body = BuildEmailHtml(code, contextLabel),
                 IsBodyHtml = true
             };
             message.To.Add(recipientEmail);
+            message.Headers.Add("X-Entity-Ref-ID", Guid.NewGuid().ToString("N"));
 
             using var client = new SmtpClient(cfg.SmtpHost!.Trim(), cfg.SmtpPort)
             {
@@ -378,24 +387,21 @@ public sealed class EmailOtpService
         }
     }
 
+    private static string BuildEmailSubject(string code) =>
+        $"{code} é o seu código de segurança YouLink";
+
     private static string BuildEmailPlainText(string code, string contextLabel) =>
-        $"Olá!\n\nSeu código de verificação YouLink ({contextLabel}) é: {code}\n\nEste código expira em 10 minutos e é de uso único.\nSe você não solicitou este código, ignore este e-mail.";
+        $"Olá,\n\nSeu código de segurança YouLink ({contextLabel}) é: {code}\n\nEste código é de uso único e expira em 10 minutos.\nSe você não solicitou este código, basta ignorar esta mensagem.";
 
     private static string BuildEmailHtml(string code, string contextLabel)
     {
         var safeContext = WebUtility.HtmlEncode(contextLabel);
         return $"""
-            <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 480px; margin: 0 auto; padding: 24px; background: #0f141e; color: #f8fafc; border-radius: 16px;">
-              <div style="font-size: 20px; font-weight: 800; margin-bottom: 8px; color: #ffffff;">YouLink</div>
-              <p style="color: #cbd5e1; font-size: 14px; line-height: 1.5; margin: 0 0 18px;">
-                Use o código abaixo para concluir a <strong>{safeContext}</strong>:
-              </p>
-              <div style="background: #1a2233; border: 1px solid #334155; border-radius: 12px; padding: 18px; text-align: center; font-size: 32px; font-weight: 900; letter-spacing: 0.25em; color: #60a5fa; font-family: monospace;">
-                {code}
-              </div>
-              <p style="color: #94a3b8; font-size: 12px; line-height: 1.5; margin: 18px 0 0;">
-                Este código expira em <strong>10 minutos</strong> e é de uso único. Nunca compartilhe este código com terceiros.
-              </p>
+            <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif; color: #111827; font-size: 15px; line-height: 1.6; max-width: 520px;">
+              <p style="margin: 0 0 12px;">Olá,</p>
+              <p style="margin: 0 0 16px;">Use o código de segurança abaixo para concluir a <strong>{safeContext}</strong> no YouLink:</p>
+              <p style="margin: 0 0 16px; font-size: 28px; font-weight: 700; letter-spacing: 0.2em; font-family: monospace; color: #111827;">{code}</p>
+              <p style="margin: 0; font-size: 13px; color: #4b5563;">Este código é de uso único e expira em 10 minutos. Se você não solicitou este código, ignore este e-mail.</p>
             </div>
             """;
     }
