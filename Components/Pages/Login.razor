@@ -1151,6 +1151,29 @@
                 return;
             }
             _initStoreWhatsapp = waValidation.NormalizedNumber;
+
+            var verifiedPref = string.Empty;
+            try
+            {
+                verifiedPref = Preferences.Default.Get($"youlink_verified_whatsapp_v1_{Gateway.CurrentWorkspaceId}", string.Empty);
+            }
+            catch
+            {
+            }
+
+            var isInitWaVerified =
+                (!string.IsNullOrWhiteSpace(_initVerifiedWhatsapp) &&
+                 string.Equals(waValidation.NormalizedNumber, _initVerifiedWhatsapp, StringComparison.Ordinal)) ||
+                (!string.IsNullOrWhiteSpace(verifiedPref) &&
+                 string.Equals(waValidation.NormalizedNumber, verifiedPref, StringComparison.Ordinal));
+
+            if (!isInitWaVerified)
+            {
+                _setupErrorMessage = "Não é possível concluir sem confirmar o WhatsApp pelo código de 6 dígitos enviado para o seu e-mail. Toque em '📧 Confirmar por E-mail'.";
+                _initWhatsappFeedbackOk = false;
+                _initWhatsappFeedback = "⚠️ Confirme este número pelo código enviado ao seu e-mail antes de continuar.";
+                return;
+            }
         }
         else
         {

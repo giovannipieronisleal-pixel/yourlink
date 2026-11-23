@@ -92,8 +92,79 @@
                     </div>
 
                     <div>
-                        <label class="adm-label">Telefone / WhatsApp</label>
-                        <input type="text" class="adm-input" @bind="_profilePhone" placeholder="Ex.: 11999990000" />
+                        @{
+                            var profileWaCheck = WhatsAppLinkBuilder.ValidateBrazilianWhatsAppNumber(_profilePhone);
+                            var hasProfilePhone = !string.IsNullOrWhiteSpace(_profilePhone);
+                            var isProfileWaVerified = profileWaCheck.IsValid &&
+                                                      !string.IsNullOrWhiteSpace(_verifiedProfileWhatsapp) &&
+                                                      string.Equals(profileWaCheck.NormalizedNumber, _verifiedProfileWhatsapp, StringComparison.Ordinal);
+                        }
+                        <div style="display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 0.35rem;">
+                            <label class="adm-label" style="margin: 0;">Telefone / WhatsApp</label>
+                            @if (hasProfilePhone)
+                            {
+                                <span class="pill-badge @(isProfileWaVerified ? "pill-green" : "pill-amber")">
+                                    @(isProfileWaVerified ? $"✓ WhatsApp Autenticado ({profileWaCheck.FormattedDisplay})" : "⚠️ Não autenticado")
+                                </span>
+                            }
+                        </div>
+                        <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+                            <input type="text"
+                                   class="adm-input"
+                                   style="flex: 1 1 190px; min-width: 0;"
+                                   @bind="_profilePhone"
+                                   @bind:event="oninput"
+                                   @bind:after="OnProfilePhoneChanged"
+                                   placeholder="Ex.: 11999990000" />
+                            <button type="button"
+                                    class="adm-btn @(isProfileWaVerified ? "adm-btn-outline" : "adm-btn-success")"
+                                    style="white-space: nowrap;"
+                                    disabled="@_isBusy"
+                                    @onclick="SendProfileWhatsappVerificationCodeAsync">
+                                @(isProfileWaVerified ? "🔄 Reconfirmar por E-mail" : "📧 Confirmar por E-mail")
+                            </button>
+                        </div>
+                        <span style="font-size: 0.78rem; color: var(--adm-muted); display: block; margin-top: 0.3rem;">
+                            Para salvar um número de WhatsApp no perfil, confirme o código de 6 dígitos enviado para o seu e-mail.
+                        </span>
+
+                        @if (!string.IsNullOrWhiteSpace(_profileWaFeedback))
+                        {
+                            <div style="margin-top: 0.45rem; font-size: 0.82rem; font-weight: 600; color: @(_profileWaFeedbackOk ? "var(--adm-success)" : "var(--adm-danger)");">
+                                @_profileWaFeedback
+                            </div>
+                        }
+
+                        @if (!string.IsNullOrWhiteSpace(_pendingProfileWaEmail))
+                        {
+                            <div style="margin-top: 0.65rem; padding: 0.85rem; border-radius: 10px; border: 1.5px solid var(--adm-success); background: rgba(22, 163, 74, 0.08); display: flex; flex-direction: column; gap: 0.6rem;">
+                                <div style="font-size: 0.84rem; color: var(--adm-text); line-height: 1.45;">
+                                    📧 <strong>Digite o código de 6 dígitos enviado para o seu e-mail</strong> para confirmar o número <strong>@(profileWaCheck.IsValid ? profileWaCheck.FormattedDisplay : _profilePhone)</strong>:
+                                </div>
+                                <div style="display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center;">
+                                    <input type="text"
+                                           maxlength="6"
+                                           class="adm-input"
+                                           style="max-width: 160px; font-family: monospace; font-weight: 800; font-size: 1.05rem; letter-spacing: 0.18em; text-align: center;"
+                                           @bind="_profileWaCodeInput"
+                                           @bind:event="oninput"
+                                           placeholder="000000" />
+                                    <button type="button"
+                                            class="adm-btn adm-btn-success"
+                                            style="font-weight: 700;"
+                                            disabled="@_isBusy"
+                                            @onclick="ConfirmProfileWhatsappVerificationCodeAsync">
+                                        ✓ Confirmar Código
+                                    </button>
+                                    <button type="button"
+                                            class="adm-btn adm-btn-outline"
+                                            disabled="@_isBusy"
+                                            @onclick="SendProfileWhatsappVerificationCodeAsync">
+                                        Reenviar E-mail
+                                    </button>
+                                </div>
+                            </div>
+                        }
                     </div>
 
                     <button type="button"
@@ -309,6 +380,12 @@
     private string _profileUsername = string.Empty;
     private string _profileEmail = string.Empty;
     private string _profilePhone = string.Empty;
+    private string? _verifiedProfileWhatsapp;
+    private string? _pendingProfileWaEmail;
+    private string? _pendingProfileWaTarget;
+    private string _profileWaCodeInput = string.Empty;
+    private string? _profileWaFeedback;
+    private bool _profileWaFeedbackOk;
 
     // Senha (exclusivo via código no e-mail)
     private bool _passwordResetCodeSent;
@@ -323,6 +400,9 @@
     private string _disableTwoFactorPassword = string.Empty;
     private bool _wasOpen;
 
+    private string GetVerifiedWhatsappPreferenceKey() =>
+        $"youlink_verified_whatsapp_v1_{Gateway.CurrentWorkspaceId}";
+
     protected override void OnParametersSet()
     {
         if (IsOpen && !_wasOpen)
@@ -333,9 +413,165 @@
             _profileUsername = Gateway.CurrentEmployee?.EffectiveUsername ?? "";
             _profileEmail = Gateway.CurrentEmployee?.Email ?? "";
             _profilePhone = Gateway.CurrentEmployee?.Phone ?? "";
+            _pendingProfileWaEmail = null;
+            _pendingProfileWaTarget = null;
+            _profileWaCodeInput = string.Empty;
+            _profileWaFeedback = null;
+            try
+            {
+                _verifiedProfileWhatsapp = Preferences.Default.Get(GetVerifiedWhatsappPreferenceKey(), string.Empty);
+            }
+            catch
+            {
+                _verifiedProfileWhatsapp = null;
+            }
         }
 
         _wasOpen = IsOpen;
+    }
+
+    private void OnProfilePhoneChanged()
+    {
+        _profileWaFeedback = null;
+        var currentNormalized = WhatsAppLinkBuilder.ValidateBrazilianWhatsAppNumber(_profilePhone).NormalizedNumber;
+        if (!string.Equals(currentNormalized, _pendingProfileWaTarget, StringComparison.Ordinal))
+        {
+            _pendingProfileWaEmail = null;
+            _profileWaCodeInput = string.Empty;
+        }
+    }
+
+    private async Task SendProfileWhatsappVerificationCodeAsync()
+    {
+        _error = null;
+        _success = null;
+        _profileWaFeedback = null;
+
+        var check = WhatsAppLinkBuilder.ValidateBrazilianWhatsAppNumber(_profilePhone);
+        if (!check.IsValid)
+        {
+            _profileWaFeedbackOk = false;
+            _profileWaFeedback = "⚠️ " + check.Message;
+            return;
+        }
+
+        var recipientEmail = !string.IsNullOrWhiteSpace(Gateway.CurrentEmployee?.Email)
+            ? Gateway.CurrentEmployee!.Email.Trim()
+            : _profileEmail.Trim();
+
+        if (string.IsNullOrWhiteSpace(recipientEmail))
+        {
+            _profileWaFeedbackOk = false;
+            _profileWaFeedback = "⚠️ Informe um Gmail / E-mail válido no seu perfil para receber o código de verificação.";
+            return;
+        }
+
+        _profilePhone = check.NormalizedNumber;
+        _pendingProfileWaTarget = check.NormalizedNumber;
+        _profileWaCodeInput = string.Empty;
+        _isBusy = true;
+
+        try
+        {
+            var resp = await Gateway.SendEmailVerificationCodeAsync(
+                recipientEmail,
+                purpose: "profile_whatsapp_verification",
+                contextLabel: $"confirmação do WhatsApp do perfil ({check.FormattedDisplay})");
+
+            if (resp.Sent)
+            {
+                _pendingProfileWaEmail = recipientEmail;
+                _profileWaFeedbackOk = true;
+                _profileWaFeedback = "📧 " + resp.Message;
+            }
+            else
+            {
+                _pendingProfileWaEmail = null;
+                _profileWaFeedbackOk = false;
+                _profileWaFeedback = "⚠️ " + resp.Message;
+            }
+        }
+        catch (Exception ex)
+        {
+            _pendingProfileWaEmail = null;
+            _profileWaFeedbackOk = false;
+            _profileWaFeedback = "⚠️ " + ex.Message;
+        }
+        finally
+        {
+            _isBusy = false;
+        }
+    }
+
+    private async Task ConfirmProfileWhatsappVerificationCodeAsync()
+    {
+        _error = null;
+        _success = null;
+
+        var typed = WhatsAppLinkBuilder.SanitizePhoneNumber(_profileWaCodeInput);
+        var recipientEmail = !string.IsNullOrWhiteSpace(_pendingProfileWaEmail)
+            ? _pendingProfileWaEmail
+            : !string.IsNullOrWhiteSpace(Gateway.CurrentEmployee?.Email)
+                ? Gateway.CurrentEmployee!.Email.Trim()
+                : _profileEmail.Trim();
+
+        if (string.IsNullOrWhiteSpace(recipientEmail) || typed.Length != 6)
+        {
+            _profileWaFeedbackOk = false;
+            _profileWaFeedback = "❌ Digite os 6 dígitos do código enviado para o seu e-mail.";
+            return;
+        }
+
+        var check = WhatsAppLinkBuilder.ValidateBrazilianWhatsAppNumber(_profilePhone);
+        if (!check.IsValid)
+        {
+            _profileWaFeedbackOk = false;
+            _profileWaFeedback = "⚠️ " + check.Message;
+            return;
+        }
+
+        _isBusy = true;
+        try
+        {
+            var verify = await Gateway.VerifyEmailVerificationCodeAsync(
+                recipientEmail,
+                typed,
+                purpose: "profile_whatsapp_verification");
+
+            if (!verify.Verified)
+            {
+                _profileWaFeedbackOk = false;
+                _profileWaFeedback = "❌ " + verify.Message;
+                return;
+            }
+
+            _verifiedProfileWhatsapp = check.NormalizedNumber;
+            _profilePhone = check.NormalizedNumber;
+            _pendingProfileWaEmail = null;
+            _profileWaCodeInput = string.Empty;
+            try
+            {
+                Preferences.Default.Set(GetVerifiedWhatsappPreferenceKey(), check.NormalizedNumber);
+            }
+            catch
+            {
+            }
+
+            _profileWaFeedbackOk = true;
+            _profileWaFeedback = $"✅ WhatsApp {check.FormattedDisplay} confirmado por e-mail!";
+        }
+        catch (Exception ex)
+        {
+            _profileWaFeedbackOk = false;
+            _profileWaFeedback = "❌ " + ex.Message;
+            return;
+        }
+        finally
+        {
+            _isBusy = false;
+        }
+
+        await SaveProfileAsync();
     }
 
     private void SetTab(string tab)
@@ -381,6 +617,32 @@
     {
         _error = null;
         _success = null;
+
+        if (!string.IsNullOrWhiteSpace(_profilePhone))
+        {
+            var waCheck = WhatsAppLinkBuilder.ValidateBrazilianWhatsAppNumber(_profilePhone);
+            if (!waCheck.IsValid)
+            {
+                _error = waCheck.Message;
+                _profileWaFeedbackOk = false;
+                _profileWaFeedback = "⚠️ " + waCheck.Message;
+                return;
+            }
+
+            var isVerified = !string.IsNullOrWhiteSpace(_verifiedProfileWhatsapp) &&
+                             string.Equals(waCheck.NormalizedNumber, _verifiedProfileWhatsapp, StringComparison.Ordinal);
+
+            if (!isVerified)
+            {
+                _error = "Não é possível salvar este Telefone / WhatsApp sem antes confirmá-lo pelo código de 6 dígitos enviado para o seu e-mail. Toque em '📧 Confirmar por E-mail'.";
+                _profileWaFeedbackOk = false;
+                _profileWaFeedback = "⚠️ Confirme este número pelo código enviado ao seu e-mail antes de salvar.";
+                return;
+            }
+
+            _profilePhone = waCheck.NormalizedNumber;
+        }
+
         _isBusy = true;
         try
         {
