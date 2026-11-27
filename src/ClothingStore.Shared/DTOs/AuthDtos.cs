@@ -256,7 +256,8 @@ public sealed record CloudAccountCredentialSyncDto(
     bool IsBillingSuspended = false,
     string? BillingWarningMessage = null,
     string? CloudSessionToken = null,
-    string? EmailOtpCode = null);
+    string? EmailOtpCode = null,
+    bool IsEmailVerified = false);
 
 public sealed record CloudVerifyLoginResponseDto(
     bool Verified,
@@ -264,7 +265,8 @@ public sealed record CloudVerifyLoginResponseDto(
     CloudAccountCredentialSyncDto? Account = null,
     string? Message = null,
     string? CloudSessionToken = null,
-    DateTimeOffset? CloudSessionExpiresAt = null);
+    DateTimeOffset? CloudSessionExpiresAt = null,
+    bool IsEmailVerified = false);
 
 public sealed record CloudPlanStatusDto(
     string PlanTier,

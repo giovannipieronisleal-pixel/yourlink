@@ -176,8 +176,11 @@ jobs:
           YOULINK_WIN_PUBLISH_DIR: dist/YouLink-Windows
         run: dotnet run --project tests/ClothingStore.UnitTests/ClothingStore.UnitTests.csproj -c Release
 
-      - name: Montar pacote organizado e Instalador Windows (YouLink.exe + Setup)
+      - name: Montar pacote organizado e Instalador Windows Assinado (YouLink.exe + Setup)
         shell: pwsh
+        env:
+          WINDOWS_CODESIGN_PFX_BASE64: ${{ secrets.WINDOWS_CODESIGN_PFX_BASE64 }}
+          WINDOWS_CODESIGN_PASSWORD: ${{ secrets.WINDOWS_CODESIGN_PASSWORD }}
         run: |
           [xml]$proj = Get-Content appmaui.blazor.csproj
           $appVer = ($proj.Project.PropertyGroup.ApplicationDisplayVersion | Where-Object { $_ } | Select-Object -First 1).Trim()

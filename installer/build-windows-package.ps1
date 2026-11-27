@@ -1,4 +1,4 @@
-param(
+﻿param(
     [string]$PublishDir = "dist/YouLink-Windows",
     [string]$OutputZipPath = "dist-zip/YouLink-Windows-x64.zip",
     [string]$OutputInstallerDir = "dist-installer",
@@ -108,6 +108,14 @@ if ($LASTEXITCODE -ne 0 -or -not (Test-Path $launcherExeOut)) {
     throw "Falha ao compilar YouLink.exe launcher (código $LASTEXITCODE)."
 }
 
+$signScript = Join-Path $PSScriptRoot "sign-windows-binaries.ps1"
+$mainAppExe = Join-Path $appDir "appmaui.blazor.exe"
+Write-Host "Assinando executáveis principais (appmaui.blazor.exe + YouLink.exe)..."
+& powershell.exe -NoProfile -ExecutionPolicy Bypass -File $signScript -FilePaths @($mainAppExe, $launcherExeOut)
+if ($LASTEXITCODE -ne 0) {
+    throw "Falha ao assinar executáveis Windows (código $LASTEXITCODE)."
+}
+
 $readmeTxt = @"
 ============================================================
   YouLink v$Version — Versão Windows (x64)
@@ -166,6 +174,14 @@ if ($BuildInstaller -or $RequireInstaller) {
         & $iscc "/DMyAppVersion=$Version" "/DPackageDir=$bundleDir" "/DOutputSetupDir=$resolvedInstallerDir" $issPath
         if ($LASTEXITCODE -ne 0) {
             throw "ISCC.exe falhou com código $LASTEXITCODE."
+        }
+        $generatedSetupExe = Join-Path $resolvedInstallerDir "YouLink-Setup-x64.exe"
+        if (Test-Path $generatedSetupExe) {
+            Write-Host "Assinando instalador Windows (YouLink-Setup-x64.exe)..."
+            & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $signScript -FilePaths @($generatedSetupExe)
+            if ($LASTEXITCODE -ne 0) {
+                throw "Falha ao assinar YouLink-Setup-x64.exe (código $LASTEXITCODE)."
+            }
         }
     }
     elseif ($RequireInstaller) {

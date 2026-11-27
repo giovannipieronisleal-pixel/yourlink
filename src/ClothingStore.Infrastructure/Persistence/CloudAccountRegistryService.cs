@@ -115,6 +115,19 @@ public sealed class CloudAccountRegistryService
                     Message: "Este nome de usuário já está em uso por outra conta.");
             }
 
+            var emailConflict = _state.Accounts.FirstOrDefault(a =>
+                !ReferenceEquals(a, existing) &&
+                !string.IsNullOrWhiteSpace(a.Email) &&
+                string.Equals(NormalizeIdentifier(a.Email), email, StringComparison.OrdinalIgnoreCase));
+
+            if (emailConflict is not null)
+            {
+                return new CloudAccountUpsertResult(
+                    Success: false,
+                    StatusCode: 409,
+                    Message: "Este e-mail já está em uso por outra conta.");
+            }
+
             var now = DateTimeOffset.UtcNow;
             string? issuedToken = null;
             DateTimeOffset? issuedExpiresAt = null;
@@ -122,20 +135,25 @@ public sealed class CloudAccountRegistryService
             if (existing is not null)
             {
                 var isClaimingUnregisteredEntitlement = string.IsNullOrWhiteSpace(existing.PasswordHash);
+                var isEmailChange = !string.IsNullOrWhiteSpace(existing.Email) &&
+                                    !string.Equals(NormalizeIdentifier(existing.Email), email, StringComparison.OrdinalIgnoreCase);
+
                 if (isClaimingUnregisteredEntitlement)
                 {
-                    var hasPreProvisionedPaidOrCourtesyPlan =
-                        !string.IsNullOrWhiteSpace(existing.PlanTier) &&
-                        !string.Equals(StoreSettings.NormalizePlanTier(existing.PlanTier), StoreSettings.PlanTierBasic, StringComparison.OrdinalIgnoreCase);
-
-                    // Segurança crítica (Item 6): contas com plano pré-liberado e sem senha exigem confirmação
-                    // prévia de posse do e-mail (OTP 6 dígitos) antes que alguém possa assumir o plano.
-                    if (hasPreProvisionedPaidOrCourtesyPlan && !hasValidSyncKey && !emailVerifiedByServer)
+                    // Segurança crítica (Item A): todo cadastro/assunção de conta exige confirmação
+                    // prévia de posse do e-mail (OTP 6 dígitos) antes de gravar senha ou assumir plano.
+                    if (!hasValidSyncKey && !emailVerifiedByServer)
                     {
+                        var hasPreProvisionedPaidOrCourtesyPlan =
+                            !string.IsNullOrWhiteSpace(existing.PlanTier) &&
+                            !string.Equals(StoreSettings.NormalizePlanTier(existing.PlanTier), StoreSettings.PlanTierBasic, StringComparison.OrdinalIgnoreCase);
+
                         return new CloudAccountUpsertResult(
                             Success: false,
                             StatusCode: 403,
-                            Message: "Este e-mail possui um plano pré-liberado. Confirme o código de verificação enviado para o seu e-mail antes de concluir o cadastro.",
+                            Message: hasPreProvisionedPaidOrCourtesyPlan
+                                ? "Este e-mail possui um plano pré-liberado. Confirme o código de verificação enviado para o seu e-mail antes de concluir o cadastro."
+                                : "Confirme o código de verificação de 6 dígitos enviado para o seu e-mail antes de concluir o cadastro.",
                             RequiresEmailVerification: true);
                     }
                 }
@@ -151,6 +169,16 @@ public sealed class CloudAccountRegistryService
                             StatusCode: 401,
                             Message: "Já existe uma conta na nuvem com este e-mail. Use a aba Entrar ou recupere sua senha.");
                     }
+
+                    // Segurança crítica (Item A): troca de e-mail exige confirmação por código OTP no novo endereço.
+                    if (isEmailChange && !hasValidSyncKey && !emailVerifiedByServer)
+                    {
+                        return new CloudAccountUpsertResult(
+                            Success: false,
+                            StatusCode: 403,
+                            Message: "Para alterar o e-mail da conta, confirme primeiro o código de verificação de 6 dígitos enviado para o novo endereço de e-mail.",
+                            RequiresEmailVerification: true);
+                    }
                 }
 
                 var passwordChanged = !string.Equals(existing.PasswordHash, passwordHash, StringComparison.Ordinal);
@@ -161,6 +189,17 @@ public sealed class CloudAccountRegistryService
                 existing.Phone = TrimOrNull(dto.Phone) ?? existing.Phone;
                 existing.StoreName = (!IsGenericStoreIdentifier(dto.StoreName) ? TrimOrNull(dto.StoreName) : null) ?? existing.StoreName;
                 existing.StoreSlug = (!IsGenericStoreIdentifier(dto.StoreSlug) ? TrimOrNull(dto.StoreSlug) : null) ?? existing.StoreSlug;
+                if (emailVerifiedByServer)
+                {
+                    existing.IsEmailVerified = true;
+                    existing.EmailVerifiedAt = isEmailChange ? now : (existing.EmailVerifiedAt ?? now);
+                }
+                else if (isEmailChange)
+                {
+                    existing.IsEmailVerified = false;
+                    existing.EmailVerifiedAt = null;
+                }
+
                 if (hasValidSyncKey && !string.IsNullOrWhiteSpace(dto.PlanTier))
                 {
                     existing.PlanTier = StoreSettings.NormalizePlanTier(dto.PlanTier);
@@ -170,7 +209,7 @@ public sealed class CloudAccountRegistryService
                     existing.PlanUpdatedAt = now;
                 }
 
-                if (passwordChanged)
+                if (passwordChanged || isEmailChange)
                 {
                     existing.Sessions.Clear();
                     existing.FailedLoginAttempts = 0;
@@ -182,6 +221,15 @@ public sealed class CloudAccountRegistryService
             }
             else
             {
+                if (!hasValidSyncKey && !emailVerifiedByServer)
+                {
+                    return new CloudAccountUpsertResult(
+                        Success: false,
+                        StatusCode: 403,
+                        Message: "Confirme o código de verificação de 6 dígitos enviado para o seu e-mail antes de concluir o cadastro.",
+                        RequiresEmailVerification: true);
+                }
+
                 var created = new CloudAccountEntry
                 {
                     Email = email,
@@ -191,6 +239,8 @@ public sealed class CloudAccountRegistryService
                     Phone = TrimOrNull(dto.Phone),
                     StoreName = TrimOrNull(dto.StoreName),
                     StoreSlug = TrimOrNull(dto.StoreSlug),
+                    IsEmailVerified = emailVerifiedByServer,
+                    EmailVerifiedAt = emailVerifiedByServer ? now : null,
                     PlanTier = hasValidSyncKey && !string.IsNullOrWhiteSpace(dto.PlanTier)
                         ? StoreSettings.NormalizePlanTier(dto.PlanTier)
                         : null,
@@ -218,12 +268,12 @@ public sealed class CloudAccountRegistryService
         }
     }
 
-    public async Task<(bool Verified, string? Email, string? Username, string? StoreSlug)> ValidateSessionTokenAsync(
+    public async Task<(bool Verified, string? Email, string? Username, string? StoreSlug, bool IsEmailVerified)> ValidateSessionTokenAsync(
         string? rawToken,
         CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(rawToken))
-            return (false, null, null, null);
+            return (false, null, null, null, false);
 
         var tokenHash = HashSessionTokenSha256(rawToken.Trim());
         var tokenHashBytes = Encoding.ASCII.GetBytes(tokenHash);
@@ -247,12 +297,33 @@ public sealed class CloudAccountRegistryService
                     if (storedBytes.Length == tokenHashBytes.Length &&
                         System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(storedBytes, tokenHashBytes))
                     {
-                        return (true, acc.Email, acc.Username, acc.StoreSlug);
+                        return (true, acc.Email, acc.Username, acc.StoreSlug, acc.IsEmailVerified);
                     }
                 }
             }
 
-            return (false, null, null, null);
+            return (false, null, null, null, false);
+        }
+        finally
+        {
+            _lock.Release();
+        }
+    }
+
+    public async Task<bool> IsEmailVerifiedAsync(string? email, CancellationToken ct = default)
+    {
+        var normalized = NormalizeIdentifier(email);
+        if (string.IsNullOrWhiteSpace(normalized))
+            return false;
+
+        await _lock.WaitAsync(ct);
+        try
+        {
+            RefreshFromDiskIfModifiedUnsafe();
+            var match = _state.Accounts.FirstOrDefault(a =>
+                !string.IsNullOrWhiteSpace(a.Email) &&
+                string.Equals(NormalizeIdentifier(a.Email), normalized, StringComparison.OrdinalIgnoreCase));
+            return match?.IsEmailVerified == true;
         }
         finally
         {
@@ -356,10 +427,12 @@ public sealed class CloudAccountRegistryService
                     BillingGraceEndsAt: match.BillingGraceEndsAt,
                     IsBillingSuspended: match.IsBillingSuspended,
                     BillingWarningMessage: match.BillingWarningMessage,
-                    CloudSessionToken: sessionToken),
+                    CloudSessionToken: sessionToken,
+                    IsEmailVerified: match.IsEmailVerified),
                 Message: "Conta verificada com sucesso.",
                 CloudSessionToken: sessionToken,
-                CloudSessionExpiresAt: sessionExpiresAt);
+                CloudSessionExpiresAt: sessionExpiresAt,
+                IsEmailVerified: match.IsEmailVerified);
         }
         finally
         {
@@ -856,7 +929,8 @@ public sealed class CloudAccountRegistryService
             a.LastClientCheckInAt,
             a.LastReportedClientPlanTier,
             a.LastClientAppVersion,
-            HasPassword: !string.IsNullOrWhiteSpace(a.PasswordHash));
+            HasPassword: !string.IsNullOrWhiteSpace(a.PasswordHash),
+            IsEmailVerified: a.IsEmailVerified);
 
     private static bool ResolveIsCourtesyVip(CloudAccountEntry entry)
     {
@@ -1055,6 +1129,8 @@ public sealed class CloudAccountRegistryService
         public string? LastClientAppVersion { get; set; }
         public int FailedLoginAttempts { get; set; }
         public DateTimeOffset? LockoutEndsAt { get; set; }
+        public bool IsEmailVerified { get; set; }
+        public DateTimeOffset? EmailVerifiedAt { get; set; }
         public List<CloudAccountSessionEntry> Sessions { get; set; } = [];
         public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
         public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.UtcNow;
@@ -1091,4 +1167,5 @@ public sealed record CloudAccountSummary(
     DateTimeOffset? LastClientCheckInAt = null,
     string? LastReportedClientPlanTier = null,
     string? LastClientAppVersion = null,
-    bool HasPassword = true);
+    bool HasPassword = true,
+    bool IsEmailVerified = false);

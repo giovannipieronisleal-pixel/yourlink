@@ -170,7 +170,20 @@ public sealed class AdminClientVipVerificationTests
             Assert.IsTrue(postVerify.Verified);
             Assert.AreEqual(StoreSettings.PlanTierPremium, postVerify.Account?.PlanTier);
 
-            // 3) Unrelated account attempting self-promotion without SyncKey stays Basico
+            // 3) Unrelated account attempting self-promotion without SyncKey stays Basico (and requires OTP first)
+            var unverifiedNew = await registry.UpsertAccountAsync(new CloudAccountCredentialSyncDto(
+                FullName: "Outro Usuario",
+                Username: "outrouser",
+                Email: "outro@gmail.com",
+                PasswordHash: hasher.HashPassword("Outro@123"),
+                StoreName: "Outra Loja",
+                StoreSlug: "outra-loja",
+                PlanTier: StoreSettings.PlanTierPremium),
+                hasValidSyncKey: false,
+                emailVerifiedByServer: false);
+            Assert.IsFalse(unverifiedNew.Success);
+            Assert.AreEqual(403, unverifiedNew.StatusCode);
+
             var attackerUpsert = await registry.UpsertAccountAsync(new CloudAccountCredentialSyncDto(
                 FullName: "Outro Usuario",
                 Username: "outrouser",
@@ -179,7 +192,8 @@ public sealed class AdminClientVipVerificationTests
                 StoreName: "Outra Loja",
                 StoreSlug: "outra-loja",
                 PlanTier: StoreSettings.PlanTierPremium),
-                hasValidSyncKey: false);
+                hasValidSyncKey: false,
+                emailVerifiedByServer: true);
 
             Assert.IsTrue(attackerUpsert.Success);
             var attackerStatus = await registry.GetPlanStatusAsync("outro@gmail.com", "outrouser", "outra-loja", "Outra Loja");

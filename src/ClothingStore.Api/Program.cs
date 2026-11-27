@@ -373,7 +373,7 @@ static async Task<(bool IsVerified, string? VerifiedEmail)> ResolveApiVerifiedOw
     if (ctx.User.Identity?.IsAuthenticated == true)
     {
         var jwtEmail = ctx.User.FindFirstValue(ClaimTypes.Email);
-        if (!string.IsNullOrWhiteSpace(jwtEmail))
+        if (!string.IsNullOrWhiteSpace(jwtEmail) && await accountRegistry.IsEmailVerifiedAsync(jwtEmail, ct))
             return (true, jwtEmail);
     }
 
@@ -381,7 +381,7 @@ static async Task<(bool IsVerified, string? VerifiedEmail)> ResolveApiVerifiedOw
     if (!string.IsNullOrWhiteSpace(cloudToken))
     {
         var validated = await accountRegistry.ValidateSessionTokenAsync(cloudToken, ct);
-        if (validated.Verified && !string.IsNullOrWhiteSpace(validated.Email))
+        if (validated.Verified && validated.IsEmailVerified && !string.IsNullOrWhiteSpace(validated.Email))
             return (true, validated.Email);
     }
 
@@ -1652,12 +1652,16 @@ app.MapPost("/api/cloud/publish-store", async (
     var publishToken = httpContext.Request.Headers["X-YouLink-Publish-Token"].FirstOrDefault();
     var (isEmailVerified, verifiedOwnerEmail) = await ResolveApiVerifiedOwnerEmailAsync(httpContext, accountRegistry, ct);
 
+    if (!hasValidSyncKey && string.IsNullOrWhiteSpace(publishToken) && !isEmailVerified && !hasJwtAccess)
+        return Results.Unauthorized();
+
+    // Segurança crítica (API): permissão JWT de produtos NUNCA concede privilégio de SyncKey (não permite alterar PlanTier/preços).
     var response = await gateway.PublishStoreAsync(
         payload,
         ResolveApiStoreSlug(httpContext),
         providedKey,
         publishToken,
-        hasJwtAccess || hasValidSyncKey,
+        hasValidSyncKey,
         verifiedOwnerEmail,
         GetApiPublicOrigin(httpContext),
         ct,
@@ -1676,8 +1680,6 @@ app.MapGet("/api/cloud/orders", async (
     CloudAccountRegistryService accountRegistry,
     CancellationToken ct) =>
 {
-    var hasJwtAccess = httpContext.User.Identity?.IsAuthenticated == true &&
-        (httpContext.User.IsInRole(RoleNames.Admin) || httpContext.User.HasClaim("can_manage_stock", "true"));
     var providedKey = httpContext.Request.Headers["X-YouLink-Sync-Key"].FirstOrDefault();
     var settings = await repository.GetStoreSettingsAsync(ct);
     var expectedKey = !string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("YOULINK_SYNC_SECRET"))
@@ -1692,7 +1694,7 @@ app.MapGet("/api/cloud/orders", async (
     var res = await gateway.GetStoreOrdersForSyncAsync(
         ResolveApiStoreSlug(httpContext),
         publishToken,
-        hasJwtAccess || hasValidSyncKey,
+        hasValidSyncKey,
         verifiedOwnerEmail,
         ct,
         isOwnerEmailServerVerified: isEmailVerified);
@@ -1719,7 +1721,6 @@ app.MapPost("/api/payments/mercadopago/oauth/start", async (
     CloudAccountRegistryService accountRegistry,
     CancellationToken ct) =>
 {
-    var hasJwtAccess = ctx.User.Identity?.IsAuthenticated == true && ctx.User.IsInRole(RoleNames.Admin);
     var providedKey = ctx.Request.Headers["X-YouLink-Sync-Key"].FirstOrDefault();
     var settings = await repository.GetStoreSettingsAsync(ct);
     var expectedKey = !string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("YOULINK_SYNC_SECRET"))
@@ -1736,7 +1737,7 @@ app.MapPost("/api/payments/mercadopago/oauth/start", async (
         ResolveApiStoreSlug(ctx),
         providedKey,
         publishToken,
-        hasJwtAccess || hasValidSyncKey,
+        hasValidSyncKey,
         verifiedOwnerEmail,
         callbackUri,
         ct,
@@ -1777,7 +1778,6 @@ app.MapPost("/api/payments/mercadopago/disconnect", async (
     CloudAccountRegistryService accountRegistry,
     CancellationToken ct) =>
 {
-    var hasJwtAccess = ctx.User.Identity?.IsAuthenticated == true && ctx.User.IsInRole(RoleNames.Admin);
     var providedKey = ctx.Request.Headers["X-YouLink-Sync-Key"].FirstOrDefault();
     var settings = await repository.GetStoreSettingsAsync(ct);
     var expectedKey = !string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("YOULINK_SYNC_SECRET"))
@@ -1791,7 +1791,7 @@ app.MapPost("/api/payments/mercadopago/disconnect", async (
     var ok = await gateway.DisconnectMercadoPagoAsync(
         ResolveApiStoreSlug(ctx),
         publishToken,
-        hasJwtAccess || hasValidSyncKey,
+        hasValidSyncKey,
         verifiedOwnerEmail,
         ct,
         isOwnerEmailServerVerified: isEmailVerified);
@@ -1840,7 +1840,7 @@ app.MapPost("/api/cloud/sync-state", async (
         ResolveApiStoreSlug(httpContext),
         providedKey,
         publishToken,
-        hasJwtAccess || hasValidSyncKey,
+        hasValidSyncKey,
         verifiedOwnerEmail,
         GetApiPublicOrigin(httpContext),
         ct,

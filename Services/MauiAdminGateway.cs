@@ -1110,19 +1110,24 @@ public sealed class MauiAdminGateway
                             if (!body.Success)
                                 throw new DomainException(body.Message);
 
-                            // Atualiza também a senha no workspace local (se existir neste aparelho)
-                            if (!string.IsNullOrWhiteSpace(body.NewPasswordHash) && _workspaceRepository is not null)
+                            // Atualiza também a senha no workspace local usando a própria nova senha digitada
+                            // (o servidor não devolve mais NewPasswordHash por segurança anti pass-the-hash).
+                            if (_workspaceRepository is not null && !string.IsNullOrWhiteSpace(request.NewPassword))
                             {
-                                await SwitchWorkspaceForIdentifierAsync(
-                                    !string.IsNullOrWhiteSpace(body.NormalizedEmail) ? body.NormalizedEmail : identifier);
-                                var localUser = await _workspaceRepository.GetUserByEmailAsync(
-                                    !string.IsNullOrWhiteSpace(body.NormalizedEmail) ? body.NormalizedEmail : identifier);
+                                var targetLookup = !string.IsNullOrWhiteSpace(body.NormalizedEmail) ? body.NormalizedEmail : identifier;
+                                var freshLocalHash = !string.IsNullOrWhiteSpace(body.NewPasswordHash)
+                                    ? body.NewPasswordHash
+                                    : new ClothingStore.Infrastructure.Security.Pbkdf2PasswordHasher().HashPassword(request.NewPassword);
+
+                                await SwitchWorkspaceForIdentifierAsync(targetLookup);
+                                var localUser = await _workspaceRepository.GetUserByEmailAsync(targetLookup)
+                                                ?? await _workspaceRepository.GetUserByEmailAsync(identifier);
                                 if (localUser is not null)
                                 {
                                     var localEmp = await _workspaceRepository.GetEmployeeByUserIdAsync(localUser.Id);
                                     if (localEmp is not null)
                                     {
-                                        localUser.SetPasswordHash(body.NewPasswordHash);
+                                        localUser.SetPasswordHash(freshLocalHash);
                                         await _workspaceRepository.UpdateEmployeeAsync(localEmp, localUser);
                                     }
                                 }

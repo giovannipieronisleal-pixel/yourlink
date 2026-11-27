@@ -162,6 +162,28 @@ builder.Services.AddRateLimiter(options =>
                 QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
                 QueueLimit = 0
             }));
+
+    options.AddPolicy("chat-messages", httpContext =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: ResolveRateLimitPartitionIp(httpContext),
+            factory: _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = 15,
+                Window = TimeSpan.FromMinutes(1),
+                QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
+                QueueLimit = 0
+            }));
+
+    options.AddPolicy("chat-read", httpContext =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: ResolveRateLimitPartitionIp(httpContext),
+            factory: _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = 60,
+                Window = TimeSpan.FromMinutes(1),
+                QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
+                QueueLimit = 0
+            }));
 });
 builder.Services.AddSingleton<IPasswordHasher, Pbkdf2PasswordHasher>();
 builder.Services.AddSingleton<IEmailService>(sp =>
@@ -1262,18 +1284,8 @@ app.MapPost("/api/cloud/publish-store", async (
         var (isOwnerVerified, verifiedOwnerEmail) = await ResolveVerifiedCloudOwnerEmailAsync(httpContext, accountRegistry, ct);
         var slug = ResolveStoreSlug(httpContext, null);
 
-        // Se a conta autenticada já possui plano VIP na nuvem, aplica no tenant antes da sincronização
-        if (isOwnerVerified && !string.IsNullOrWhiteSpace(verifiedOwnerEmail))
-        {
-            await ApplyGrantedCloudAccountVipToPublishedTenantAsync(
-                gateway,
-                accountRegistry,
-                verifiedOwnerEmail,
-                slug ?? payload.Settings.StoreSlug,
-                payload.Settings.StoreName,
-                ct);
-        }
-
+        // Segurança crítica: NUNCA aplica benefícios VIP antes de PublishStoreAsync autorizar a loja,
+        // impedindo que um usuário VIP altere o plano de uma loja de terceiro antes da checagem de posse.
         var response = await gateway.PublishStoreAsync(
             payload,
             slug,
@@ -1510,6 +1522,10 @@ app.MapPost("/api/cloud/accounts/upsert", async (
     if (!string.IsNullOrWhiteSpace(dto.Email) && !string.IsNullOrWhiteSpace(dto.EmailOtpCode))
     {
         var otpRes = emailOtp.VerifyOtp(new VerifyEmailOtpRequest(dto.Email.Trim(), dto.EmailOtpCode.Trim(), "account_register"));
+        if (!otpRes.Verified)
+        {
+            otpRes = emailOtp.VerifyOtp(new VerifyEmailOtpRequest(dto.Email.Trim(), dto.EmailOtpCode.Trim(), "email_change"));
+        }
         emailVerifiedByServer = otpRes.Verified;
     }
 
@@ -1581,37 +1597,51 @@ app.MapPost("/api/cloud/accounts/register", async (
         return Results.Conflict(new { error = "Já existe uma conta cadastrada com este e-mail ou usuário. Faça login na aba Entrar." });
     }
 
-    var emailVerifiedByServer = false;
-    if (matchedExisting is not null && !matchedExisting.HasPassword)
+    // Segurança crítica (Item A): TODO cadastro exige confirmação do e-mail por código de 6 dígitos
+    // antes de criar a conta ou vinculá-la a qualquer loja/plano.
+    if (string.IsNullOrWhiteSpace(req.EmailOtpCode))
     {
-        var hasPreGrantedPlan = !string.IsNullOrWhiteSpace(matchedExisting.PlanTier) &&
+        var hasPreGrantedPlan = matchedExisting is not null &&
+                                !matchedExisting.HasPassword &&
+                                !string.IsNullOrWhiteSpace(matchedExisting.PlanTier) &&
                                 !string.Equals(StoreSettings.NormalizePlanTier(matchedExisting.PlanTier), StoreSettings.PlanTierBasic, StringComparison.OrdinalIgnoreCase);
-        if (hasPreGrantedPlan)
-        {
-            if (string.IsNullOrWhiteSpace(req.EmailOtpCode))
-            {
-                _ = await emailOtp.SendOtpAsync(
-                    new SendEmailOtpRequest(cleanEmail, "account_register", "confirmação de conta com plano YouLink"),
-                    ct);
-                return Results.Json(new
-                {
-                    error = "Este e-mail possui um plano pré-liberado. Enviamos um código de verificação de 6 dígitos para o seu e-mail; informe o código para concluir o cadastro.",
-                    requiresEmailOtp = true
-                }, statusCode: StatusCodes.Status403Forbidden);
-            }
 
-            var otpCheck = emailOtp.VerifyOtp(new VerifyEmailOtpRequest(cleanEmail, req.EmailOtpCode.Trim(), "account_register"));
-            if (!otpCheck.Verified)
+        var sendRes = await emailOtp.SendOtpAsync(
+            new SendEmailOtpRequest(
+                cleanEmail,
+                "account_register",
+                hasPreGrantedPlan ? "confirmação de conta com plano YouLink" : "confirmação de cadastro YouLink"),
+            ct);
+
+        if (!sendRes.Sent)
+        {
+            return Results.Json(new
             {
-                return Results.Json(new
-                {
-                    error = otpCheck.Message,
-                    requiresEmailOtp = true
-                }, statusCode: StatusCodes.Status403Forbidden);
-            }
-            emailVerifiedByServer = true;
+                error = sendRes.Message,
+                requiresEmailOtp = true
+            }, statusCode: StatusCodes.Status400BadRequest);
         }
+
+        return Results.Json(new
+        {
+            error = hasPreGrantedPlan
+                ? "Este e-mail possui um plano pré-liberado. Enviamos um código de verificação de 6 dígitos para o seu e-mail; informe o código para concluir o cadastro."
+                : $"Enviamos um código de verificação de 6 dígitos para {sendRes.MaskedEmail}. Digite o código abaixo para confirmar seu e-mail e criar a conta.",
+            requiresEmailOtp = true
+        }, statusCode: StatusCodes.Status403Forbidden);
     }
+
+    var otpCheck = emailOtp.VerifyOtp(new VerifyEmailOtpRequest(cleanEmail, req.EmailOtpCode.Trim(), "account_register"));
+    if (!otpCheck.Verified)
+    {
+        return Results.Json(new
+        {
+            error = otpCheck.Message,
+            requiresEmailOtp = true
+        }, statusCode: StatusCodes.Status403Forbidden);
+    }
+
+    const bool emailVerifiedByServer = true;
 
     var hash = passwordHasher.HashPassword(req.Password);
     var upsert = await accountRegistry.UpsertAccountAsync(new CloudAccountCredentialSyncDto(
@@ -1619,7 +1649,8 @@ app.MapPost("/api/cloud/accounts/register", async (
         Username: cleanUser,
         Email: cleanEmail,
         PasswordHash: hash,
-        EmailOtpCode: req.EmailOtpCode),
+        EmailOtpCode: req.EmailOtpCode,
+        IsEmailVerified: true),
         hasValidSyncKey: false,
         ct,
         emailVerifiedByServer: emailVerifiedByServer);
@@ -1655,7 +1686,9 @@ app.MapPost("/api/cloud/pull-store", async (
         auth.Email,
         request.StoreSlug,
         auth.StoreSlug,
-        ct);
+        ct,
+        authorizedByPublishToken: auth.AuthorizedByPublishToken,
+        isOwnerEmailVerified: auth.IsEmailVerified);
 
     return Results.Ok(response);
 }).DisableAntiforgery().RequireRateLimiting("auth-strict");
@@ -1792,9 +1825,11 @@ app.MapPost("/api/cloud/accounts/password-reset/confirm", async (
         PasswordHash: newHash,
         Phone: account.Phone,
         StoreName: account.StoreName,
-        StoreSlug: account.StoreSlug),
+        StoreSlug: account.StoreSlug,
+        IsEmailVerified: true),
         hasValidSyncKey: true,
-        ct);
+        ct,
+        emailVerifiedByServer: true);
 
     if (!upsert.Success)
     {
@@ -1853,7 +1888,7 @@ app.MapGet("/api/cloud/buyers/me", async (
     var token = httpContext.Request.Headers["X-Buyer-Token"].FirstOrDefault();
     var session = await chatStore.ValidateBuyerTokenAsync(token, ct);
     return session is null ? Results.Unauthorized() : Results.Ok(session);
-}).RequireCors("YouLinkPwaCors");
+}).RequireCors("YouLinkPwaCors").RequireRateLimiting("chat-read");
 
 app.MapGet("/api/cloud/store-chat/{storeSlug}/my-thread", async (
     string storeSlug,
@@ -1869,7 +1904,7 @@ app.MapGet("/api/cloud/store-chat/{storeSlug}/my-thread", async (
 
     var detail = await chatStore.GetOrCreateBuyerStoreThreadAsync(session.BuyerId, storeSlug, storeName, ct);
     return detail is null ? Results.BadRequest() : Results.Ok(detail);
-}).RequireCors("YouLinkPwaCors");
+}).RequireCors("YouLinkPwaCors").RequireRateLimiting("chat-read");
 
 app.MapPost("/api/cloud/store-chat/{storeSlug}/messages", async (
     string storeSlug,
@@ -1891,11 +1926,11 @@ app.MapPost("/api/cloud/store-chat/{storeSlug}/messages", async (
         request.ContextBadge,
         ct);
     if (detail is null)
-        return Results.BadRequest(new { error = "Informe uma mensagem válida." });
+        return Results.BadRequest(new { error = "Informe uma mensagem válida ou aguarde alguns segundos antes de enviar novamente." });
 
     await TryFlushCloudMirrorAsync(httpContext, ct);
     return Results.Ok(detail);
-}).DisableAntiforgery().RequireCors("YouLinkPwaCors");
+}).DisableAntiforgery().RequireCors("YouLinkPwaCors").RequireRateLimiting("chat-messages");
 
 app.MapPost("/api/cloud/store-chat/{storeSlug}/threads/{threadId:guid}/messages/{messageId:guid}/delete-for-me", async (
     string storeSlug,
@@ -1920,7 +1955,7 @@ app.MapPost("/api/cloud/store-chat/{storeSlug}/threads/{threadId:guid}/messages/
 
     await TryFlushCloudMirrorAsync(httpContext, ct);
     return Results.Ok(new { deleted = true });
-}).DisableAntiforgery().RequireCors("YouLinkPwaCors");
+}).DisableAntiforgery().RequireCors("YouLinkPwaCors").RequireRateLimiting("chat-messages");
 
 app.MapPost("/api/cloud/merchant-chat/threads", async (
     MerchantChatAuthRequest authRequest,
@@ -1930,23 +1965,13 @@ app.MapPost("/api/cloud/merchant-chat/threads", async (
     CloudChatStoreService chatStore,
     CancellationToken ct) =>
 {
-    var auth = await AuthenticateMerchantSessionOrPublishAsync(
-        authRequest.CloudSessionToken,
-        authRequest.PublishToken,
-        authRequest.StoreSlug,
-        httpContext,
-        accountRegistry,
-        gateway,
-        ct);
-    if (!auth.Verified)
-        return Results.Unauthorized();
+    var storeAccess = await AuthorizeMerchantStoreChatAccessAsync(authRequest, httpContext, accountRegistry, gateway, ct);
+    if (!storeAccess.Authorized || string.IsNullOrWhiteSpace(storeAccess.AuthorizedStoreSlug))
+        return storeAccess.FailureResult ?? Results.Unauthorized();
 
-    var targetSlug = !string.IsNullOrWhiteSpace(auth.StoreSlug) && string.IsNullOrWhiteSpace(authRequest.StoreSlug)
-        ? auth.StoreSlug!
-        : authRequest.StoreSlug;
-    var threads = await chatStore.GetMerchantStoreThreadsAsync(targetSlug, ct);
+    var threads = await chatStore.GetMerchantStoreThreadsAsync(storeAccess.AuthorizedStoreSlug, ct);
     return Results.Ok(threads);
-}).DisableAntiforgery().RequireCors("YouLinkPwaCors");
+}).DisableAntiforgery().RequireCors("YouLinkPwaCors").RequireRateLimiting("chat-read");
 
 app.MapPost("/api/cloud/merchant-chat/threads/{threadId:guid}", async (
     Guid threadId,
@@ -1957,27 +1982,17 @@ app.MapPost("/api/cloud/merchant-chat/threads/{threadId:guid}", async (
     CloudChatStoreService chatStore,
     CancellationToken ct) =>
 {
-    var auth = await AuthenticateMerchantSessionOrPublishAsync(
-        authRequest.CloudSessionToken,
-        authRequest.PublishToken,
-        authRequest.StoreSlug,
-        httpContext,
-        accountRegistry,
-        gateway,
-        ct);
-    if (!auth.Verified)
-        return Results.Unauthorized();
+    var storeAccess = await AuthorizeMerchantStoreChatAccessAsync(authRequest, httpContext, accountRegistry, gateway, ct);
+    if (!storeAccess.Authorized || string.IsNullOrWhiteSpace(storeAccess.AuthorizedStoreSlug))
+        return storeAccess.FailureResult ?? Results.Unauthorized();
 
-    var targetSlug = !string.IsNullOrWhiteSpace(auth.StoreSlug) && string.IsNullOrWhiteSpace(authRequest.StoreSlug)
-        ? auth.StoreSlug!
-        : authRequest.StoreSlug;
-    var detail = await chatStore.GetMerchantStoreThreadDetailAsync(targetSlug, threadId, ct);
+    var detail = await chatStore.GetMerchantStoreThreadDetailAsync(storeAccess.AuthorizedStoreSlug, threadId, ct);
     if (detail is null)
         return Results.NotFound();
 
     await TryFlushCloudMirrorAsync(httpContext, ct);
     return Results.Ok(detail);
-}).DisableAntiforgery().RequireCors("YouLinkPwaCors");
+}).DisableAntiforgery().RequireCors("YouLinkPwaCors").RequireRateLimiting("chat-read");
 
 app.MapPost("/api/cloud/merchant-chat/threads/{threadId:guid}/send", async (
     Guid threadId,
@@ -1988,27 +2003,17 @@ app.MapPost("/api/cloud/merchant-chat/threads/{threadId:guid}/send", async (
     CloudChatStoreService chatStore,
     CancellationToken ct) =>
 {
-    var auth = await AuthenticateMerchantSessionOrPublishAsync(
-        request.Auth.CloudSessionToken,
-        request.Auth.PublishToken,
-        request.Auth.StoreSlug,
-        httpContext,
-        accountRegistry,
-        gateway,
-        ct);
-    if (!auth.Verified)
-        return Results.Unauthorized();
+    var storeAccess = await AuthorizeMerchantStoreChatAccessAsync(request.Auth, httpContext, accountRegistry, gateway, ct);
+    if (!storeAccess.Authorized || string.IsNullOrWhiteSpace(storeAccess.AuthorizedStoreSlug))
+        return storeAccess.FailureResult ?? Results.Unauthorized();
 
-    var targetSlug = !string.IsNullOrWhiteSpace(auth.StoreSlug) && string.IsNullOrWhiteSpace(request.Auth.StoreSlug)
-        ? auth.StoreSlug!
-        : request.Auth.StoreSlug;
-    var detail = await chatStore.SendMerchantStoreReplyAsync(targetSlug, request.Auth.StoreName, threadId, request.Text, request.ContextBadge, ct);
+    var detail = await chatStore.SendMerchantStoreReplyAsync(storeAccess.AuthorizedStoreSlug, request.Auth.StoreName, threadId, request.Text, request.ContextBadge, ct);
     if (detail is null)
-        return Results.BadRequest(new { error = "Não foi possível enviar a mensagem." });
+        return Results.BadRequest(new { error = "Não foi possível enviar a mensagem ou limite de mensagens por minuto atingido." });
 
     await TryFlushCloudMirrorAsync(httpContext, ct);
     return Results.Ok(detail);
-}).DisableAntiforgery().RequireCors("YouLinkPwaCors");
+}).DisableAntiforgery().RequireCors("YouLinkPwaCors").RequireRateLimiting("chat-messages");
 
 app.MapPost("/api/cloud/merchant-chat/threads/{threadId:guid}/messages/{messageId:guid}/delete-for-me", async (
     Guid threadId,
@@ -2020,31 +2025,21 @@ app.MapPost("/api/cloud/merchant-chat/threads/{threadId:guid}/messages/{messageI
     CloudChatStoreService chatStore,
     CancellationToken ct) =>
 {
-    var auth = await AuthenticateMerchantSessionOrPublishAsync(
-        authRequest.CloudSessionToken,
-        authRequest.PublishToken,
-        authRequest.StoreSlug,
-        httpContext,
-        accountRegistry,
-        gateway,
-        ct);
-    if (!auth.Verified)
-        return Results.Unauthorized();
+    var storeAccess = await AuthorizeMerchantStoreChatAccessAsync(authRequest, httpContext, accountRegistry, gateway, ct);
+    if (!storeAccess.Authorized || string.IsNullOrWhiteSpace(storeAccess.AuthorizedStoreSlug))
+        return storeAccess.FailureResult ?? Results.Unauthorized();
 
-    var targetSlug = !string.IsNullOrWhiteSpace(auth.StoreSlug) && string.IsNullOrWhiteSpace(authRequest.StoreSlug)
-        ? auth.StoreSlug!
-        : authRequest.StoreSlug;
     var deleted = await chatStore.DeleteMessageForActorAsync(
         threadId,
         messageId,
-        CloudChatStoreService.BuildMerchantStoreActorKey(targetSlug),
+        CloudChatStoreService.BuildMerchantStoreActorKey(storeAccess.AuthorizedStoreSlug),
         ct);
     if (!deleted)
         return Results.NotFound();
 
     await TryFlushCloudMirrorAsync(httpContext, ct);
     return Results.Ok(new { deleted = true });
-}).DisableAntiforgery().RequireCors("YouLinkPwaCors");
+}).DisableAntiforgery().RequireCors("YouLinkPwaCors").RequireRateLimiting("chat-messages");
 
 app.MapPost("/api/cloud/support-chat/my-thread", async (
     MerchantChatAuthRequest authRequest,
@@ -2073,7 +2068,7 @@ app.MapPost("/api/cloud/support-chat/my-thread", async (
     var detail = await chatStore.GetOrCreateMerchantSupportThreadAsync(accountKey, handle, storeSlug, storeName, ct);
     await TryFlushCloudMirrorAsync(httpContext, ct);
     return Results.Ok(detail);
-}).DisableAntiforgery().RequireCors("YouLinkPwaCors");
+}).DisableAntiforgery().RequireCors("YouLinkPwaCors").RequireRateLimiting("chat-read");
 
 app.MapPost("/api/cloud/support-chat/send", async (
     MerchantSendChatMessageRequest request,
@@ -2101,11 +2096,11 @@ app.MapPost("/api/cloud/support-chat/send", async (
 
     var detail = await chatStore.SendMerchantSupportMessageAsync(accountKey, handle, storeSlug, storeName, request.Text, request.ContextBadge, ct);
     if (detail is null)
-        return Results.BadRequest(new { error = "Informe uma mensagem válida." });
+        return Results.BadRequest(new { error = "Informe uma mensagem válida ou aguarde alguns segundos antes de enviar novamente." });
 
     await TryFlushCloudMirrorAsync(httpContext, ct);
     return Results.Ok(detail);
-}).DisableAntiforgery().RequireCors("YouLinkPwaCors");
+}).DisableAntiforgery().RequireCors("YouLinkPwaCors").RequireRateLimiting("chat-messages");
 
 app.MapPost("/api/cloud/support-chat/threads/{threadId:guid}/messages/{messageId:guid}/delete-for-me", async (
     Guid threadId,
@@ -2139,7 +2134,7 @@ app.MapPost("/api/cloud/support-chat/threads/{threadId:guid}/messages/{messageId
 
     await TryFlushCloudMirrorAsync(httpContext, ct);
     return Results.Ok(new { deleted = true });
-}).DisableAntiforgery().RequireCors("YouLinkPwaCors");
+}).DisableAntiforgery().RequireCors("YouLinkPwaCors").RequireRateLimiting("chat-messages");
 
 app.MapGet("/api/platform-sync/support-chat/threads", async (
     HttpContext httpContext,
@@ -2614,20 +2609,20 @@ static async Task<(bool Verified, string? VerifiedEmail)> ResolveVerifiedCloudOw
     CloudAccountRegistryService accountRegistry,
     CancellationToken ct)
 {
-    // Segurança crítica (Item 1): ignora completamente X-YouLink-Owner-Email não autenticado.
-    // Só aceita e-mail derivado de CloudSessionToken validado criptograficamente no servidor.
+    // Segurança crítica (Itens 1 & A): ignora completamente X-YouLink-Owner-Email não autenticado e
+    // SÓ considera "verificado" quem autenticou com CloudSessionToken E confirmou posse do e-mail por OTP (IsEmailVerified).
     var cloudToken = ctx.Request.Headers["X-YouLink-Cloud-Token"].FirstOrDefault();
     if (string.IsNullOrWhiteSpace(cloudToken))
         return (false, null);
 
     var validated = await accountRegistry.ValidateSessionTokenAsync(cloudToken, ct);
-    if (!validated.Verified || string.IsNullOrWhiteSpace(validated.Email))
+    if (!validated.Verified || !validated.IsEmailVerified || string.IsNullOrWhiteSpace(validated.Email))
         return (false, null);
 
     return (true, validated.Email);
 }
 
-static async Task<(bool Verified, string? Email, string? Username, string? StoreSlug)> AuthenticateMerchantSessionOrPublishAsync(
+static async Task<(bool Verified, string? Email, string? Username, string? StoreSlug, bool AuthorizedByPublishToken, bool IsEmailVerified)> AuthenticateMerchantSessionOrPublishAsync(
     string? bodyCloudSessionToken,
     string? bodyPublishToken,
     string? requestedStoreSlug,
@@ -2636,18 +2631,6 @@ static async Task<(bool Verified, string? Email, string? Username, string? Store
     MultiTenantGatewayService gateway,
     CancellationToken ct)
 {
-    // Segurança crítica (Item 3): NUNCA aceita PasswordHash; exige CloudSessionToken ou PublishToken válido.
-    var effectiveCloudToken = !string.IsNullOrWhiteSpace(bodyCloudSessionToken)
-        ? bodyCloudSessionToken
-        : ctx.Request.Headers["X-YouLink-Cloud-Token"].FirstOrDefault();
-
-    if (!string.IsNullOrWhiteSpace(effectiveCloudToken))
-    {
-        var sessionAuth = await accountRegistry.ValidateSessionTokenAsync(effectiveCloudToken, ct);
-        if (sessionAuth.Verified)
-            return sessionAuth;
-    }
-
     var effectivePublishToken = !string.IsNullOrWhiteSpace(bodyPublishToken)
         ? bodyPublishToken
         : ctx.Request.Headers["X-YouLink-Publish-Token"].FirstOrDefault();
@@ -2659,11 +2642,77 @@ static async Task<(bool Verified, string? Email, string? Username, string? Store
         {
             var creds = await gateway.StoreResolver.GetTenantCredentialsAsync(requestedStoreSlug, ct);
             var normalizedSlug = gateway.StoreResolver.NormalizeStoreSlug(requestedStoreSlug);
-            return (true, creds?.OwnerEmail, null, normalizedSlug);
+            return (true, creds?.OwnerEmail, null, normalizedSlug, true, creds?.IsOwnerEmailVerified == true);
         }
     }
 
-    return (false, null, null, null);
+    // Segurança crítica (Item 3): NUNCA aceita PasswordHash; exige CloudSessionToken ou PublishToken válido.
+    var effectiveCloudToken = !string.IsNullOrWhiteSpace(bodyCloudSessionToken)
+        ? bodyCloudSessionToken
+        : ctx.Request.Headers["X-YouLink-Cloud-Token"].FirstOrDefault();
+
+    if (!string.IsNullOrWhiteSpace(effectiveCloudToken))
+    {
+        var sessionAuth = await accountRegistry.ValidateSessionTokenAsync(effectiveCloudToken, ct);
+        if (sessionAuth.Verified)
+            return (true, sessionAuth.Email, sessionAuth.Username, sessionAuth.StoreSlug, false, sessionAuth.IsEmailVerified);
+    }
+
+    return (false, null, null, null, false, false);
+}
+
+static async Task<(bool Authorized, string? AuthorizedStoreSlug, IResult? FailureResult)> AuthorizeMerchantStoreChatAccessAsync(
+    MerchantChatAuthRequest? authRequest,
+    HttpContext ctx,
+    CloudAccountRegistryService accountRegistry,
+    MultiTenantGatewayService gateway,
+    CancellationToken ct)
+{
+    if (authRequest is null)
+        return (false, null, Results.Unauthorized());
+
+    var auth = await AuthenticateMerchantSessionOrPublishAsync(
+        authRequest.CloudSessionToken,
+        authRequest.PublishToken,
+        authRequest.StoreSlug,
+        ctx,
+        accountRegistry,
+        gateway,
+        ct);
+
+    if (!auth.Verified)
+        return (false, null, Results.Unauthorized());
+
+    var candidateSlug = !string.IsNullOrWhiteSpace(authRequest.StoreSlug)
+        ? authRequest.StoreSlug
+        : auth.StoreSlug;
+
+    if (string.IsNullOrWhiteSpace(candidateSlug))
+        return (false, null, Results.BadRequest(new { error = "Informe o identificador (slug) da loja." }));
+
+    var normalizedSlug = gateway.StoreResolver.NormalizeStoreSlug(candidateSlug);
+    var effectivePublishToken = !string.IsNullOrWhiteSpace(authRequest.PublishToken)
+        ? authRequest.PublishToken
+        : ctx.Request.Headers["X-YouLink-Publish-Token"].FirstOrDefault();
+
+    // Segurança crítica (Item B): após o login, confere obrigatoriamente se a conta autenticada
+    // é dona verificada daquele StoreSlug ou possui o PublishToken válido da loja.
+    var ownsStore = await gateway.StoreResolver.AuthorizeTenantOrdersPullAsync(
+        normalizedSlug,
+        effectivePublishToken,
+        hasValidSyncKey: false,
+        authenticatedOwnerEmail: auth.Email,
+        ct: ct,
+        isOwnerEmailServerVerified: auth.IsEmailVerified);
+
+    if (!ownsStore)
+    {
+        return (false, null, Results.Json(
+            new { error = "Acesso negado: esta conta não é proprietária da loja informada." },
+            statusCode: StatusCodes.Status403Forbidden));
+    }
+
+    return (true, normalizedSlug, null);
 }
 
 static string GetPublicOrigin(HttpContext ctx)
@@ -3139,6 +3188,18 @@ static async Task ApplyGrantedCloudAccountVipToPublishedTenantAsync(
     string? storeName,
     CancellationToken ct)
 {
+    if (string.IsNullOrWhiteSpace(ownerEmail) || string.IsNullOrWhiteSpace(publishedSlug))
+        return;
+
+    var creds = await gateway.StoreResolver.GetTenantCredentialsAsync(publishedSlug, ct);
+    if (creds is null ||
+        !creds.IsOwnerEmailVerified ||
+        string.IsNullOrWhiteSpace(creds.OwnerEmail) ||
+        !string.Equals(creds.OwnerEmail.Trim(), ownerEmail.Trim(), StringComparison.OrdinalIgnoreCase))
+    {
+        return;
+    }
+
     var grantedMeta = await accountRegistry.GetPlanStatusWithAccountAsync(ownerEmail, null, publishedSlug, storeName, ct);
     if (grantedMeta is null)
         return;

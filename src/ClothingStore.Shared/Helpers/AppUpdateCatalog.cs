@@ -33,7 +33,7 @@ public sealed record AppUpdateReleaseInfo(
 /// </summary>
 public static class AppUpdateCatalog
 {
-    public const string CurrentAppVersion = "1.0.80";
+    public const string CurrentAppVersion = "1.0.81";
     public const string DefaultCentralPlatformServerUrl = "https://youlink-loja.onrender.com";
     public const string DefaultCloudflareEdgeOrigin = "https://youlink-edge-accelerator.youlink-edge.workers.dev";
     public const string DefaultCloudPanelUrl = DefaultCloudflareEdgeOrigin + "/painel/index.html";
@@ -594,13 +594,18 @@ public static class AppUpdateCatalog
         string logFilePath,
         string? launcherFileName = null,
         string? appDisplayName = null,
-        string? updaterCacheRootDir = null)
+        string? updaterCacheRootDir = null,
+        string? packageZipPath = null,
+        string? expectedSha256 = null,
+        bool requireAuthenticodeSignature = false)
     {
         var effectiveDisplay = string.IsNullOrWhiteSpace(appDisplayName) ? "YouLink" : appDisplayName.Trim();
         var effectiveLauncher = string.IsNullOrWhiteSpace(launcherFileName) ? WindowsLauncherName : launcherFileName.Trim();
         var normalizedCacheRoot = string.IsNullOrWhiteSpace(updaterCacheRootDir)
             ? string.Empty
             : updaterCacheRootDir.TrimEnd('\\', '/');
+        var normalizedZipPath = packageZipPath?.Trim() ?? string.Empty;
+        var normalizedSha256 = NormalizeSha256Hex(expectedSha256) ?? string.Empty;
 
         var sb = new StringBuilder();
         sb.AppendLine("$ErrorActionPreference = 'Stop'");
@@ -609,11 +614,37 @@ public static class AppUpdateCatalog
         sb.AppendLine($"$targetDir = '{EscapePowerShellSingleQuoted(targetAppDir.TrimEnd('\\', '/'))}'");
         sb.AppendLine($"$exeName = '{EscapePowerShellSingleQuoted(executableFileName)}'");
         sb.AppendLine($"$launcherName = '{EscapePowerShellSingleQuoted(effectiveLauncher)}'");
+        sb.AppendLine($"$packageZip = '{EscapePowerShellSingleQuoted(normalizedZipPath)}'");
+        sb.AppendLine($"$expectedSha256 = '{EscapePowerShellSingleQuoted(normalizedSha256)}'");
+        sb.AppendLine($"$requireAuthenticode = ${(requireAuthenticodeSignature ? "true" : "false")}");
         sb.AppendLine($"$logPath = '{EscapePowerShellSingleQuoted(logFilePath)}'");
         sb.AppendLine($"$updaterRootDir = '{EscapePowerShellSingleQuoted(normalizedCacheRoot)}'");
         sb.AppendLine("$updateWorkDir = Split-Path -Path $logPath -Parent");
         sb.AppendLine("function Write-Log([string]$msg) { Add-Content -Path $logPath -Value \"[$(Get-Date -Format 'HH:mm:ss')] $msg\" -Encoding UTF8 }");
         sb.AppendLine($"Write-Log 'Iniciando atualização automática do {EscapePowerShellSingleQuoted(effectiveDisplay)} Windows...'");
+        sb.AppendLine("if ($packageZip) {");
+        sb.AppendLine("    if (-not $expectedSha256 -or $expectedSha256.Length -ne 64) {");
+        sb.AppendLine("        Write-Log 'ERRO CRÍTICO: SHA-256 obrigatório ausente para o pacote Windows.'");
+        sb.AppendLine("        Remove-Item -Path $packageZip -Force -ErrorAction SilentlyContinue");
+        sb.AppendLine("        throw 'Hash SHA-256 oficial da atualização não encontrado. Instalação abortada.'");
+        sb.AppendLine("    }");
+        sb.AppendLine("    if (Test-Path $packageZip) {");
+        sb.AppendLine("        $actualZipSha256 = (Get-FileHash -Path $packageZip -Algorithm SHA256).Hash.ToLowerInvariant()");
+        sb.AppendLine("        if ($actualZipSha256 -ne $expectedSha256) {");
+        sb.AppendLine("            Write-Log \"ERRO CRÍTICO: SHA-256 divergente no pacote ($actualZipSha256 != $expectedSha256)\"");
+        sb.AppendLine("            Remove-Item -Path $packageZip -Force -ErrorAction SilentlyContinue");
+        sb.AppendLine("            throw 'Falha na verificação de integridade SHA-256 do pacote.'");
+        sb.AppendLine("        }");
+        sb.AppendLine("    }");
+        sb.AppendLine("}");
+        sb.AppendLine("if ($requireAuthenticode) {");
+        sb.AppendLine("    $candidateExe = Join-Path $sourceDir $exeName");
+        sb.AppendLine("    $sigExe = Get-AuthenticodeSignature -FilePath $candidateExe");
+        sb.AppendLine("    if ($null -eq $sigExe.SignerCertificate -or $sigExe.Status -in @('NotSigned', 'HashMismatch')) {");
+        sb.AppendLine("        Write-Log \"ERRO CRÍTICO: Executável sem assinatura digital válida ($($sigExe.Status)).\"");
+        sb.AppendLine("        throw 'Executável da atualização não possui assinatura digital Authenticode íntegra.'");
+        sb.AppendLine("    }");
+        sb.AppendLine("}");
         sb.AppendLine("for ($i = 0; $i -lt 40; $i++) {");
         sb.AppendLine("    $proc = Get-Process -Id $targetPid -ErrorAction SilentlyContinue");
         sb.AppendLine("    if ($null -eq $proc) { break }");
@@ -729,7 +760,10 @@ public static class AppUpdateCatalog
     {
         var normalizedExpected = NormalizeSha256Hex(expectedSha256);
         if (string.IsNullOrWhiteSpace(normalizedExpected))
-            return;
+        {
+            throw new InvalidOperationException(
+                "Hash SHA-256 oficial da atualização não foi encontrado na Release. A instalação foi abortada por segurança.");
+        }
 
         var actual = ComputeFileSha256(filePath);
         var actualBytes = Encoding.ASCII.GetBytes(actual);
@@ -749,7 +783,8 @@ public static class AppUpdateCatalog
         string logFilePath,
         string? appDisplayName = null,
         string? updaterCacheRootDir = null,
-        string? expectedSha256 = null)
+        string? expectedSha256 = null,
+        bool requireAuthenticodeSignature = true)
     {
         var effectiveDisplay = string.IsNullOrWhiteSpace(appDisplayName) ? "YouLink" : appDisplayName.Trim();
         var setupName = Path.GetFileName(setupExePath);
@@ -763,20 +798,33 @@ public static class AppUpdateCatalog
         sb.AppendLine($"$targetPid = {targetProcessId}");
         sb.AppendLine($"$setupExe = '{EscapePowerShellSingleQuoted(setupExePath)}'");
         sb.AppendLine($"$expectedSha256 = '{EscapePowerShellSingleQuoted(normalizedSha256)}'");
+        sb.AppendLine($"$requireAuthenticode = ${(requireAuthenticodeSignature ? "true" : "false")}");
         sb.AppendLine($"$launchExe = '{EscapePowerShellSingleQuoted(targetLauncherPath)}'");
         sb.AppendLine($"$logPath = '{EscapePowerShellSingleQuoted(logFilePath)}'");
         sb.AppendLine($"$updaterRootDir = '{EscapePowerShellSingleQuoted(normalizedCacheRoot)}'");
         sb.AppendLine("$updateWorkDir = Split-Path -Path $logPath -Parent");
         sb.AppendLine("function Write-Log([string]$msg) { Add-Content -Path $logPath -Value \"[$(Get-Date -Format 'HH:mm:ss')] $msg\" -Encoding UTF8 }");
         sb.AppendLine($"Write-Log 'Iniciando atualização do {EscapePowerShellSingleQuoted(effectiveDisplay)} pelo instalador {EscapePowerShellSingleQuoted(setupName)}...'");
-        sb.AppendLine("if ($expectedSha256) {");
-        sb.AppendLine("    $actualSha256 = (Get-FileHash -Path $setupExe -Algorithm SHA256).Hash.ToLowerInvariant()");
-        sb.AppendLine("    if ($actualSha256 -ne $expectedSha256) {");
-        sb.AppendLine("        Write-Log \"ERRO CRÍTICO: SHA-256 divergente para $setupExe ($actualSha256 != $expectedSha256)\"");
+        sb.AppendLine("if (-not $expectedSha256 -or $expectedSha256.Length -ne 64) {");
+        sb.AppendLine("    Write-Log 'ERRO CRÍTICO: Hash SHA-256 obrigatório não informado para o instalador.'");
+        sb.AppendLine("    Remove-Item -Path $setupExe -Force -ErrorAction SilentlyContinue");
+        sb.AppendLine("    throw 'Hash SHA-256 oficial da atualização não encontrado. Instalação abortada.'");
+        sb.AppendLine("}");
+        sb.AppendLine("$actualSha256 = (Get-FileHash -Path $setupExe -Algorithm SHA256).Hash.ToLowerInvariant()");
+        sb.AppendLine("if ($actualSha256 -ne $expectedSha256) {");
+        sb.AppendLine("    Write-Log \"ERRO CRÍTICO: SHA-256 divergente para $setupExe ($actualSha256 != $expectedSha256)\"");
+        sb.AppendLine("    Remove-Item -Path $setupExe -Force -ErrorAction SilentlyContinue");
+        sb.AppendLine("    throw 'Falha na verificação de integridade SHA-256 do instalador.'");
+        sb.AppendLine("}");
+        sb.AppendLine("Write-Log \"Integridade SHA-256 validada: $actualSha256\"");
+        sb.AppendLine("if ($requireAuthenticode) {");
+        sb.AppendLine("    $sig = Get-AuthenticodeSignature -FilePath $setupExe");
+        sb.AppendLine("    if ($null -eq $sig.SignerCertificate -or $sig.Status -in @('NotSigned', 'HashMismatch')) {");
+        sb.AppendLine("        Write-Log \"ERRO CRÍTICO: Instalador sem assinatura digital Authenticode íntegra ($($sig.Status)).\"");
         sb.AppendLine("        Remove-Item -Path $setupExe -Force -ErrorAction SilentlyContinue");
-        sb.AppendLine("        throw 'Falha na verificação de integridade SHA-256 do instalador.'");
+        sb.AppendLine("        throw 'Instalador não possui assinatura digital Authenticode válida. Instalação abortada.'");
         sb.AppendLine("    }");
-        sb.AppendLine("    Write-Log \"Integridade SHA-256 validada: $actualSha256\"");
+        sb.AppendLine("    Write-Log \"Assinatura digital Authenticode presente: $($sig.SignerCertificate.Subject) ($($sig.Status))\"");
         sb.AppendLine("}");
         sb.AppendLine("for ($i = 0; $i -lt 40; $i++) {");
         sb.AppendLine("    $proc = Get-Process -Id $targetPid -ErrorAction SilentlyContinue");

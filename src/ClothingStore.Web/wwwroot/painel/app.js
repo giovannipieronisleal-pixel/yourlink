@@ -66,7 +66,9 @@
     editingProductIndex: null,
     showProductForm: false,
     storeLoaded: false,
-    productDraft: null
+    productDraft: null,
+    requiresRegisterEmailOtp: false,
+    regDraft: { fullName: "", username: "", email: "", password: "", emailOtpCode: "" }
   };
 
   state.productDraft = createEmptyProductDraft();
@@ -233,6 +235,7 @@
     if (!res.ok) {
       const err = new Error(data?.error || data?.message || `Erro HTTP ${res.status}`);
       err.status = res.status;
+      err.requiresEmailOtp = !!data?.requiresEmailOtp;
       throw err;
     }
     return data;
@@ -852,22 +855,27 @@
             <form id="register-form">
               <div class="field">
                 <label>Seu nome</label>
-                <input class="input" name="fullName" required placeholder="Ex.: Lojista Modelo" />
+                <input class="input" name="fullName" required value="${esc(state.regDraft?.fullName || "")}" placeholder="Ex.: Lojista Modelo" />
               </div>
               <div class="field">
                 <label>Usuário</label>
-                <input class="input" name="username" required placeholder="ex: minhaloja" />
+                <input class="input" name="username" required value="${esc(state.regDraft?.username || "")}" placeholder="ex: minhaloja" />
               </div>
               <div class="field">
                 <label>E-mail</label>
-                <input class="input" name="email" type="email" required placeholder="seu@email.com" />
+                <input class="input" name="email" type="email" required value="${esc(state.regDraft?.email || "")}" placeholder="seu@email.com" />
               </div>
               <div class="field">
                 <label>Senha</label>
-                <input class="input" name="password" type="password" minlength="6" required placeholder="Mínimo 6 caracteres" />
+                <input class="input" name="password" type="password" minlength="8" required value="${esc(state.regDraft?.password || "")}" placeholder="Mínimo 8 caracteres" />
               </div>
+              ${state.requiresRegisterEmailOtp ? `
+              <div class="field">
+                <label>Código enviado para seu e-mail (6 dígitos)</label>
+                <input class="input" name="emailOtpCode" maxlength="6" required value="${esc(state.regDraft?.emailOtpCode || "")}" placeholder="Ex.: 123456" />
+              </div>` : ""}
               <button type="submit" class="adm-btn adm-btn-success adm-btn-block" ${state.busy ? "disabled" : ""}>
-                ${state.busy ? "Criando conta..." : "Criar minha loja grátis"}
+                ${state.busy ? "Validando..." : (state.requiresRegisterEmailOtp ? "Confirmar código e criar loja" : "Criar minha loja grátis")}
               </button>
             </form>
           `}
@@ -1666,6 +1674,13 @@
       regForm.onsubmit = async (e) => {
         e.preventDefault();
         const fd = new FormData(regForm);
+        state.regDraft = {
+          fullName: String(fd.get("fullName") || ""),
+          username: String(fd.get("username") || ""),
+          email: String(fd.get("email") || ""),
+          password: String(fd.get("password") || ""),
+          emailOtpCode: String(fd.get("emailOtpCode") || "").trim()
+        };
         state.busy = true;
         state.msgErr = null;
         render();
@@ -1673,15 +1688,18 @@
           const res = await apiJson("/api/cloud/accounts/register", {
             method: "POST",
             body: JSON.stringify({
-              fullName: fd.get("fullName"),
-              username: fd.get("username"),
-              email: fd.get("email"),
-              password: fd.get("password")
+              fullName: state.regDraft.fullName,
+              username: state.regDraft.username,
+              email: state.regDraft.email,
+              password: state.regDraft.password,
+              emailOtpCode: state.regDraft.emailOtpCode || null
             })
           });
           if (!res?.verified || !res.account) {
             throw new Error(res?.message || "Não foi possível criar a conta.");
           }
+          state.requiresRegisterEmailOtp = false;
+          state.regDraft = { fullName: "", username: "", email: "", password: "", emailOtpCode: "" };
           saveSession({ ...res.account, cloudSessionToken: res.cloudSessionToken || res.account.cloudSessionToken || null });
           state.storeLoaded = true;
           state.products = [];
@@ -1690,6 +1708,9 @@
           state.activeTab = "settings";
           setStatus("🎉 Conta criada! Preencha os dados da sua loja abaixo e salve.", null);
         } catch (err) {
+          if (err.requiresEmailOtp) {
+            state.requiresRegisterEmailOtp = true;
+          }
           setStatus(null, err.status === 404 ? "Atualize o servidor do Render para liberar cadastro web, ou entre com uma conta já criada." : err.message);
         } finally {
           state.busy = false;

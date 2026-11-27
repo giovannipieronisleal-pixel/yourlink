@@ -21,6 +21,7 @@ public sealed class CloudChatStoreService
     public const string ChannelStore = "store";
     public const string ChannelSupport = "support";
     public const int MaxMessageLength = 1500;
+    public const int MaxMessagesPerMinutePerSender = 15;
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -31,6 +32,7 @@ public sealed class CloudChatStoreService
     private readonly string _filePath;
     private readonly IPasswordHasher _passwordHasher;
     private readonly SemaphoreSlim _lock = new(1, 1);
+    private readonly Dictionary<string, List<DateTimeOffset>> _senderRecentMessages = new(StringComparer.OrdinalIgnoreCase);
     private DateTime _lastLoadedUtc = DateTime.MinValue;
     private CloudChatState _state = new();
 
@@ -284,8 +286,12 @@ public sealed class CloudChatStoreService
             if (buyer is null)
                 return null;
 
-            var thread = FindOrCreateStoreThreadUnsafe(buyer, normalizedSlug, storeName);
+            var actorKey = BuildBuyerActorKey(buyerId);
             var now = DateTimeOffset.UtcNow;
+            if (!TryConsumeSenderRateLimitUnsafe(actorKey, now))
+                return null;
+
+            var thread = FindOrCreateStoreThreadUnsafe(buyer, normalizedSlug, storeName);
             thread.Messages.Add(new ChatMessageEntry
             {
                 Id = Guid.NewGuid(),
@@ -300,7 +306,6 @@ public sealed class CloudChatStoreService
             thread.UnreadForCounterparty = 0;
             SaveToDiskUnsafe();
 
-            var actorKey = BuildBuyerActorKey(buyerId);
             return MapThreadDetail(thread, actorKey, mySenderRole: "buyer", unreadCount: 0);
         }
         finally
@@ -401,10 +406,13 @@ public sealed class CloudChatStoreService
             if (thread is null)
                 return null;
 
+            var now = DateTimeOffset.UtcNow;
+            if (!TryConsumeSenderRateLimitUnsafe(actorKey, now))
+                return null;
+
             if (!string.IsNullOrWhiteSpace(storeName))
                 thread.StoreName = storeName.Trim();
 
-            var now = DateTimeOffset.UtcNow;
             thread.Messages.Add(new ChatMessageEntry
             {
                 Id = Guid.NewGuid(),
@@ -480,8 +488,11 @@ public sealed class CloudChatStoreService
         try
         {
             RefreshFromDiskIfModifiedUnsafe();
-            var thread = FindOrCreateSupportThreadUnsafe(cleanKey, merchantHandle, storeSlug, storeName);
             var now = DateTimeOffset.UtcNow;
+            if (!TryConsumeSenderRateLimitUnsafe(actorKey, now))
+                return null;
+
+            var thread = FindOrCreateSupportThreadUnsafe(cleanKey, merchantHandle, storeSlug, storeName);
             var senderLabel = !string.IsNullOrWhiteSpace(storeName) ? storeName.Trim() : merchantHandle;
 
             thread.Messages.Add(new ChatMessageEntry
@@ -621,7 +632,10 @@ public sealed class CloudChatStoreService
         {
             RefreshFromDiskIfModifiedUnsafe();
             var thread = _state.Threads.FirstOrDefault(t => t.Id == threadId);
-            var msg = thread?.Messages.FirstOrDefault(m => m.Id == messageId);
+            if (thread is null || !IsActorAuthorizedForThreadUnsafe(thread, normalizedActor))
+                return false;
+
+            var msg = thread.Messages.FirstOrDefault(m => m.Id == messageId);
             if (msg is null)
                 return false;
 
@@ -637,6 +651,52 @@ public sealed class CloudChatStoreService
         {
             _lock.Release();
         }
+    }
+
+    private bool TryConsumeSenderRateLimitUnsafe(string actorKey, DateTimeOffset now)
+    {
+        var cutoff = now.AddMinutes(-1);
+        if (!_senderRecentMessages.TryGetValue(actorKey, out var timestamps))
+        {
+            timestamps = [];
+            _senderRecentMessages[actorKey] = timestamps;
+        }
+
+        timestamps.RemoveAll(ts => ts <= cutoff);
+        if (timestamps.Count >= MaxMessagesPerMinutePerSender)
+            return false;
+
+        timestamps.Add(now);
+        return true;
+    }
+
+    private static bool IsActorAuthorizedForThreadUnsafe(ChatThreadEntry thread, string normalizedActor)
+    {
+        if (string.Equals(normalizedActor, PlatformOwnerActorKey, StringComparison.OrdinalIgnoreCase))
+            return string.Equals(thread.ChannelKind, ChannelSupport, StringComparison.OrdinalIgnoreCase);
+
+        if (normalizedActor.StartsWith("buyer:", StringComparison.OrdinalIgnoreCase))
+        {
+            var buyerHex = normalizedActor["buyer:".Length..];
+            return string.Equals(thread.ChannelKind, ChannelStore, StringComparison.OrdinalIgnoreCase) &&
+                   string.Equals(thread.ParticipantKey, buyerHex, StringComparison.OrdinalIgnoreCase);
+        }
+
+        if (normalizedActor.StartsWith("merchant:", StringComparison.OrdinalIgnoreCase))
+        {
+            var slug = normalizedActor["merchant:".Length..];
+            return string.Equals(thread.ChannelKind, ChannelStore, StringComparison.OrdinalIgnoreCase) &&
+                   string.Equals(thread.StoreSlug, slug, StringComparison.OrdinalIgnoreCase);
+        }
+
+        if (normalizedActor.StartsWith("merchant_support:", StringComparison.OrdinalIgnoreCase))
+        {
+            var accKey = normalizedActor["merchant_support:".Length..];
+            return string.Equals(thread.ChannelKind, ChannelSupport, StringComparison.OrdinalIgnoreCase) &&
+                   string.Equals(thread.ParticipantKey, accKey, StringComparison.OrdinalIgnoreCase);
+        }
+
+        return false;
     }
 
     // =========================================================================

@@ -68,7 +68,9 @@ public sealed class MultiTenantGatewayService
         string? ownerEmail,
         string? requestedSlug,
         string? accountSlug,
-        CancellationToken ct = default)
+        CancellationToken ct = default,
+        bool authorizedByPublishToken = false,
+        bool isOwnerEmailVerified = false)
     {
         var candidateSlugs = new List<string>(3);
         void TryAddSlug(string? raw)
@@ -85,40 +87,60 @@ public sealed class MultiTenantGatewayService
         }
 
         TryAddSlug(requestedSlug);
-        TryAddSlug(accountSlug);
+        if (!authorizedByPublishToken)
+        {
+            TryAddSlug(accountSlug);
+        }
 
         string? matchedSlug = null;
         string? publishToken = null;
-        var cleanEmail = string.IsNullOrWhiteSpace(ownerEmail) ? null : ownerEmail.Trim();
+        var cleanEmail = isOwnerEmailVerified && !string.IsNullOrWhiteSpace(ownerEmail)
+            ? ownerEmail.Trim()
+            : null;
 
-        foreach (var slug in candidateSlugs)
+        if (authorizedByPublishToken && !string.IsNullOrWhiteSpace(requestedSlug))
         {
-            var creds = await _storeResolver.GetTenantCredentialsAsync(slug, ct);
-            if (creds is not null &&
-                (string.IsNullOrWhiteSpace(creds.OwnerEmail) ||
-                 string.IsNullOrWhiteSpace(cleanEmail) ||
-                 string.Equals(creds.OwnerEmail.Trim(), cleanEmail, StringComparison.OrdinalIgnoreCase)))
+            var normRequested = _storeResolver.NormalizeStoreSlug(requestedSlug);
+            var creds = await _storeResolver.GetTenantCredentialsAsync(normRequested, ct);
+            if (creds is not null)
             {
-                matchedSlug = slug;
-                break;
+                matchedSlug = normRequested;
             }
         }
-
-        if (matchedSlug is null && !string.IsNullOrWhiteSpace(cleanEmail))
+        else if (!string.IsNullOrWhiteSpace(cleanEmail))
         {
-            var allSlugs = await _storeResolver.ListTenantSlugsAsync(ct);
-            foreach (var slug in allSlugs)
+            // Segurança crítica: conta autenticada por login NUNCA baixa loja sem dono (OwnerEmail vazio);
+            // lojas sem e-mail de dono exigem obrigatoriamente o PublishToken válido da loja.
+            foreach (var slug in candidateSlugs)
             {
-                if (string.IsNullOrWhiteSpace(slug) || string.Equals(slug, "__root__", StringComparison.OrdinalIgnoreCase))
-                    continue;
-
                 var creds = await _storeResolver.GetTenantCredentialsAsync(slug, ct);
                 if (creds is not null &&
+                    creds.IsOwnerEmailVerified &&
                     !string.IsNullOrWhiteSpace(creds.OwnerEmail) &&
                     string.Equals(creds.OwnerEmail.Trim(), cleanEmail, StringComparison.OrdinalIgnoreCase))
                 {
                     matchedSlug = slug;
                     break;
+                }
+            }
+
+            if (matchedSlug is null)
+            {
+                var allSlugs = await _storeResolver.ListTenantSlugsAsync(ct);
+                foreach (var slug in allSlugs)
+                {
+                    if (string.IsNullOrWhiteSpace(slug) || string.Equals(slug, "__root__", StringComparison.OrdinalIgnoreCase))
+                        continue;
+
+                    var creds = await _storeResolver.GetTenantCredentialsAsync(slug, ct);
+                    if (creds is not null &&
+                        creds.IsOwnerEmailVerified &&
+                        !string.IsNullOrWhiteSpace(creds.OwnerEmail) &&
+                        string.Equals(creds.OwnerEmail.Trim(), cleanEmail, StringComparison.OrdinalIgnoreCase))
+                    {
+                        matchedSlug = slug;
+                        break;
+                    }
                 }
             }
         }

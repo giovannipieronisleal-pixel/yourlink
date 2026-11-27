@@ -173,7 +173,8 @@ public sealed class SecurityAuditPenetrationTests
                 Email: "real@loja.com",
                 PasswordHash: victimHash,
                 StoreName: "Loja Real",
-                StoreSlug: "loja-real"));
+                StoreSlug: "loja-real"),
+                emailVerifiedByServer: true);
             Assert.IsTrue(created.Success);
             Assert.IsFalse(string.IsNullOrWhiteSpace(created.CloudSessionToken));
 
@@ -256,10 +257,17 @@ public sealed class SecurityAuditPenetrationTests
             Assert.AreEqual(149.90m, tamperedDirectPix.Amount,
                 "IMPORTANTE 5: O servidor deve ignorar Amount=0.50 e UseOwnDedicatedServer não verificado, cobrando integralmente R$ 149,90.");
 
-            // IMPORTANTE 8: Verificação de integridade SHA-256 bloqueia pacote adulterado
+            // IMPORTANTE 8 + v1.0.81: SHA-256 ausente OU divergente DEVE abortar a instalação!
             var pkgFile = Path.Combine(tempDir, "YouLink-Setup-x64.exe");
             await File.WriteAllBytesAsync(pkgFile, Encoding.UTF8.GetBytes("MZ-instalador-oficial-integro-1234567890"));
             var realSha256 = AppUpdateCatalog.ComputeFileSha256(pkgFile);
+
+            Assert.ThrowsException<InvalidOperationException>(() =>
+                AppUpdateCatalog.VerifyDownloadedPackageSha256(pkgFile, null),
+                "Se o SHA-256 não for encontrado (null), a instalação deve abortar.");
+            Assert.ThrowsException<InvalidOperationException>(() =>
+                AppUpdateCatalog.VerifyDownloadedPackageSha256(pkgFile, string.Empty),
+                "Se o SHA-256 vier vazio, a instalação deve abortar.");
 
             AppUpdateCatalog.VerifyDownloadedPackageSha256(pkgFile, $"sha256:{realSha256}");
 
@@ -275,8 +283,10 @@ public sealed class SecurityAuditPenetrationTests
                 Path.Combine(tempDir, "upd.log"),
                 expectedSha256: realSha256);
             Assert.IsTrue(script.Contains("Get-FileHash", StringComparison.Ordinal) &&
+                          script.Contains("if (-not $expectedSha256", StringComparison.Ordinal) &&
+                          script.Contains("Get-AuthenticodeSignature", StringComparison.Ordinal) &&
                           script.Contains(realSha256, StringComparison.Ordinal),
-                "IMPORTANTE 8: O script PowerShell do instalador deve conferir o SHA-256 antes de executar o binário.");
+                "O script PowerShell do instalador deve exigir SHA-256 presente, conferir o hash e validar assinatura Authenticode.");
         }
         finally
         {
@@ -369,10 +379,230 @@ public sealed class SecurityAuditPenetrationTests
                 PasswordHash: "pbkdf2$100000$hashroubado"));
             Assert.AreEqual(HttpStatusCode.Unauthorized, pullWithHashOnly.StatusCode,
                 "CRÍTICO 3: /api/cloud/pull-store deve rejeitar tentativa de login via PasswordHash.");
+
+            // CRÍTICO A (HTTP): /api/cloud/accounts/register exige código OTP mesmo em cadastro comum!
+            var regWithoutOtp = await http.PostAsJsonAsync("/api/cloud/accounts/register", new RegisterUserAccountRequest(
+                "Usuário Sem OTP", "semotp@exemplo.com", "SenhaForte#123", Username: "semotp"));
+            Assert.IsTrue(
+                regWithoutOtp.StatusCode is HttpStatusCode.Forbidden or HttpStatusCode.BadRequest,
+                $"CRÍTICO A: Cadastro comum sem confirmar código OTP no e-mail não pode criar conta direto (status={regWithoutOtp.StatusCode}).");
+
+            // Cria 2 contas verificadas via SyncKey + OTP para testar Crítico B (merchant-chat) e VIP antes da autorização
+            using (var syncVictim = new HttpRequestMessage(HttpMethod.Post, "/api/cloud/accounts/upsert"))
+            {
+                syncVictim.Headers.TryAddWithoutValidation("X-YouLink-Sync-Key", "pentest-sync-secret-999");
+                syncVictim.Content = JsonContent.Create(new CloudAccountCredentialSyncDto(
+                    "Vítima Loja", "vitimaloja", "vitima@loja.com", new Pbkdf2PasswordHasher().HashPassword("Vitima#12345"),
+                    StoreName: "Loja Vítima", StoreSlug: "loja-vitima"));
+                var r = await http.SendAsync(syncVictim);
+                Assert.AreEqual(HttpStatusCode.OK, r.StatusCode);
+            }
+
+            // Vítima publica sua loja com o PublishToken inicial
+            var victimPubRes = await http.PostAsJsonAsync("/api/cloud/publish-store?storeSlug=loja-vitima", new CloudCatalogSyncPayload
+            {
+                Settings = new UpdateStoreSettingsRequest
+                {
+                    StoreName = "Loja Vítima",
+                    StoreSlug = "loja-vitima",
+                    WhatsappNumber = "5511999999999",
+                    StoreDescription = "Vitrine da Vítima",
+                    IsSiteActive = true
+                }
+            });
+            Assert.AreEqual(HttpStatusCode.OK, victimPubRes.StatusCode);
+            var victimPubBody = await victimPubRes.Content.ReadFromJsonAsync<CloudStorePublishResponse>();
+            Assert.IsNotNull(victimPubBody);
+            Assert.IsFalse(string.IsNullOrWhiteSpace(victimPubBody!.PublishToken));
+
+            // Comprador abre conversa na loja da vítima
+            var buyerReg = await http.PostAsJsonAsync("/api/cloud/buyers/register", new RegisterBuyerAccountRequest(
+                "Cliente Real", "cliente@comprador.com", "Cliente#12345"));
+            var buyerAuth = await buyerReg.Content.ReadFromJsonAsync<BuyerAuthResultDto>();
+            Assert.IsTrue(buyerAuth?.Success == true);
+
+            using (var msgReq = new HttpRequestMessage(HttpMethod.Post, "/api/cloud/store-chat/loja-vitima/messages"))
+            {
+                msgReq.Headers.TryAddWithoutValidation("X-Buyer-Token", buyerAuth!.Session!.SessionToken);
+                msgReq.Content = JsonContent.Create(new SendBuyerChatMessageRequest("Olá loja vítima!", "Loja Vítima", null));
+                var mRes = await http.SendAsync(msgReq);
+                Assert.AreEqual(HttpStatusCode.OK, mRes.StatusCode);
+            }
+
+            // Cria conta do invasor (com VIP Premium concedido na conta dele!) e faz login para obter CloudSessionToken válido
+            using (var syncAttacker = new HttpRequestMessage(HttpMethod.Post, "/api/cloud/accounts/upsert"))
+            {
+                syncAttacker.Headers.TryAddWithoutValidation("X-YouLink-Sync-Key", "pentest-sync-secret-999");
+                syncAttacker.Content = JsonContent.Create(new CloudAccountCredentialSyncDto(
+                    "Invasor Logado", "invasor", "invasor@evil.com", new Pbkdf2PasswordHasher().HashPassword("Invasor#12345"),
+                    StoreName: "Loja Invasor", StoreSlug: "loja-invasor", PlanTier: StoreSettings.PlanTierPremium));
+                var r = await http.SendAsync(syncAttacker);
+                Assert.AreEqual(HttpStatusCode.OK, r.StatusCode);
+            }
+
+            var attackerLoginRes = await http.PostAsJsonAsync("/api/cloud/accounts/verify-login", new LoginRequest("invasor@evil.com", "Invasor#12345"));
+            var attackerLogin = await attackerLoginRes.Content.ReadFromJsonAsync<CloudVerifyLoginResponseDto>();
+            Assert.IsTrue(attackerLogin?.Verified == true && !string.IsNullOrWhiteSpace(attackerLogin.CloudSessionToken));
+
+            // CRÍTICO B (HTTP): Invasor logado tenta ler as conversas da "loja-vitima" em /api/cloud/merchant-chat/threads -> DEVE retornar 403!
+            var chatStealAttempt = await http.PostAsJsonAsync("/api/cloud/merchant-chat/threads", new MerchantChatAuthRequest(
+                Email: "invasor@evil.com",
+                Username: "invasor",
+                PasswordHash: null,
+                PublishToken: null,
+                StoreSlug: "loja-vitima",
+                StoreName: "Loja Vítima",
+                CloudSessionToken: attackerLogin!.CloudSessionToken));
+            Assert.AreEqual(HttpStatusCode.Forbidden, chatStealAttempt.StatusCode,
+                "CRÍTICO B: Conta logada que não é dona do StoreSlug nem tem o PublishToken da loja deve receber 403 no merchant-chat.");
+
+            // Dono legítimo com PublishToken da loja-vitima consegue ler normalmente (200 OK)
+            var ownerChatOk = await http.PostAsJsonAsync("/api/cloud/merchant-chat/threads", new MerchantChatAuthRequest(
+                Email: "vitima@loja.com",
+                Username: "vitimaloja",
+                PasswordHash: null,
+                PublishToken: victimPubBody.PublishToken,
+                StoreSlug: "loja-vitima",
+                StoreName: "Loja Vítima"));
+            Assert.AreEqual(HttpStatusCode.OK, ownerChatOk.StatusCode);
+
+            // IMPORTANTE (VIP antes da autorização): Invasor com VIP tenta publicar contra "loja-vitima" sem o PublishToken dela;
+            // deve falhar (409) E a "loja-vitima" deve continuar no plano Básico!
+            using (var vipPolluteReq = new HttpRequestMessage(HttpMethod.Post, "/api/cloud/publish-store?storeSlug=loja-vitima"))
+            {
+                vipPolluteReq.Headers.TryAddWithoutValidation("X-YouLink-Cloud-Token", attackerLogin.CloudSessionToken);
+                vipPolluteReq.Content = JsonContent.Create(new CloudCatalogSyncPayload
+                {
+                    Settings = new UpdateStoreSettingsRequest
+                    {
+                        StoreName = "Loja Vítima",
+                        StoreSlug = "loja-vitima",
+                        WhatsappNumber = "5511000000000",
+                        StoreDescription = "Tentativa poluir VIP",
+                        IsSiteActive = true
+                    }
+                });
+                var polluteRes = await http.SendAsync(vipPolluteReq);
+                Assert.AreEqual(HttpStatusCode.Conflict, polluteRes.StatusCode);
+            }
+
+            // IMPORTANTE (Baixar loja sem dono): "loja-vitima" foi publicada sem OwnerEmail verificado; invasor logado tenta pull-store -> Found = false!
+            var pullOwnerlessRes = await http.PostAsJsonAsync("/api/cloud/pull-store", new CloudPullStoreRequest(
+                Email: "invasor@evil.com",
+                Username: "invasor",
+                StoreSlug: "loja-vitima",
+                CloudSessionToken: attackerLogin.CloudSessionToken));
+            Assert.AreEqual(HttpStatusCode.OK, pullOwnerlessRes.StatusCode);
+            var pullOwnerlessBody = await pullOwnerlessRes.Content.ReadFromJsonAsync<CloudPullStoreResponse>();
+            Assert.IsFalse(pullOwnerlessBody!.Found,
+                "IMPORTANTE: Conta logada não pode baixar loja sem dono (ou de outro dono) sem o PublishToken da loja.");
         }
         finally
         {
             try { if (!proc.HasExited) proc.Kill(entireProcessTree: true); } catch { }
+            try { Directory.Delete(tempDir, recursive: true); } catch { }
+        }
+    }
+
+    [TestMethod]
+    public async Task CriticalA_And_ChatAntiSpam_EmailSwapHijackBlocked_UnverifiedSessionNotTrusted_And_FloodRateLimited()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"youlink_pentest_v81_{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+        try
+        {
+            var hasher = new Pbkdf2PasswordHasher();
+            var registry = new CloudAccountRegistryService(tempDir, hasher);
+
+            // 1) Vítima cadastra conta com OTP confirmado (IsEmailVerified = true)
+            var victimRes = await registry.UpsertAccountAsync(new CloudAccountCredentialSyncDto(
+                FullName: "Dona Vítima",
+                Username: "vitima",
+                Email: "vitima@minhaloja.com",
+                PasswordHash: hasher.HashPassword("VitimaForte#2026"),
+                StoreName: "Minha Loja Oficial",
+                StoreSlug: "minha-loja-oficial"),
+                emailVerifiedByServer: true);
+            Assert.IsTrue(victimRes.Success);
+
+            // 2) Invasor cadastra sua própria conta com OTP confirmado
+            var attackerHash = hasher.HashPassword("InvasorForte#2026");
+            var attackerRes = await registry.UpsertAccountAsync(new CloudAccountCredentialSyncDto(
+                FullName: "Invasor",
+                Username: "invasor",
+                Email: "invasor@atacante.com",
+                PasswordHash: attackerHash,
+                StoreName: "Loja Atacante",
+                StoreSlug: "loja-atacante"),
+                emailVerifiedByServer: true);
+            Assert.IsTrue(attackerRes.Success);
+            Assert.IsFalse(string.IsNullOrWhiteSpace(attackerRes.CloudSessionToken));
+
+            // 3) CRÍTICO A: Invasor logado tenta trocar o próprio e-mail para "vitima@minhaloja.com" via PreviousEmail -> BLOQUEADO COM 409!
+            var hijackExistingEmail = await registry.UpsertAccountAsync(new CloudAccountCredentialSyncDto(
+                FullName: "Invasor",
+                Username: "invasor",
+                Email: "vitima@minhaloja.com",
+                PreviousEmail: "invasor@atacante.com",
+                PasswordHash: attackerHash,
+                CloudSessionToken: attackerRes.CloudSessionToken));
+            Assert.IsFalse(hijackExistingEmail.Success, "CRÍTICO A: Nunca permitir assumir e-mail já pertencente a outra conta.");
+            Assert.AreEqual(409, hijackExistingEmail.StatusCode);
+
+            // 4) CRÍTICO A: Invasor logado tenta trocar o próprio e-mail para outro endereço ("outroalvo@loja.com") SEM código OTP -> BLOQUEADO COM 403!
+            var swapWithoutOtp = await registry.UpsertAccountAsync(new CloudAccountCredentialSyncDto(
+                FullName: "Invasor",
+                Username: "invasor",
+                Email: "outroalvo@loja.com",
+                PreviousEmail: "invasor@atacante.com",
+                PasswordHash: attackerHash,
+                CloudSessionToken: attackerRes.CloudSessionToken),
+                hasValidSyncKey: false,
+                emailVerifiedByServer: false);
+            Assert.IsFalse(swapWithoutOtp.Success, "CRÍTICO A: Troca de e-mail sem código OTP confirmado no novo e-mail deve falhar com 403.");
+            Assert.AreEqual(403, swapWithoutOtp.StatusCode);
+            Assert.IsTrue(swapWithoutOtp.RequiresEmailVerification);
+
+            // 5) CRÍTICO A: Conta sincronizada sem confirmação OTP (IsEmailVerified = false) NÃO é tratada como e-mail verificado na validação de sessão
+            var unverifiedSync = await registry.UpsertAccountAsync(new CloudAccountCredentialSyncDto(
+                FullName: "Importado Sem OTP",
+                Username: "semotp",
+                Email: "semotp@loja.com",
+                PasswordHash: hasher.HashPassword("Importado#2026")),
+                hasValidSyncKey: true,
+                emailVerifiedByServer: false);
+            Assert.IsTrue(unverifiedSync.Success);
+            var sessionCheck = await registry.ValidateSessionTokenAsync(unverifiedSync.CloudSessionToken);
+            Assert.IsTrue(sessionCheck.Verified);
+            Assert.IsFalse(sessionCheck.IsEmailVerified, "Conta que não confirmou código OTP nunca deve ter IsEmailVerified=true.");
+
+            // 6) Anti-spam e isolamento de exclusão no CloudChatStoreService
+            var chatStore = new CloudChatStoreService(tempDir, hasher);
+            var buyer = await chatStore.RegisterBuyerAsync(new RegisterBuyerAccountRequest("Spammer", "spammer@teste.com", "Spammer#2026"));
+            Assert.IsTrue(buyer.Success);
+            var buyerId = buyer.Session!.BuyerId;
+
+            ChatThreadDetailDto? lastSent = null;
+            for (var i = 1; i <= CloudChatStoreService.MaxMessagesPerMinutePerSender; i++)
+            {
+                lastSent = await chatStore.SendBuyerStoreMessageAsync(buyerId, "minha-loja-oficial", "Minha Loja Oficial", $"Mensagem {i}", null);
+                Assert.IsNotNull(lastSent, $"Mensagem {i} dentro do limite deveria passar.");
+            }
+
+            // A 16ª mensagem seguida no mesmo minuto deve ser bloqueada pelo anti-flood!
+            var blockedFlood = await chatStore.SendBuyerStoreMessageAsync(buyerId, "minha-loja-oficial", "Minha Loja Oficial", "SPAM #16", null);
+            Assert.IsNull(blockedFlood, "IMPORTANTE (Spam no chat): O 16º envio no mesmo minuto deve ser bloqueado.");
+
+            // Outra loja tentando apagar mensagem de thread que não é dela falha
+            var firstMsgId = lastSent!.Messages[0].Id;
+            var crossStoreDelete = await chatStore.DeleteMessageForActorAsync(
+                lastSent.Summary.ThreadId,
+                firstMsgId,
+                CloudChatStoreService.BuildMerchantStoreActorKey("loja-atacante"));
+            Assert.IsFalse(crossStoreDelete, "CRÍTICO B: Outra loja jamais pode ocultar mensagens em thread de terceiro.");
+        }
+        finally
+        {
             try { Directory.Delete(tempDir, recursive: true); } catch { }
         }
     }

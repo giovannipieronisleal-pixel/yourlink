@@ -584,7 +584,8 @@ public class MultiAccountStoreIsolationTests
                 PasswordHash: originalHash,
                 Phone: "41999990000",
                 StoreName: "Atelier Flavia",
-                StoreSlug: "atelier-flavia"));
+                StoreSlug: "atelier-flavia"),
+                emailVerifiedByServer: true);
             Assert.IsTrue(upsertOk.Success);
             Assert.AreEqual(200, upsertOk.StatusCode);
 
@@ -761,7 +762,8 @@ public class MultiAccountStoreIsolationTests
                 Phone: "41999991111",
                 StoreName: "Loja Modelo",
                 StoreSlug: "loja-modelo",
-                PlanTier: StoreSettings.PlanTierPremium));
+                PlanTier: StoreSettings.PlanTierPremium),
+                emailVerifiedByServer: true);
             Assert.IsTrue(upsert.Success);
 
             // Cliente sem SyncKey NÃO pode auto-promover para Premium durante upsert
@@ -864,7 +866,8 @@ public class MultiAccountStoreIsolationTests
                 PasswordHash: passwordHash,
                 Phone: "41999990000",
                 StoreName: "Loja Cortesia",
-                StoreSlug: "loja-cortesia"));
+                StoreSlug: "loja-cortesia"),
+                emailVerifiedByServer: true);
 
             // 1) Admin concede VIP Cortesia -> PlanStatus deve refletir IsCourtesyVip = true
             var granted = await registry.ApplyPlanAsync(

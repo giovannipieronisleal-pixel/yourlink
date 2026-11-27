@@ -188,9 +188,10 @@ public sealed class MultiTenantStoreManager : IMultiTenantStoreResolver
                                VerifyTokenHash(publishTokenHeader, existing.PublishTokenHash);
 
             // Segurança crítica: NUNCA autoriza mutação/controle apenas por cabeçalho de e-mail enviado pelo cliente.
-            // O e-mail só autoriza quando autenticado criptograficamente pelo servidor (JWT ou CloudSessionToken válido).
+            // O e-mail só autoriza quando autenticado e confirmado por código OTP no servidor (IsEmailVerified).
             var ownerMatches = isOwnerEmailServerVerified &&
                                !string.IsNullOrWhiteSpace(authenticatedOwnerEmail) &&
+                               existing.IsOwnerEmailVerified &&
                                !string.IsNullOrWhiteSpace(existing.OwnerEmail) &&
                                string.Equals(NormalizeEmail(authenticatedOwnerEmail), existing.OwnerEmail, StringComparison.OrdinalIgnoreCase);
 
@@ -267,6 +268,7 @@ public sealed class MultiTenantStoreManager : IMultiTenantStoreResolver
 
             if (isOwnerEmailServerVerified &&
                 !string.IsNullOrWhiteSpace(authenticatedOwnerEmail) &&
+                entry.IsOwnerEmailVerified &&
                 !string.IsNullOrWhiteSpace(entry.OwnerEmail) &&
                 string.Equals(NormalizeEmail(authenticatedOwnerEmail), entry.OwnerEmail, StringComparison.OrdinalIgnoreCase))
             {

@@ -634,12 +634,35 @@ public sealed class AppUpdateService
             if (resp.IsSuccessStatusCode)
             {
                 var text = await resp.Content.ReadAsStringAsync(cts.Token);
-                return AppUpdateCatalog.ParseSha256FromChecksumText(text, assetName);
+                var parsed = AppUpdateCatalog.ParseSha256FromChecksumText(text, assetName);
+                if (!string.IsNullOrWhiteSpace(parsed))
+                    return parsed;
             }
         }
         catch
         {
         }
+
+        try
+        {
+            var lastSlash = downloadUrl.LastIndexOf('/');
+            if (lastSlash > 0)
+            {
+                var sumsUrl = downloadUrl[..(lastSlash + 1)] + "SHA256SUMS.txt";
+                using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                cts.CancelAfter(TimeSpan.FromSeconds(8));
+                using var resp = await DownloadHttpClient.GetAsync(sumsUrl, cts.Token);
+                if (resp.IsSuccessStatusCode)
+                {
+                    var text = await resp.Content.ReadAsStringAsync(cts.Token);
+                    return AppUpdateCatalog.ParseSha256FromChecksumText(text, assetName);
+                }
+            }
+        }
+        catch
+        {
+        }
+
         return null;
     }
 
@@ -650,6 +673,13 @@ public sealed class AppUpdateService
         string? expectedSha256,
         CancellationToken ct)
     {
+        var normalizedExpectedSha = AppUpdateCatalog.NormalizeSha256Hex(expectedSha256);
+        if (string.IsNullOrWhiteSpace(normalizedExpectedSha))
+        {
+            throw new InvalidOperationException(
+                "Hash SHA-256 oficial da atualização não foi encontrado. Instalação abortada por segurança.");
+        }
+
         var currentAppDir = AppContext.BaseDirectory;
         if (AppUpdateCatalog.IsDevelopmentBuildDirectory(currentAppDir))
         {
@@ -679,7 +709,8 @@ public sealed class AppUpdateService
                 launcherPath,
                 logPath,
                 updaterCacheRootDir: GetUpdaterCacheRoot(),
-                expectedSha256: expectedSha256);
+                expectedSha256: normalizedExpectedSha,
+                requireAuthenticodeSignature: true);
         }
         else
         {
@@ -705,7 +736,10 @@ public sealed class AppUpdateService
                 currentAppDir,
                 AppUpdateCatalog.WindowsExecutableName,
                 logPath,
-                updaterCacheRootDir: GetUpdaterCacheRoot());
+                updaterCacheRootDir: GetUpdaterCacheRoot(),
+                packageZipPath: packagePath,
+                expectedSha256: normalizedExpectedSha,
+                requireAuthenticodeSignature: true);
         }
 
         await File.WriteAllTextAsync(scriptPath, script, ct);

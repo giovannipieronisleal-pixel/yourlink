@@ -786,7 +786,8 @@ public sealed class PlatformPortalAndCloudPersistenceTests
                 await Assert.ThrowsExceptionAsync<InvalidOperationException>(
                     () => syncClient.GetPlatformAccountsSyncAsync("chave-incorreta"));
 
-                var upsertRes = await http.PostAsJsonAsync("/api/cloud/accounts/upsert", new CloudAccountCredentialSyncDto(
+                // Sem OTP e sem chave administrativa, criação direta via /upsert é bloqueada com 403 (Crítico A)
+                var unauthUpsertRes = await http.PostAsJsonAsync("/api/cloud/accounts/upsert", new CloudAccountCredentialSyncDto(
                     FullName: "Ana Boutique",
                     Username: "ana.boutique",
                     Email: "ana.boutique@gmail.com",
@@ -794,6 +795,19 @@ public sealed class PlatformPortalAndCloudPersistenceTests
                     Phone: "5511988887777",
                     StoreName: "Boutique Luz Real",
                     StoreSlug: "boutique-luz"));
+                Assert.AreEqual(HttpStatusCode.Forbidden, unauthUpsertRes.StatusCode);
+
+                using var adminUpsertMsg = new HttpRequestMessage(HttpMethod.Post, "/api/cloud/accounts/upsert");
+                adminUpsertMsg.Headers.TryAddWithoutValidation("X-YouLink-Sync-Key", "portal-loopback-sync-secret");
+                adminUpsertMsg.Content = JsonContent.Create(new CloudAccountCredentialSyncDto(
+                    FullName: "Ana Boutique",
+                    Username: "ana.boutique",
+                    Email: "ana.boutique@gmail.com",
+                    PasswordHash: "pbkdf2-dummy-hash",
+                    Phone: "5511988887777",
+                    StoreName: "Boutique Luz Real",
+                    StoreSlug: "boutique-luz"));
+                var upsertRes = await http.SendAsync(adminUpsertMsg);
                 Assert.AreEqual(HttpStatusCode.OK, upsertRes.StatusCode);
 
                 var envelope = await syncClient.GetPlatformAccountsSyncAsync("portal-loopback-sync-secret");
