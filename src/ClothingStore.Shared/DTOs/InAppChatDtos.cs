@@ -58,7 +58,8 @@ public sealed record MerchantChatAuthRequest(
     string? PasswordHash,
     string StoreSlug,
     string? StoreName = null,
-    string? PublishToken = null);
+    string? PublishToken = null,
+    string? CloudSessionToken = null);
 
 public sealed record MerchantSendChatMessageRequest(
     MerchantChatAuthRequest Auth,

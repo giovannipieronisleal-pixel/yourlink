@@ -162,6 +162,11 @@ public sealed class OrderAndShippingService
         MercadoPagoOrderCheckoutContext? mpContext,
         CancellationToken ct = default)
     {
+        if (!ClothingStore.Shared.Helpers.CatalogFeatureFlags.SalesAndOrdersEnabled)
+        {
+            throw new DomainException("As funções de vendas e pedidos diretos estão desativadas neste catálogo.");
+        }
+
         var settings = await _repository.GetStoreSettingsAsync(ct);
         if (settings.EvaluateRecurringBillingStatus())
         {

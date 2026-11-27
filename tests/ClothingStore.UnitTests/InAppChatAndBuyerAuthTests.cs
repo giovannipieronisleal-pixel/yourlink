@@ -75,7 +75,7 @@ public sealed class InAppChatAndBuyerAuthTests
             var buyerReg = await store.RegisterBuyerAsync(new RegisterBuyerAccountRequest(
                 "LucasComprador",
                 "lucas@cliente.com",
-                "123456"));
+                "SenhaForte123"));
             var buyerId = buyerReg.Session!.BuyerId;
 
             var afterBuyerMsg = await store.SendBuyerStoreMessageAsync(

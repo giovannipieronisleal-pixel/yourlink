@@ -16,6 +16,7 @@ using ClothingStore.Shared.DTOs;
 using ClothingStore.Shared.Helpers;
 using ClothingStore.Web.Components;
 using ClothingStore.Web.Services;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.AspNetCore.ResponseCompression;
 
@@ -95,6 +96,16 @@ if (cloudMirror is not null)
     builder.Services.AddSingleton(cloudMirror);
 }
 
+builder.Services.Configure<ForwardedHeadersOptions>(options =>
+{
+    // Segurança atrás de proxy (Render / Cloud Run): lê somente o último hop de X-Forwarded-For / X-Forwarded-Proto
+    // e NUNCA aceita X-Forwarded-Host arbitrário.
+    options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
+    options.ForwardLimit = 1;
+    options.KnownIPNetworks.Clear();
+    options.KnownProxies.Clear();
+});
+
 builder.Services.AddHttpClient();
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddRateLimiter(options =>
@@ -110,10 +121,43 @@ builder.Services.AddRateLimiter(options =>
 
     options.AddPolicy("giftcard-strict", httpContext =>
         RateLimitPartition.GetFixedWindowLimiter(
-            partitionKey: httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+            partitionKey: ResolveRateLimitPartitionIp(httpContext),
             factory: _ => new FixedWindowRateLimiterOptions
             {
                 PermitLimit = 30,
+                Window = TimeSpan.FromMinutes(1),
+                QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
+                QueueLimit = 0
+            }));
+
+    options.AddPolicy("cloud-accounts", httpContext =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: ResolveRateLimitPartitionIp(httpContext),
+            factory: _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = 30,
+                Window = TimeSpan.FromMinutes(1),
+                QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
+                QueueLimit = 0
+            }));
+
+    options.AddPolicy("auth-strict", httpContext =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: ResolveRateLimitPartitionIp(httpContext),
+            factory: _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = 20,
+                Window = TimeSpan.FromMinutes(1),
+                QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
+                QueueLimit = 0
+            }));
+
+    options.AddPolicy("public-orders", httpContext =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: ResolveRateLimitPartitionIp(httpContext),
+            factory: _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = 20,
                 Window = TimeSpan.FromMinutes(1),
                 QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
                 QueueLimit = 0
@@ -209,6 +253,8 @@ if (!app.Environment.IsDevelopment())
 {
     app.UseExceptionHandler("/Error", createScopeForErrors: true);
 }
+
+app.UseForwardedHeaders();
 
 app.Use(async (context, next) =>
 {
@@ -666,7 +712,7 @@ app.MapPost("/api/public/orders/pix", async (
     {
         return Results.BadRequest(new { error = ex.Message });
     }
-}).DisableAntiforgery();
+}).DisableAntiforgery().RequireRateLimiting("public-orders");
 
 app.MapPost("/api/public/stores/{storeSlug}/orders/pix", async (
     string storeSlug,
@@ -698,7 +744,7 @@ app.MapPost("/api/public/stores/{storeSlug}/orders/pix", async (
     {
         return Results.BadRequest(new { error = ex.Message });
     }
-}).DisableAntiforgery();
+}).DisableAntiforgery().RequireRateLimiting("public-orders");
 
 app.MapGet("/api/public/orders/{orderId:guid}/status", async (
     Guid orderId,
@@ -807,7 +853,7 @@ app.MapPost("/api/platform-sync/plan-orders", async (
     {
         return Results.BadRequest(new { error = ex.Message });
     }
-}).DisableAntiforgery();
+}).DisableAntiforgery().RequireRateLimiting("public-orders");
 
 app.MapGet("/api/platform-sync/plan-orders/status", async (
     string orderNumber,
@@ -1213,8 +1259,20 @@ app.MapPost("/api/cloud/publish-store", async (
             return Results.Unauthorized();
 
         var publishToken = httpContext.Request.Headers["X-YouLink-Publish-Token"].FirstOrDefault();
-        var ownerEmail = httpContext.Request.Headers["X-YouLink-Owner-Email"].FirstOrDefault();
+        var (isOwnerVerified, verifiedOwnerEmail) = await ResolveVerifiedCloudOwnerEmailAsync(httpContext, accountRegistry, ct);
         var slug = ResolveStoreSlug(httpContext, null);
+
+        // Se a conta autenticada já possui plano VIP na nuvem, aplica no tenant antes da sincronização
+        if (isOwnerVerified && !string.IsNullOrWhiteSpace(verifiedOwnerEmail))
+        {
+            await ApplyGrantedCloudAccountVipToPublishedTenantAsync(
+                gateway,
+                accountRegistry,
+                verifiedOwnerEmail,
+                slug ?? payload.Settings.StoreSlug,
+                payload.Settings.StoreName,
+                ct);
+        }
 
         var response = await gateway.PublishStoreAsync(
             payload,
@@ -1222,20 +1280,24 @@ app.MapPost("/api/cloud/publish-store", async (
             providedSyncKey,
             publishToken,
             hasValidSyncKey,
-            ownerEmail,
+            verifiedOwnerEmail,
             GetPublicOrigin(httpContext),
-            ct);
+            ct,
+            isOwnerEmailServerVerified: isOwnerVerified);
 
         if (!response.Success)
             return Results.Conflict(new { error = response.Message });
 
-        await ApplyGrantedCloudAccountVipToPublishedTenantAsync(
-            gateway,
-            accountRegistry,
-            ownerEmail,
-            response.StoreSlug,
-            payload.Settings.StoreName,
-            ct);
+        if (isOwnerVerified && !string.IsNullOrWhiteSpace(verifiedOwnerEmail))
+        {
+            await ApplyGrantedCloudAccountVipToPublishedTenantAsync(
+                gateway,
+                accountRegistry,
+                verifiedOwnerEmail,
+                response.StoreSlug,
+                payload.Settings.StoreName,
+                ct);
+        }
         await TryFlushCloudMirrorAsync(httpContext, ct);
 
         return Results.Ok(response);
@@ -1249,16 +1311,23 @@ app.MapPost("/api/cloud/publish-store", async (
 app.MapGet("/api/cloud/orders", async (
     HttpContext httpContext,
     MultiTenantGatewayService gateway,
+    CloudAccountRegistryService accountRegistry,
     CancellationToken ct) =>
 {
     var providedSyncKey = httpContext.Request.Headers["X-YouLink-Sync-Key"].FirstOrDefault();
     var hasValidSyncKey = !string.IsNullOrWhiteSpace(providedSyncKey) &&
                           await IsAuthorizedSyncRequestAsync(httpContext, gateway.StoreResolver.DefaultRepository, ct);
     var publishToken = httpContext.Request.Headers["X-YouLink-Publish-Token"].FirstOrDefault();
-    var ownerEmail = httpContext.Request.Headers["X-YouLink-Owner-Email"].FirstOrDefault();
+    var (isOwnerVerified, verifiedOwnerEmail) = await ResolveVerifiedCloudOwnerEmailAsync(httpContext, accountRegistry, ct);
     var slug = ResolveStoreSlug(httpContext, null);
 
-    var result = await gateway.GetStoreOrdersForSyncAsync(slug, publishToken, hasValidSyncKey, ownerEmail, ct);
+    var result = await gateway.GetStoreOrdersForSyncAsync(
+        slug,
+        publishToken,
+        hasValidSyncKey,
+        verifiedOwnerEmail,
+        ct,
+        isOwnerEmailServerVerified: isOwnerVerified);
     return result is null ? Results.Unauthorized() : Results.Ok(result);
 });
 
@@ -1277,6 +1346,7 @@ app.MapGet("/api/payments/mercadopago/config", (MultiTenantGatewayService gatewa
 app.MapPost("/api/payments/mercadopago/oauth/start", async (
     HttpContext ctx,
     MultiTenantGatewayService gateway,
+    CloudAccountRegistryService accountRegistry,
     CancellationToken ct) =>
 {
     try
@@ -1285,12 +1355,19 @@ app.MapPost("/api/payments/mercadopago/oauth/start", async (
         var hasValidSyncKey = !string.IsNullOrWhiteSpace(providedSyncKey) &&
                               await IsAuthorizedSyncRequestAsync(ctx, gateway.StoreResolver.DefaultRepository, ct);
         var publishToken = ctx.Request.Headers["X-YouLink-Publish-Token"].FirstOrDefault();
-        var ownerEmail = ctx.Request.Headers["X-YouLink-Owner-Email"].FirstOrDefault();
+        var (isOwnerVerified, verifiedOwnerEmail) = await ResolveVerifiedCloudOwnerEmailAsync(ctx, accountRegistry, ct);
         var slug = ResolveStoreSlug(ctx, null);
         var callbackUri = $"{GetPublicOrigin(ctx).TrimEnd('/')}/api/payments/mercadopago/oauth/callback";
 
         var (startResp, issuedToken) = await gateway.StartMercadoPagoOAuthAsync(
-            slug, providedSyncKey, publishToken, hasValidSyncKey, ownerEmail, callbackUri, ct);
+            slug,
+            providedSyncKey,
+            publishToken,
+            hasValidSyncKey,
+            verifiedOwnerEmail,
+            callbackUri,
+            ct,
+            isOwnerEmailServerVerified: isOwnerVerified);
 
         return Results.Ok(new
         {
@@ -1332,16 +1409,23 @@ app.MapGet("/api/payments/mercadopago/status", async (
 app.MapPost("/api/payments/mercadopago/disconnect", async (
     HttpContext ctx,
     MultiTenantGatewayService gateway,
+    CloudAccountRegistryService accountRegistry,
     CancellationToken ct) =>
 {
     var providedSyncKey = ctx.Request.Headers["X-YouLink-Sync-Key"].FirstOrDefault();
     var hasValidSyncKey = !string.IsNullOrWhiteSpace(providedSyncKey) &&
                           await IsAuthorizedSyncRequestAsync(ctx, gateway.StoreResolver.DefaultRepository, ct);
     var publishToken = ctx.Request.Headers["X-YouLink-Publish-Token"].FirstOrDefault();
-    var ownerEmail = ctx.Request.Headers["X-YouLink-Owner-Email"].FirstOrDefault();
+    var (isOwnerVerified, verifiedOwnerEmail) = await ResolveVerifiedCloudOwnerEmailAsync(ctx, accountRegistry, ct);
     var slug = ResolveStoreSlug(ctx, null);
 
-    var ok = await gateway.DisconnectMercadoPagoAsync(slug, publishToken, hasValidSyncKey, ownerEmail, ct);
+    var ok = await gateway.DisconnectMercadoPagoAsync(
+        slug,
+        publishToken,
+        hasValidSyncKey,
+        verifiedOwnerEmail,
+        ct,
+        isOwnerEmailServerVerified: isOwnerVerified);
     return ok ? Results.Ok(new { disconnected = true }) : Results.Unauthorized();
 }).DisableAntiforgery();
 
@@ -1357,9 +1441,9 @@ app.MapPost("/api/cloud/sync-state", async (
     var hasValidSyncKey = !string.IsNullOrWhiteSpace(providedSyncKey) &&
                           await IsAuthorizedSyncRequestAsync(httpContext, repository, ct);
     var publishToken = httpContext.Request.Headers["X-YouLink-Publish-Token"].FirstOrDefault();
-    var ownerEmail = httpContext.Request.Headers["X-YouLink-Owner-Email"].FirstOrDefault();
+    var (isOwnerVerified, verifiedOwnerEmail) = await ResolveVerifiedCloudOwnerEmailAsync(httpContext, accountRegistry, ct);
 
-    if (!hasValidSyncKey && string.IsNullOrWhiteSpace(publishToken))
+    if (!hasValidSyncKey && string.IsNullOrWhiteSpace(publishToken) && !isOwnerVerified)
     {
         return Results.Unauthorized();
     }
@@ -1372,20 +1456,24 @@ app.MapPost("/api/cloud/sync-state", async (
             providedSyncKey,
             publishToken,
             hasValidSyncKey,
-            ownerEmail,
+            verifiedOwnerEmail,
             GetPublicOrigin(httpContext),
-            ct);
+            ct,
+            isOwnerEmailServerVerified: isOwnerVerified);
 
         if (!result.Success)
             return Results.Unauthorized();
 
-        await ApplyGrantedCloudAccountVipToPublishedTenantAsync(
-            gateway,
-            accountRegistry,
-            ownerEmail,
-            result.StoreSlug,
-            payload.Settings.StoreName,
-            ct);
+        if (isOwnerVerified && !string.IsNullOrWhiteSpace(verifiedOwnerEmail))
+        {
+            await ApplyGrantedCloudAccountVipToPublishedTenantAsync(
+                gateway,
+                accountRegistry,
+                verifiedOwnerEmail,
+                result.StoreSlug,
+                payload.Settings.StoreName,
+                ct);
+        }
         await TryFlushCloudMirrorAsync(httpContext, ct);
 
         return Results.Ok(new
@@ -1412,18 +1500,37 @@ app.MapPost("/api/cloud/accounts/upsert", async (
     HttpContext httpContext,
     CloudAccountCredentialSyncDto dto,
     CloudAccountRegistryService accountRegistry,
+    EmailOtpService emailOtp,
     IClothingStoreRepository defaultRepository,
     CancellationToken ct) =>
 {
     var hasValidSyncKey = await IsAuthorizedSyncRequestAsync(httpContext, defaultRepository, ct);
-    var res = await accountRegistry.UpsertAccountAsync(dto, hasValidSyncKey, ct);
+    var callerCloudToken = httpContext.Request.Headers["X-YouLink-Cloud-Token"].FirstOrDefault() ?? dto.CloudSessionToken;
+    var emailVerifiedByServer = false;
+    if (!string.IsNullOrWhiteSpace(dto.Email) && !string.IsNullOrWhiteSpace(dto.EmailOtpCode))
+    {
+        var otpRes = emailOtp.VerifyOtp(new VerifyEmailOtpRequest(dto.Email.Trim(), dto.EmailOtpCode.Trim(), "account_register"));
+        emailVerifiedByServer = otpRes.Verified;
+    }
+
+    var res = await accountRegistry.UpsertAccountAsync(dto, hasValidSyncKey, ct, emailVerifiedByServer, callerCloudToken);
     if (res.Success)
     {
         await TryFlushCloudMirrorAsync(httpContext, ct);
-        return Results.Ok(new { success = true, message = res.Message });
+        return Results.Ok(new
+        {
+            success = true,
+            message = res.Message,
+            cloudSessionToken = res.CloudSessionToken,
+            cloudSessionExpiresAt = res.CloudSessionExpiresAt
+        });
     }
-    return Results.Json(new { error = res.Message }, statusCode: res.StatusCode);
-});
+    return Results.Json(new
+    {
+        error = res.Message,
+        requiresEmailOtp = res.RequiresEmailVerification
+    }, statusCode: res.StatusCode);
+}).DisableAntiforgery().RequireRateLimiting("auth-strict");
 
 app.MapPost("/api/cloud/accounts/verify-login", async (
     LoginRequest loginRequest,
@@ -1432,12 +1539,13 @@ app.MapPost("/api/cloud/accounts/verify-login", async (
 {
     var res = await accountRegistry.VerifyLoginAsync(loginRequest, ct);
     return Results.Ok(res);
-}).DisableAntiforgery();
+}).DisableAntiforgery().RequireRateLimiting("auth-strict");
 
 app.MapPost("/api/cloud/accounts/register", async (
     HttpContext httpContext,
     RegisterUserAccountRequest req,
     CloudAccountRegistryService accountRegistry,
+    EmailOtpService emailOtp,
     IPasswordHasher passwordHasher,
     CancellationToken ct) =>
 {
@@ -1445,9 +1553,12 @@ app.MapPost("/api/cloud/accounts/register", async (
         string.IsNullOrWhiteSpace(req.Email) ||
         !req.Email.Contains('@', StringComparison.Ordinal) ||
         string.IsNullOrWhiteSpace(req.Password) ||
-        req.Password.Trim().Length < 4)
+        req.Password.Trim().Length < CloudAccountRegistryService.MinimumCloudPasswordLength)
     {
-        return Results.BadRequest(new { error = "Preencha nome completo, e-mail válido e senha com pelo menos 4 caracteres." });
+        return Results.BadRequest(new
+        {
+            error = $"Preencha nome completo, e-mail válido e senha com pelo menos {CloudAccountRegistryService.MinimumCloudPasswordLength} caracteres."
+        });
     }
 
     var cleanEmail = req.Email.Trim();
@@ -1461,12 +1572,45 @@ app.MapPost("/api/cloud/accounts/register", async (
     }
 
     var existingAccounts = await accountRegistry.GetAllAccountsAsync(ct);
-    var alreadyExists = existingAccounts.Any(a =>
+    var matchedExisting = existingAccounts.FirstOrDefault(a =>
         (!string.IsNullOrWhiteSpace(a.Email) && string.Equals(a.Email.Trim(), cleanEmail, StringComparison.OrdinalIgnoreCase)) ||
         (!string.IsNullOrWhiteSpace(a.Username) && string.Equals(a.Username.Trim(), cleanUser, StringComparison.OrdinalIgnoreCase)));
-    if (alreadyExists)
+
+    if (matchedExisting is not null && matchedExisting.HasPassword)
     {
         return Results.Conflict(new { error = "Já existe uma conta cadastrada com este e-mail ou usuário. Faça login na aba Entrar." });
+    }
+
+    var emailVerifiedByServer = false;
+    if (matchedExisting is not null && !matchedExisting.HasPassword)
+    {
+        var hasPreGrantedPlan = !string.IsNullOrWhiteSpace(matchedExisting.PlanTier) &&
+                                !string.Equals(StoreSettings.NormalizePlanTier(matchedExisting.PlanTier), StoreSettings.PlanTierBasic, StringComparison.OrdinalIgnoreCase);
+        if (hasPreGrantedPlan)
+        {
+            if (string.IsNullOrWhiteSpace(req.EmailOtpCode))
+            {
+                _ = await emailOtp.SendOtpAsync(
+                    new SendEmailOtpRequest(cleanEmail, "account_register", "confirmação de conta com plano YouLink"),
+                    ct);
+                return Results.Json(new
+                {
+                    error = "Este e-mail possui um plano pré-liberado. Enviamos um código de verificação de 6 dígitos para o seu e-mail; informe o código para concluir o cadastro.",
+                    requiresEmailOtp = true
+                }, statusCode: StatusCodes.Status403Forbidden);
+            }
+
+            var otpCheck = emailOtp.VerifyOtp(new VerifyEmailOtpRequest(cleanEmail, req.EmailOtpCode.Trim(), "account_register"));
+            if (!otpCheck.Verified)
+            {
+                return Results.Json(new
+                {
+                    error = otpCheck.Message,
+                    requiresEmailOtp = true
+                }, statusCode: StatusCodes.Status403Forbidden);
+            }
+            emailVerifiedByServer = true;
+        }
     }
 
     var hash = passwordHasher.HashPassword(req.Password);
@@ -1474,28 +1618,34 @@ app.MapPost("/api/cloud/accounts/register", async (
         FullName: req.FullName.Trim(),
         Username: cleanUser,
         Email: cleanEmail,
-        PasswordHash: hash),
+        PasswordHash: hash,
+        EmailOtpCode: req.EmailOtpCode),
         hasValidSyncKey: false,
-        ct);
+        ct,
+        emailVerifiedByServer: emailVerifiedByServer);
 
     if (!upsert.Success)
-        return Results.Json(new { error = upsert.Message }, statusCode: upsert.StatusCode);
+        return Results.Json(new { error = upsert.Message, requiresEmailOtp = upsert.RequiresEmailVerification }, statusCode: upsert.StatusCode);
 
     await TryFlushCloudMirrorAsync(httpContext, ct);
     var verified = await accountRegistry.VerifyLoginAsync(new LoginRequest(cleanEmail, req.Password), ct);
     return Results.Ok(verified);
-}).DisableAntiforgery();
+}).DisableAntiforgery().RequireRateLimiting("auth-strict");
 
 app.MapPost("/api/cloud/pull-store", async (
+    HttpContext httpContext,
     CloudPullStoreRequest request,
     CloudAccountRegistryService accountRegistry,
     MultiTenantGatewayService gateway,
     CancellationToken ct) =>
 {
-    var auth = await accountRegistry.VerifyPasswordHashAsync(
-        request.Email,
-        request.Username,
-        request.PasswordHash,
+    var auth = await AuthenticateMerchantSessionOrPublishAsync(
+        request.CloudSessionToken,
+        request.PublishToken,
+        request.StoreSlug,
+        httpContext,
+        accountRegistry,
+        gateway,
         ct);
 
     if (!auth.Verified)
@@ -1508,7 +1658,7 @@ app.MapPost("/api/cloud/pull-store", async (
         ct);
 
     return Results.Ok(response);
-}).DisableAntiforgery();
+}).DisableAntiforgery().RequireRateLimiting("auth-strict");
 
 app.MapGet("/api/cloud/email-otp/status", (EmailOtpService emailOtp) =>
     Results.Ok(emailOtp.GetPublicStatus())).RequireCors("YouLinkPwaCors");
@@ -1601,13 +1751,13 @@ app.MapPost("/api/cloud/accounts/password-reset/confirm", async (
             Message: "Informe seu e-mail/usuário e o código de 6 dígitos recebido no e-mail."));
     }
 
-    if (newPassword.Trim().Length < 4)
+    if (newPassword.Trim().Length < CloudAccountRegistryService.MinimumCloudPasswordLength)
     {
         return Results.BadRequest(new CloudPasswordResetConfirmResponse(
             Success: false,
             NormalizedEmail: string.Empty,
             NewPasswordHash: null,
-            Message: "A nova senha deve ter no mínimo 4 caracteres."));
+            Message: $"A nova senha deve ter no mínimo {CloudAccountRegistryService.MinimumCloudPasswordLength} caracteres."));
     }
 
     var allAccounts = await accountRegistry.GetAllAccountsAsync(ct);
@@ -1659,7 +1809,7 @@ app.MapPost("/api/cloud/accounts/password-reset/confirm", async (
     return Results.Ok(new CloudPasswordResetConfirmResponse(
         Success: true,
         NormalizedEmail: account.Email.Trim(),
-        NewPasswordHash: newHash,
+        NewPasswordHash: null,
         Message: "✓ Senha redefinida com sucesso! Agora entre com sua nova senha."));
 }).DisableAntiforgery().RequireCors("YouLinkPwaCors").RequireRateLimiting("giftcard-strict");
 
@@ -1774,11 +1924,20 @@ app.MapPost("/api/cloud/store-chat/{storeSlug}/threads/{threadId:guid}/messages/
 
 app.MapPost("/api/cloud/merchant-chat/threads", async (
     MerchantChatAuthRequest authRequest,
+    HttpContext httpContext,
     CloudAccountRegistryService accountRegistry,
+    MultiTenantGatewayService gateway,
     CloudChatStoreService chatStore,
     CancellationToken ct) =>
 {
-    var auth = await accountRegistry.VerifyPasswordHashAsync(authRequest.Email, authRequest.Username, authRequest.PasswordHash, ct);
+    var auth = await AuthenticateMerchantSessionOrPublishAsync(
+        authRequest.CloudSessionToken,
+        authRequest.PublishToken,
+        authRequest.StoreSlug,
+        httpContext,
+        accountRegistry,
+        gateway,
+        ct);
     if (!auth.Verified)
         return Results.Unauthorized();
 
@@ -1794,10 +1953,18 @@ app.MapPost("/api/cloud/merchant-chat/threads/{threadId:guid}", async (
     MerchantChatAuthRequest authRequest,
     HttpContext httpContext,
     CloudAccountRegistryService accountRegistry,
+    MultiTenantGatewayService gateway,
     CloudChatStoreService chatStore,
     CancellationToken ct) =>
 {
-    var auth = await accountRegistry.VerifyPasswordHashAsync(authRequest.Email, authRequest.Username, authRequest.PasswordHash, ct);
+    var auth = await AuthenticateMerchantSessionOrPublishAsync(
+        authRequest.CloudSessionToken,
+        authRequest.PublishToken,
+        authRequest.StoreSlug,
+        httpContext,
+        accountRegistry,
+        gateway,
+        ct);
     if (!auth.Verified)
         return Results.Unauthorized();
 
@@ -1817,10 +1984,18 @@ app.MapPost("/api/cloud/merchant-chat/threads/{threadId:guid}/send", async (
     MerchantSendChatMessageRequest request,
     HttpContext httpContext,
     CloudAccountRegistryService accountRegistry,
+    MultiTenantGatewayService gateway,
     CloudChatStoreService chatStore,
     CancellationToken ct) =>
 {
-    var auth = await accountRegistry.VerifyPasswordHashAsync(request.Auth.Email, request.Auth.Username, request.Auth.PasswordHash, ct);
+    var auth = await AuthenticateMerchantSessionOrPublishAsync(
+        request.Auth.CloudSessionToken,
+        request.Auth.PublishToken,
+        request.Auth.StoreSlug,
+        httpContext,
+        accountRegistry,
+        gateway,
+        ct);
     if (!auth.Verified)
         return Results.Unauthorized();
 
@@ -1841,10 +2016,18 @@ app.MapPost("/api/cloud/merchant-chat/threads/{threadId:guid}/messages/{messageI
     MerchantChatAuthRequest authRequest,
     HttpContext httpContext,
     CloudAccountRegistryService accountRegistry,
+    MultiTenantGatewayService gateway,
     CloudChatStoreService chatStore,
     CancellationToken ct) =>
 {
-    var auth = await accountRegistry.VerifyPasswordHashAsync(authRequest.Email, authRequest.Username, authRequest.PasswordHash, ct);
+    var auth = await AuthenticateMerchantSessionOrPublishAsync(
+        authRequest.CloudSessionToken,
+        authRequest.PublishToken,
+        authRequest.StoreSlug,
+        httpContext,
+        accountRegistry,
+        gateway,
+        ct);
     if (!auth.Verified)
         return Results.Unauthorized();
 
@@ -1867,14 +2050,22 @@ app.MapPost("/api/cloud/support-chat/my-thread", async (
     MerchantChatAuthRequest authRequest,
     HttpContext httpContext,
     CloudAccountRegistryService accountRegistry,
+    MultiTenantGatewayService gateway,
     CloudChatStoreService chatStore,
     CancellationToken ct) =>
 {
-    var auth = await accountRegistry.VerifyPasswordHashAsync(authRequest.Email, authRequest.Username, authRequest.PasswordHash, ct);
+    var auth = await AuthenticateMerchantSessionOrPublishAsync(
+        authRequest.CloudSessionToken,
+        authRequest.PublishToken,
+        authRequest.StoreSlug,
+        httpContext,
+        accountRegistry,
+        gateway,
+        ct);
     if (!auth.Verified)
         return Results.Unauthorized();
 
-    var accountKey = !string.IsNullOrWhiteSpace(auth.Email) ? auth.Email! : (authRequest.Username ?? authRequest.StoreSlug);
+    var accountKey = !string.IsNullOrWhiteSpace(auth.Email) ? auth.Email! : (!string.IsNullOrWhiteSpace(auth.StoreSlug) ? auth.StoreSlug! : authRequest.StoreSlug);
     var handle = !string.IsNullOrWhiteSpace(authRequest.Username) ? authRequest.Username : accountKey;
     var storeSlug = !string.IsNullOrWhiteSpace(authRequest.StoreSlug) ? authRequest.StoreSlug : (auth.StoreSlug ?? "minha-loja");
     var storeName = !string.IsNullOrWhiteSpace(authRequest.StoreName) ? authRequest.StoreName : storeSlug;
@@ -1888,14 +2079,22 @@ app.MapPost("/api/cloud/support-chat/send", async (
     MerchantSendChatMessageRequest request,
     HttpContext httpContext,
     CloudAccountRegistryService accountRegistry,
+    MultiTenantGatewayService gateway,
     CloudChatStoreService chatStore,
     CancellationToken ct) =>
 {
-    var auth = await accountRegistry.VerifyPasswordHashAsync(request.Auth.Email, request.Auth.Username, request.Auth.PasswordHash, ct);
+    var auth = await AuthenticateMerchantSessionOrPublishAsync(
+        request.Auth.CloudSessionToken,
+        request.Auth.PublishToken,
+        request.Auth.StoreSlug,
+        httpContext,
+        accountRegistry,
+        gateway,
+        ct);
     if (!auth.Verified)
         return Results.Unauthorized();
 
-    var accountKey = !string.IsNullOrWhiteSpace(auth.Email) ? auth.Email! : (request.Auth.Username ?? request.Auth.StoreSlug);
+    var accountKey = !string.IsNullOrWhiteSpace(auth.Email) ? auth.Email! : (!string.IsNullOrWhiteSpace(auth.StoreSlug) ? auth.StoreSlug! : request.Auth.StoreSlug);
     var handle = !string.IsNullOrWhiteSpace(request.Auth.Username) ? request.Auth.Username : accountKey;
     var storeSlug = !string.IsNullOrWhiteSpace(request.Auth.StoreSlug) ? request.Auth.StoreSlug : (auth.StoreSlug ?? "minha-loja");
     var storeName = !string.IsNullOrWhiteSpace(request.Auth.StoreName) ? request.Auth.StoreName : storeSlug;
@@ -1914,14 +2113,22 @@ app.MapPost("/api/cloud/support-chat/threads/{threadId:guid}/messages/{messageId
     MerchantChatAuthRequest authRequest,
     HttpContext httpContext,
     CloudAccountRegistryService accountRegistry,
+    MultiTenantGatewayService gateway,
     CloudChatStoreService chatStore,
     CancellationToken ct) =>
 {
-    var auth = await accountRegistry.VerifyPasswordHashAsync(authRequest.Email, authRequest.Username, authRequest.PasswordHash, ct);
+    var auth = await AuthenticateMerchantSessionOrPublishAsync(
+        authRequest.CloudSessionToken,
+        authRequest.PublishToken,
+        authRequest.StoreSlug,
+        httpContext,
+        accountRegistry,
+        gateway,
+        ct);
     if (!auth.Verified)
         return Results.Unauthorized();
 
-    var accountKey = !string.IsNullOrWhiteSpace(auth.Email) ? auth.Email! : (authRequest.Username ?? authRequest.StoreSlug);
+    var accountKey = !string.IsNullOrWhiteSpace(auth.Email) ? auth.Email! : (!string.IsNullOrWhiteSpace(auth.StoreSlug) ? auth.StoreSlug! : authRequest.StoreSlug);
     var deleted = await chatStore.DeleteMessageForActorAsync(
         threadId,
         messageId,
@@ -2389,13 +2596,106 @@ static string? ResolveStoreSlug(HttpContext ctx, string? routeSlug)
     return string.IsNullOrWhiteSpace(headerSlug) ? null : headerSlug.Trim();
 }
 
+static string ResolveRateLimitPartitionIp(HttpContext ctx)
+{
+    var remote = ctx.Connection.RemoteIpAddress?.ToString();
+    if (!string.IsNullOrWhiteSpace(remote))
+        return remote;
+
+    var cfIp = ctx.Request.Headers["CF-Connecting-IP"].FirstOrDefault()?.Trim();
+    if (!string.IsNullOrWhiteSpace(cfIp) && System.Net.IPAddress.TryParse(cfIp, out _))
+        return cfIp;
+
+    return "unknown";
+}
+
+static async Task<(bool Verified, string? VerifiedEmail)> ResolveVerifiedCloudOwnerEmailAsync(
+    HttpContext ctx,
+    CloudAccountRegistryService accountRegistry,
+    CancellationToken ct)
+{
+    // Segurança crítica (Item 1): ignora completamente X-YouLink-Owner-Email não autenticado.
+    // Só aceita e-mail derivado de CloudSessionToken validado criptograficamente no servidor.
+    var cloudToken = ctx.Request.Headers["X-YouLink-Cloud-Token"].FirstOrDefault();
+    if (string.IsNullOrWhiteSpace(cloudToken))
+        return (false, null);
+
+    var validated = await accountRegistry.ValidateSessionTokenAsync(cloudToken, ct);
+    if (!validated.Verified || string.IsNullOrWhiteSpace(validated.Email))
+        return (false, null);
+
+    return (true, validated.Email);
+}
+
+static async Task<(bool Verified, string? Email, string? Username, string? StoreSlug)> AuthenticateMerchantSessionOrPublishAsync(
+    string? bodyCloudSessionToken,
+    string? bodyPublishToken,
+    string? requestedStoreSlug,
+    HttpContext ctx,
+    CloudAccountRegistryService accountRegistry,
+    MultiTenantGatewayService gateway,
+    CancellationToken ct)
+{
+    // Segurança crítica (Item 3): NUNCA aceita PasswordHash; exige CloudSessionToken ou PublishToken válido.
+    var effectiveCloudToken = !string.IsNullOrWhiteSpace(bodyCloudSessionToken)
+        ? bodyCloudSessionToken
+        : ctx.Request.Headers["X-YouLink-Cloud-Token"].FirstOrDefault();
+
+    if (!string.IsNullOrWhiteSpace(effectiveCloudToken))
+    {
+        var sessionAuth = await accountRegistry.ValidateSessionTokenAsync(effectiveCloudToken, ct);
+        if (sessionAuth.Verified)
+            return sessionAuth;
+    }
+
+    var effectivePublishToken = !string.IsNullOrWhiteSpace(bodyPublishToken)
+        ? bodyPublishToken
+        : ctx.Request.Headers["X-YouLink-Publish-Token"].FirstOrDefault();
+
+    if (!string.IsNullOrWhiteSpace(effectivePublishToken) && !string.IsNullOrWhiteSpace(requestedStoreSlug))
+    {
+        var tokenOk = await gateway.StoreResolver.VerifyPublishTokenAsync(requestedStoreSlug, effectivePublishToken, ct);
+        if (tokenOk)
+        {
+            var creds = await gateway.StoreResolver.GetTenantCredentialsAsync(requestedStoreSlug, ct);
+            var normalizedSlug = gateway.StoreResolver.NormalizeStoreSlug(requestedStoreSlug);
+            return (true, creds?.OwnerEmail, null, normalizedSlug);
+        }
+    }
+
+    return (false, null, null, null);
+}
+
 static string GetPublicOrigin(HttpContext ctx)
 {
-    var proto = ctx.Request.Headers["X-Forwarded-Proto"].FirstOrDefault()?.Split(',')[0].Trim();
-    var host = ctx.Request.Headers["X-Forwarded-Host"].FirstOrDefault()?.Split(',')[0].Trim();
-    var scheme = string.IsNullOrWhiteSpace(proto) ? ctx.Request.Scheme : proto;
-    var hostValue = string.IsNullOrWhiteSpace(host) ? ctx.Request.Host.Value : host;
-    return string.IsNullOrWhiteSpace(hostValue) ? string.Empty : $"{scheme}://{hostValue}";
+    // Segurança crítica (Item 7): NUNCA confia em X-Forwarded-Host enviado pelo cliente (previne Host Header Injection).
+    var configuredOrigin = Environment.GetEnvironmentVariable("YOULINK_PUBLIC_ORIGIN")
+                           ?? Environment.GetEnvironmentVariable("PUBLIC_BASE_URL")
+                           ?? Environment.GetEnvironmentVariable("RENDER_EXTERNAL_URL");
+    if (!string.IsNullOrWhiteSpace(configuredOrigin))
+    {
+        var normalizedConfigured = WhatsAppLinkBuilder.NormalizePublicServerUrl(configuredOrigin);
+        if (!string.IsNullOrWhiteSpace(normalizedConfigured))
+            return normalizedConfigured;
+    }
+
+    var forwardedProto = ctx.Request.Headers["X-Forwarded-Proto"].FirstOrDefault()?.Split(',')[0].Trim();
+    var scheme = string.Equals(forwardedProto, "https", StringComparison.OrdinalIgnoreCase)
+        ? "https"
+        : (string.Equals(ctx.Request.Scheme, "https", StringComparison.OrdinalIgnoreCase) ? "https" : "http");
+
+    var hostValue = ctx.Request.Host.Value?.Trim();
+    if (string.IsNullOrWhiteSpace(hostValue))
+        return string.Empty;
+
+    foreach (var ch in hostValue)
+    {
+        var valid = char.IsLetterOrDigit(ch) || ch is '.' or '-' or ':' or '[' or ']';
+        if (!valid)
+            return string.Empty;
+    }
+
+    return $"{scheme}://{hostValue}";
 }
 
 static async Task<(string RawBody, string? QueryDataId, string? QueryTopic, string? XSignature, string? XRequestId)> ReadWebhookEnvelopeAsync(

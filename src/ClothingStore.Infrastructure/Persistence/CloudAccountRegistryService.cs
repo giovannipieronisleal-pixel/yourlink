@@ -13,6 +13,10 @@ namespace ClothingStore.Infrastructure.Persistence;
 public sealed class CloudAccountRegistryService
 {
     public const string RegistryFileName = "cloud_accounts_registry.json";
+    public const int MinimumCloudPasswordLength = 8;
+    public const int MaxFailedLoginAttempts = 5;
+    public static readonly TimeSpan LoginLockoutDuration = TimeSpan.FromMinutes(15);
+    public static readonly TimeSpan SessionTokenLifetime = TimeSpan.FromDays(30);
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -22,6 +26,7 @@ public sealed class CloudAccountRegistryService
 
     private readonly string _filePath;
     private readonly IPasswordHasher _passwordHasher;
+    private readonly string _dummyPasswordHash;
     private readonly SemaphoreSlim _lock = new(1, 1);
     private DateTime _lastLoadedUtc = DateTime.MinValue;
     private CloudAccountsRegistryState _state = new();
@@ -30,6 +35,7 @@ public sealed class CloudAccountRegistryService
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(rootDirectory);
         _passwordHasher = passwordHasher ?? throw new ArgumentNullException(nameof(passwordHasher));
+        _dummyPasswordHash = _passwordHasher.HashPassword("YouLinkDummyTimingGuard#2026!");
         _filePath = Path.Combine(Path.GetFullPath(rootDirectory), RegistryFileName);
     }
 
@@ -38,7 +44,9 @@ public sealed class CloudAccountRegistryService
     public async Task<CloudAccountUpsertResult> UpsertAccountAsync(
         CloudAccountCredentialSyncDto dto,
         bool hasValidSyncKey = false,
-        CancellationToken ct = default)
+        CancellationToken ct = default,
+        bool emailVerifiedByServer = false,
+        string? callerCloudSessionToken = null)
     {
         ArgumentNullException.ThrowIfNull(dto);
 
@@ -51,7 +59,7 @@ public sealed class CloudAccountRegistryService
             return new CloudAccountUpsertResult(
                 Success: false,
                 StatusCode: 400,
-                Message: "Nome completo, e-mail e hash de senha são obrigatórios.");
+                Message: "Nome completo, e-mail e credencial de senha são obrigatórios.");
         }
 
         var username = NormalizeIdentifier(dto.Username);
@@ -61,7 +69,9 @@ public sealed class CloudAccountRegistryService
         }
 
         var prevEmail = NormalizeIdentifier(dto.PreviousEmail);
-        var prevHash = (dto.PreviousPasswordHash ?? string.Empty).Trim();
+        var effectiveToken = !string.IsNullOrWhiteSpace(callerCloudSessionToken)
+            ? callerCloudSessionToken.Trim()
+            : dto.CloudSessionToken?.Trim();
 
         await _lock.WaitAsync(ct);
         try
@@ -105,23 +115,45 @@ public sealed class CloudAccountRegistryService
                     Message: "Este nome de usuário já está em uso por outra conta.");
             }
 
+            var now = DateTimeOffset.UtcNow;
+            string? issuedToken = null;
+            DateTimeOffset? issuedExpiresAt = null;
+
             if (existing is not null)
             {
                 var isClaimingUnregisteredEntitlement = string.IsNullOrWhiteSpace(existing.PasswordHash);
-                var hashMatchesCurrent = !isClaimingUnregisteredEntitlement &&
-                                         string.Equals(existing.PasswordHash, passwordHash, StringComparison.Ordinal);
-                var hashMatchesPrevious = !isClaimingUnregisteredEntitlement &&
-                                          !string.IsNullOrWhiteSpace(prevHash) &&
-                                          string.Equals(existing.PasswordHash, prevHash, StringComparison.Ordinal);
-
-                if (!hasValidSyncKey && !isClaimingUnregisteredEntitlement && !hashMatchesCurrent && !hashMatchesPrevious)
+                if (isClaimingUnregisteredEntitlement)
                 {
-                    return new CloudAccountUpsertResult(
-                        Success: false,
-                        StatusCode: 401,
-                        Message: "Já existe uma conta na nuvem com este e-mail. Use a aba Entrar ou recupere sua senha.");
+                    var hasPreProvisionedPaidOrCourtesyPlan =
+                        !string.IsNullOrWhiteSpace(existing.PlanTier) &&
+                        !string.Equals(StoreSettings.NormalizePlanTier(existing.PlanTier), StoreSettings.PlanTierBasic, StringComparison.OrdinalIgnoreCase);
+
+                    // Segurança crítica (Item 6): contas com plano pré-liberado e sem senha exigem confirmação
+                    // prévia de posse do e-mail (OTP 6 dígitos) antes que alguém possa assumir o plano.
+                    if (hasPreProvisionedPaidOrCourtesyPlan && !hasValidSyncKey && !emailVerifiedByServer)
+                    {
+                        return new CloudAccountUpsertResult(
+                            Success: false,
+                            StatusCode: 403,
+                            Message: "Este e-mail possui um plano pré-liberado. Confirme o código de verificação enviado para o seu e-mail antes de concluir o cadastro.",
+                            RequiresEmailVerification: true);
+                    }
+                }
+                else
+                {
+                    // Segurança crítica (Item 3 — anti pass-the-hash): contas já registradas NÃO aceitam
+                    // comparação direta de PasswordHash para alterar dados/senha; exigem CloudSessionToken válido ou SyncKey.
+                    var hasValidAccountSession = VerifyAccountSessionTokenUnsafe(existing, effectiveToken, now);
+                    if (!hasValidSyncKey && !hasValidAccountSession)
+                    {
+                        return new CloudAccountUpsertResult(
+                            Success: false,
+                            StatusCode: 401,
+                            Message: "Já existe uma conta na nuvem com este e-mail. Use a aba Entrar ou recupere sua senha.");
+                    }
                 }
 
+                var passwordChanged = !string.Equals(existing.PasswordHash, passwordHash, StringComparison.Ordinal);
                 existing.Email = email;
                 existing.Username = username;
                 existing.FullName = fullName;
@@ -135,13 +167,22 @@ public sealed class CloudAccountRegistryService
                     existing.PlanExpiresAt = dto.PlanExpiresAt;
                     if (dto.IsSiteActive.HasValue)
                         existing.IsSiteActive = dto.IsSiteActive.Value;
-                    existing.PlanUpdatedAt = DateTimeOffset.UtcNow;
+                    existing.PlanUpdatedAt = now;
                 }
-                existing.UpdatedAt = DateTimeOffset.UtcNow;
+
+                if (passwordChanged)
+                {
+                    existing.Sessions.Clear();
+                    existing.FailedLoginAttempts = 0;
+                    existing.LockoutEndsAt = null;
+                }
+
+                (issuedToken, issuedExpiresAt) = IssueSessionTokenUnsafe(existing, now);
+                existing.UpdatedAt = now;
             }
             else
             {
-                _state.Accounts.Add(new CloudAccountEntry
+                var created = new CloudAccountEntry
                 {
                     Email = email,
                     Username = username,
@@ -155,14 +196,21 @@ public sealed class CloudAccountRegistryService
                         : null,
                     PlanExpiresAt = hasValidSyncKey ? dto.PlanExpiresAt : null,
                     IsSiteActive = hasValidSyncKey ? dto.IsSiteActive : null,
-                    PlanUpdatedAt = hasValidSyncKey && !string.IsNullOrWhiteSpace(dto.PlanTier) ? DateTimeOffset.UtcNow : null,
-                    CreatedAt = DateTimeOffset.UtcNow,
-                    UpdatedAt = DateTimeOffset.UtcNow
-                });
+                    PlanUpdatedAt = hasValidSyncKey && !string.IsNullOrWhiteSpace(dto.PlanTier) ? now : null,
+                    CreatedAt = now,
+                    UpdatedAt = now
+                };
+                (issuedToken, issuedExpiresAt) = IssueSessionTokenUnsafe(created, now);
+                _state.Accounts.Add(created);
             }
 
             SaveToDiskUnsafe();
-            return new CloudAccountUpsertResult(Success: true, StatusCode: 200, Message: "Conta sincronizada na nuvem com sucesso.");
+            return new CloudAccountUpsertResult(
+                Success: true,
+                StatusCode: 200,
+                Message: "Conta sincronizada na nuvem com sucesso.",
+                CloudSessionToken: issuedToken,
+                CloudSessionExpiresAt: issuedExpiresAt);
         }
         finally
         {
@@ -170,39 +218,41 @@ public sealed class CloudAccountRegistryService
         }
     }
 
-    public async Task<(bool Verified, string? Email, string? Username, string? StoreSlug)> VerifyPasswordHashAsync(
-        string? email,
-        string? username,
-        string? passwordHash,
+    public async Task<(bool Verified, string? Email, string? Username, string? StoreSlug)> ValidateSessionTokenAsync(
+        string? rawToken,
         CancellationToken ct = default)
     {
-        if (string.IsNullOrWhiteSpace(passwordHash) ||
-            (string.IsNullOrWhiteSpace(email) && string.IsNullOrWhiteSpace(username)))
-        {
+        if (string.IsNullOrWhiteSpace(rawToken))
             return (false, null, null, null);
-        }
 
-        var normEmail = NormalizeIdentifier(email);
-        var normUser = NormalizeIdentifier(username);
-        var providedBytes = System.Text.Encoding.UTF8.GetBytes(passwordHash.Trim());
+        var tokenHash = HashSessionTokenSha256(rawToken.Trim());
+        var tokenHashBytes = Encoding.ASCII.GetBytes(tokenHash);
+        var now = DateTimeOffset.UtcNow;
 
         await _lock.WaitAsync(ct);
         try
         {
             RefreshFromDiskIfModifiedUnsafe();
-            var match = _state.Accounts.FirstOrDefault(a =>
-                (!string.IsNullOrWhiteSpace(normEmail) && string.Equals(NormalizeIdentifier(a.Email), normEmail, StringComparison.OrdinalIgnoreCase)) ||
-                (!string.IsNullOrWhiteSpace(normUser) && string.Equals(NormalizeIdentifier(a.Username), normUser, StringComparison.OrdinalIgnoreCase)));
+            foreach (var acc in _state.Accounts)
+            {
+                if (acc.Sessions is null || acc.Sessions.Count == 0)
+                    continue;
 
-            if (match is null || string.IsNullOrWhiteSpace(match.PasswordHash))
-                return (false, null, null, null);
+                foreach (var session in acc.Sessions)
+                {
+                    if (session.ExpiresAt <= now || string.IsNullOrWhiteSpace(session.TokenHash))
+                        continue;
 
-            var expectedBytes = System.Text.Encoding.UTF8.GetBytes(match.PasswordHash.Trim());
-            var ok = expectedBytes.Length == providedBytes.Length &&
-                     System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(expectedBytes, providedBytes);
-            return ok
-                ? (true, match.Email, match.Username, match.StoreSlug)
-                : (false, null, null, null);
+                    var storedBytes = Encoding.ASCII.GetBytes(session.TokenHash);
+                    if (storedBytes.Length == tokenHashBytes.Length &&
+                        System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(storedBytes, tokenHashBytes))
+                    {
+                        return (true, acc.Email, acc.Username, acc.StoreSlug);
+                    }
+                }
+            }
+
+            return (false, null, null, null);
         }
         finally
         {
@@ -214,6 +264,8 @@ public sealed class CloudAccountRegistryService
         LoginRequest request,
         CancellationToken ct = default)
     {
+        const string genericInvalidCredentialsMsg = "E-mail, usuário ou senha inválidos.";
+
         if (request is null ||
             string.IsNullOrWhiteSpace(request.Email) ||
             string.IsNullOrWhiteSpace(request.Password))
@@ -228,13 +280,14 @@ public sealed class CloudAccountRegistryService
         var normalized = NormalizeIdentifier(request.Email);
         if (string.IsNullOrWhiteSpace(normalized))
         {
-            return new CloudVerifyLoginResponseDto(false, false, null, "Credenciais inválidas.");
+            return new CloudVerifyLoginResponseDto(false, false, null, genericInvalidCredentialsMsg);
         }
 
         await _lock.WaitAsync(ct);
         try
         {
             RefreshFromDiskIfModifiedUnsafe();
+            var now = DateTimeOffset.UtcNow;
 
             var match = _state.Accounts.FirstOrDefault(a =>
                 string.Equals(NormalizeIdentifier(a.Email), normalized, StringComparison.OrdinalIgnoreCase) ||
@@ -242,24 +295,46 @@ public sealed class CloudAccountRegistryService
 
             if (match is null || string.IsNullOrWhiteSpace(match.PasswordHash))
             {
+                // Executa PBKDF2 dummy para evitar enumeração por tempo de resposta e retorna mensagem genérica
+                _ = _passwordHasher.VerifyPassword(request.Password, _dummyPasswordHash);
                 return new CloudVerifyLoginResponseDto(
                     Verified: false,
                     AccountExists: false,
                     Account: null,
-                    Message: "Conta não encontrada no registro central.");
+                    Message: genericInvalidCredentialsMsg);
+            }
+
+            if (match.LockoutEndsAt.HasValue && match.LockoutEndsAt.Value > now)
+            {
+                return new CloudVerifyLoginResponseDto(
+                    Verified: false,
+                    AccountExists: false,
+                    Account: null,
+                    Message: "Muitas tentativas incorretas. Aguarde alguns minutos e tente novamente.");
             }
 
             if (!_passwordHasher.VerifyPassword(request.Password, match.PasswordHash))
             {
+                match.FailedLoginAttempts++;
+                if (match.FailedLoginAttempts >= MaxFailedLoginAttempts)
+                {
+                    match.LockoutEndsAt = now.Add(LoginLockoutDuration);
+                }
+                SaveToDiskUnsafe();
+
                 return new CloudVerifyLoginResponseDto(
                     Verified: false,
-                    AccountExists: true,
+                    AccountExists: false,
                     Account: null,
-                    Message: "Credenciais inválidas. Verifique seu e-mail e senha.");
+                    Message: genericInvalidCredentialsMsg);
             }
 
-            var now = DateTimeOffset.UtcNow;
+            match.FailedLoginAttempts = 0;
+            match.LockoutEndsAt = null;
+            var (sessionToken, sessionExpiresAt) = IssueSessionTokenUnsafe(match, now);
             EvaluateEntryGraceUnsafe(match, now);
+            SaveToDiskUnsafe();
+
             var effectiveTier = ResolveEffectivePlan(match.PlanTier, match.PlanExpiresAt, now);
             return new CloudVerifyLoginResponseDto(
                 Verified: true,
@@ -268,7 +343,7 @@ public sealed class CloudAccountRegistryService
                     match.FullName,
                     match.Username,
                     match.Email,
-                    match.PasswordHash,
+                    string.Empty, // NUNCA devolve PasswordHash pela rede (previne pass-the-hash)
                     match.Phone,
                     match.StoreName,
                     match.StoreSlug,
@@ -280,8 +355,11 @@ public sealed class CloudAccountRegistryService
                     IsRecurringSubscription: match.IsRecurringSubscription,
                     BillingGraceEndsAt: match.BillingGraceEndsAt,
                     IsBillingSuspended: match.IsBillingSuspended,
-                    BillingWarningMessage: match.BillingWarningMessage),
-                Message: "Conta verificada com sucesso.");
+                    BillingWarningMessage: match.BillingWarningMessage,
+                    CloudSessionToken: sessionToken),
+                Message: "Conta verificada com sucesso.",
+                CloudSessionToken: sessionToken,
+                CloudSessionExpiresAt: sessionExpiresAt);
         }
         finally
         {
@@ -777,7 +855,8 @@ public sealed class CloudAccountRegistryService
             a.BillingWarningMessage,
             a.LastClientCheckInAt,
             a.LastReportedClientPlanTier,
-            a.LastClientAppVersion);
+            a.LastClientAppVersion,
+            HasPassword: !string.IsNullOrWhiteSpace(a.PasswordHash));
 
     private static bool ResolveIsCourtesyVip(CloudAccountEntry entry)
     {
@@ -888,9 +967,67 @@ public sealed class CloudAccountRegistryService
             ? string.Empty
             : new string(slug.Where(char.IsLetterOrDigit).ToArray()).ToLowerInvariant();
 
+    private static (string RawToken, DateTimeOffset ExpiresAt) IssueSessionTokenUnsafe(
+        CloudAccountEntry account,
+        DateTimeOffset now)
+    {
+        account.Sessions ??= [];
+        account.Sessions.RemoveAll(s => s.ExpiresAt <= now || string.IsNullOrWhiteSpace(s.TokenHash));
+        if (account.Sessions.Count >= 8)
+        {
+            account.Sessions = account.Sessions.OrderByDescending(s => s.ExpiresAt).Take(7).ToList();
+        }
+
+        var rawToken = Convert.ToHexString(System.Security.Cryptography.RandomNumberGenerator.GetBytes(32)).ToLowerInvariant();
+        var expiresAt = now.Add(SessionTokenLifetime);
+        account.Sessions.Add(new CloudAccountSessionEntry
+        {
+            TokenHash = HashSessionTokenSha256(rawToken),
+            ExpiresAt = expiresAt
+        });
+        return (rawToken, expiresAt);
+    }
+
+    private static bool VerifyAccountSessionTokenUnsafe(
+        CloudAccountEntry account,
+        string? candidateRawToken,
+        DateTimeOffset now)
+    {
+        if (string.IsNullOrWhiteSpace(candidateRawToken) || account.Sessions is null || account.Sessions.Count == 0)
+            return false;
+
+        var candidateBytes = Encoding.ASCII.GetBytes(HashSessionTokenSha256(candidateRawToken.Trim()));
+        foreach (var session in account.Sessions)
+        {
+            if (session.ExpiresAt <= now || string.IsNullOrWhiteSpace(session.TokenHash))
+                continue;
+
+            var storedBytes = Encoding.ASCII.GetBytes(session.TokenHash);
+            if (storedBytes.Length == candidateBytes.Length &&
+                System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(storedBytes, candidateBytes))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static string HashSessionTokenSha256(string rawToken)
+    {
+        var hash = System.Security.Cryptography.SHA256.HashData(Encoding.UTF8.GetBytes(rawToken));
+        return Convert.ToHexString(hash).ToLowerInvariant();
+    }
+
     private sealed class CloudAccountsRegistryState
     {
         public List<CloudAccountEntry> Accounts { get; set; } = [];
+    }
+
+    private sealed class CloudAccountSessionEntry
+    {
+        public string TokenHash { get; set; } = string.Empty;
+        public DateTimeOffset ExpiresAt { get; set; }
     }
 
     private sealed class CloudAccountEntry
@@ -916,12 +1053,21 @@ public sealed class CloudAccountRegistryService
         public string? LastReportedClientPlanTier { get; set; }
         public DateTimeOffset? LastReportedClientPlanExpiresAt { get; set; }
         public string? LastClientAppVersion { get; set; }
+        public int FailedLoginAttempts { get; set; }
+        public DateTimeOffset? LockoutEndsAt { get; set; }
+        public List<CloudAccountSessionEntry> Sessions { get; set; } = [];
         public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
         public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.UtcNow;
     }
 }
 
-public sealed record CloudAccountUpsertResult(bool Success, int StatusCode, string Message);
+public sealed record CloudAccountUpsertResult(
+    bool Success,
+    int StatusCode,
+    string Message,
+    string? CloudSessionToken = null,
+    DateTimeOffset? CloudSessionExpiresAt = null,
+    bool RequiresEmailVerification = false);
 
 public sealed record CloudAccountSummary(
     string FullName,
@@ -944,4 +1090,5 @@ public sealed record CloudAccountSummary(
     string? BillingWarningMessage = null,
     DateTimeOffset? LastClientCheckInAt = null,
     string? LastReportedClientPlanTier = null,
-    string? LastClientAppVersion = null);
+    string? LastClientAppVersion = null,
+    bool HasPassword = true);

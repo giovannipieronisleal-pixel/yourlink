@@ -25,6 +25,7 @@ public sealed class GoogleCloudSyncService
 {
     private const string CentralUrlPreferenceKey = "youlink_central_catalog_url_v1";
     private const string PublishTokenPreferencePrefix = "youlink_central_publish_token_v1_";
+    private const string CloudSessionTokenPreferencePrefix = "youlink_cloud_session_token_v1_";
     public const string HostingModePlatformShared = "PlatformShared";
 
     private readonly IClothingStoreRepository _repository;
@@ -142,6 +143,43 @@ public sealed class GoogleCloudSyncService
         }
 
         return $"{PublishTokenPreferencePrefix}{workspaceId.Trim()}_{cleanSlug}";
+    }
+
+    private static string ResolveCloudSessionTokenKey(string? workspaceId)
+    {
+        var ws = string.IsNullOrWhiteSpace(workspaceId)
+            ? SwitchableClothingStoreRepository.DefaultWorkspaceId
+            : workspaceId.Trim();
+        return $"{CloudSessionTokenPreferencePrefix}{ws}";
+    }
+
+    public static string? GetCachedCloudSessionToken(string? workspaceId = null)
+    {
+        try
+        {
+            var key = ResolveCloudSessionTokenKey(workspaceId);
+            var val = Preferences.Default.Get(key, string.Empty);
+            return string.IsNullOrWhiteSpace(val) ? null : val.Trim();
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    public static void SaveCachedCloudSessionToken(string? token, string? workspaceId = null)
+    {
+        try
+        {
+            var key = ResolveCloudSessionTokenKey(workspaceId);
+            if (string.IsNullOrWhiteSpace(token))
+                Preferences.Default.Remove(key);
+            else
+                Preferences.Default.Set(key, token.Trim());
+        }
+        catch
+        {
+        }
     }
 
     public static string? GetCachedCentralCatalogUrl(string? workspaceId = null)
@@ -1402,7 +1440,7 @@ public sealed class GoogleCloudSyncService
         }
     }
 
-    private static void ApplyStoreControlHeaders(
+    private void ApplyStoreControlHeaders(
         HttpRequestMessage request,
         StoreSettings settings,
         string slug,
@@ -1416,8 +1454,9 @@ public sealed class GoogleCloudSyncService
         if (!string.IsNullOrWhiteSpace(publishToken))
             request.Headers.TryAddWithoutValidation("X-YouLink-Publish-Token", publishToken.Trim());
 
-        if (!string.IsNullOrWhiteSpace(ownerEmail))
-            request.Headers.TryAddWithoutValidation("X-YouLink-Owner-Email", ownerEmail.Trim());
+        var cloudSessionToken = GetCachedCloudSessionToken(CurrentWorkspaceId);
+        if (!string.IsNullOrWhiteSpace(cloudSessionToken))
+            request.Headers.TryAddWithoutValidation("X-YouLink-Cloud-Token", cloudSessionToken);
 
         var isSharedMode = string.Equals(
             settings.ServerHostingMode,
@@ -1555,11 +1594,20 @@ public sealed class GoogleCloudSyncService
                     ? localSettings.StoreSlug.Trim()
                     : null);
 
+            var cloudSessionToken = GetCachedCloudSessionToken(CurrentWorkspaceId);
+            var publishToken = ResolvePublishToken(localSettings, slugToQuery ?? ResolveEffectiveStoreSlug(localSettings));
+            if (string.IsNullOrWhiteSpace(cloudSessionToken) && string.IsNullOrWhiteSpace(publishToken))
+            {
+                return (false, "Sessão na nuvem ainda não inicializada neste dispositivo.");
+            }
+
             var req = new CloudPullStoreRequest(
                 Email: email?.Trim(),
                 Username: username?.Trim(),
-                PasswordHash: passwordHash.Trim(),
-                StoreSlug: slugToQuery);
+                PasswordHash: null,
+                StoreSlug: slugToQuery,
+                CloudSessionToken: cloudSessionToken,
+                PublishToken: publishToken);
 
             using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
             cts.CancelAfter(TimeSpan.FromSeconds(25));
@@ -1611,7 +1659,7 @@ public sealed class GoogleCloudSyncService
             }
 
             var syncApplier = new CloudSyncStateService(_repository, settingsService);
-            var applied = await syncApplier.ApplySyncPayloadAsync(pulled.Payload, ct);
+            var applied = await syncApplier.ApplySyncPayloadAsync(pulled.Payload, ct, allowTrustedServerPlanFields: true);
 
             var updatedSettings = await _repository.GetStoreSettingsAsync(ct);
             var effectiveSlug = !string.IsNullOrWhiteSpace(pulled.StoreSlug)

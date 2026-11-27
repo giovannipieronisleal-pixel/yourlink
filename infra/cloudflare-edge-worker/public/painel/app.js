@@ -255,16 +255,19 @@
     } catch {}
   }
 
+  function buildStoreAuthHeaders(slug) {
+    const headers = { "X-YouLink-Store-Slug": slug };
+    if (state.session?.cloudSessionToken) headers["X-YouLink-Cloud-Token"] = state.session.cloudSessionToken;
+    if (state.publishToken) headers["X-YouLink-Publish-Token"] = state.publishToken;
+    return headers;
+  }
+
   async function loadCloudOrders(silent = true) {
     if (!state.session) return;
     const slug = slugify(state.store.storeSlug || state.session.storeSlug || state.store.storeName);
     if (!slug) return;
     try {
-      const headers = {
-        "X-YouLink-Store-Slug": slug,
-        "X-YouLink-Owner-Email": state.session.email || ""
-      };
-      if (state.publishToken) headers["X-YouLink-Publish-Token"] = state.publishToken;
+      const headers = buildStoreAuthHeaders(slug);
       const res = await apiJson(`/api/cloud/orders?storeSlug=${encodeURIComponent(slug)}`, { headers });
       state.orders = Array.isArray(res?.orders) ? res.orders : [];
       state.ordersLoaded = true;
@@ -394,7 +397,7 @@
   }
 
   async function pullStoreFromCloud(showMessage = false) {
-    if (!state.session?.passwordHash) {
+    if (!state.session?.cloudSessionToken && !state.publishToken) {
       state.storeLoaded = true;
       return;
     }
@@ -402,12 +405,18 @@
     state.msgErr = null;
     render();
     try {
+      const headers = {};
+      if (state.session?.cloudSessionToken) headers["X-YouLink-Cloud-Token"] = state.session.cloudSessionToken;
+      if (state.publishToken) headers["X-YouLink-Publish-Token"] = state.publishToken;
+
       const res = await apiJson("/api/cloud/pull-store", {
         method: "POST",
+        headers,
         body: JSON.stringify({
           email: state.session.email || null,
           username: state.session.username || null,
-          passwordHash: state.session.passwordHash,
+          cloudSessionToken: state.session.cloudSessionToken || null,
+          publishToken: state.publishToken || null,
           storeSlug: state.session.storeSlug || null
         })
       });
@@ -600,11 +609,7 @@
       const slug = slugify(state.store.storeSlug || state.store.storeName);
       state.store.storeSlug = slug;
 
-      const headers = {
-        "X-YouLink-Store-Slug": slug,
-        "X-YouLink-Owner-Email": state.session.email || ""
-      };
-      if (state.publishToken) headers["X-YouLink-Publish-Token"] = state.publishToken;
+      const headers = buildStoreAuthHeaders(slug);
 
       const res = await apiJson(`/api/cloud/publish-store?storeSlug=${encodeURIComponent(slug)}`, {
         method: "POST",
@@ -1644,7 +1649,7 @@
           if (!res?.verified || !res.account) {
             throw new Error(res?.message || "Usuário ou senha inválidos.");
           }
-          saveSession(res.account);
+          saveSession({ ...res.account, cloudSessionToken: res.cloudSessionToken || res.account.cloudSessionToken || null });
           state.activeTab = "home";
           await pullStoreFromCloud(false);
         } catch (err) {
@@ -1677,7 +1682,7 @@
           if (!res?.verified || !res.account) {
             throw new Error(res?.message || "Não foi possível criar a conta.");
           }
-          saveSession(res.account);
+          saveSession({ ...res.account, cloudSessionToken: res.cloudSessionToken || res.account.cloudSessionToken || null });
           state.storeLoaded = true;
           state.products = [];
           state.categories = [];
@@ -2146,11 +2151,7 @@
         state.busy = true;
         render();
         try {
-          const headers = {
-            "X-YouLink-Store-Slug": slug,
-            "X-YouLink-Owner-Email": state.session?.email || ""
-          };
-          if (state.publishToken) headers["X-YouLink-Publish-Token"] = state.publishToken;
+          const headers = buildStoreAuthHeaders(slug);
           const res = await apiJson(`/api/payments/mercadopago/oauth/start?storeSlug=${encodeURIComponent(slug)}`, { method: "POST", headers });
           if (res?.authorizationUrl) {
             window.open(res.authorizationUrl, "_blank", "noopener");

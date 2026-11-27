@@ -101,14 +101,17 @@ public sealed record RenderStoreLinkAvailabilityDto(
     IReadOnlyList<string> Suggestions);
 
 /// <summary>
-/// Requisição autenticada pelo hash de senha da conta para baixar a loja completa (configurações,
-/// categorias, produtos, variantes e fotos) do servidor central para outro dispositivo (Windows <-> Android).
+/// Requisição autenticada por token de sessão na nuvem (<see cref="CloudSessionToken"/>) ou <see cref="PublishToken"/>
+/// para baixar a loja completa (configurações, categorias, produtos, variantes e fotos) do servidor central
+/// para outro dispositivo (Windows &lt;-&gt; Android). Nunca aceita hash de senha como credencial.
 /// </summary>
 public sealed record CloudPullStoreRequest(
     string? Email,
     string? Username,
-    string PasswordHash,
-    string? StoreSlug = null);
+    string? PasswordHash = null,
+    string? StoreSlug = null,
+    string? CloudSessionToken = null,
+    string? PublishToken = null);
 
 public sealed record CloudPullStoreResponse(
     bool Found,

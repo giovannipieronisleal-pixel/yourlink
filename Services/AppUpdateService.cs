@@ -386,9 +386,12 @@ public sealed class AppUpdateService
             var targetFile = Path.Combine(updateDir, release.SelectedAssetName);
 
             await DownloadFileWithProgressAsync(release.SelectedDownloadUrl, targetFile, ct);
+            var expectedSha256 = AppUpdateCatalog.NormalizeSha256Hex(release.SelectedAssetSha256)
+                                 ?? await TryFetchCompanionSha256Async(release.SelectedDownloadUrl, release.SelectedAssetName, ct);
             try
             {
                 ValidateDownloadedArchive(targetFile);
+                AppUpdateCatalog.VerifyDownloadedPackageSha256(targetFile, expectedSha256);
             }
             catch
             {
@@ -413,7 +416,7 @@ public sealed class AppUpdateService
 
             if (OperatingSystem.IsWindows())
             {
-                await ApplyWindowsUpdateAsync(targetFile, updateDir, release.LatestVersion, ct);
+                await ApplyWindowsUpdateAsync(targetFile, updateDir, release.LatestVersion, expectedSha256, ct);
             }
             else if (OperatingSystem.IsAndroid())
             {
@@ -621,10 +624,30 @@ public sealed class AppUpdateService
         }
     }
 
+    private async Task<string?> TryFetchCompanionSha256Async(string downloadUrl, string assetName, CancellationToken ct)
+    {
+        try
+        {
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            cts.CancelAfter(TimeSpan.FromSeconds(8));
+            using var resp = await DownloadHttpClient.GetAsync(downloadUrl + ".sha256", cts.Token);
+            if (resp.IsSuccessStatusCode)
+            {
+                var text = await resp.Content.ReadAsStringAsync(cts.Token);
+                return AppUpdateCatalog.ParseSha256FromChecksumText(text, assetName);
+            }
+        }
+        catch
+        {
+        }
+        return null;
+    }
+
     private async Task ApplyWindowsUpdateAsync(
         string packagePath,
         string updateDir,
         string targetVersion,
+        string? expectedSha256,
         CancellationToken ct)
     {
         var currentAppDir = AppContext.BaseDirectory;
@@ -655,7 +678,8 @@ public sealed class AppUpdateService
                 packagePath,
                 launcherPath,
                 logPath,
-                updaterCacheRootDir: GetUpdaterCacheRoot());
+                updaterCacheRootDir: GetUpdaterCacheRoot(),
+                expectedSha256: expectedSha256);
         }
         else
         {

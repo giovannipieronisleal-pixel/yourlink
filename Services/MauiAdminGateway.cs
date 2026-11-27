@@ -573,8 +573,8 @@ public sealed class MauiAdminGateway
         if (_workspaceRepository is not null)
         {
             // Verifica primeiro na nuvem se este e-mail ou nome de usuário já existe em outro aparelho
-            // para impedir contas duplicadas com o mesmo e-mail.
-            await EnsureCloudAccountRegisteredOrThrowAsync(request);
+            // para impedir contas duplicadas com o mesmo e-mail e obter o CloudSessionToken.
+            var issuedCloudToken = await EnsureCloudAccountRegisteredOrThrowAsync(request);
 
             var provisioned = await _workspaceRepository.ProvisionIsolatedWorkspaceForNewAccountAsync(
                 request.Email,
@@ -583,6 +583,10 @@ public sealed class MauiAdminGateway
             try
             {
                 RefreshActiveWorkspaceState(resetCloudStatus: true);
+                if (!string.IsNullOrWhiteSpace(issuedCloudToken))
+                {
+                    GoogleCloudSyncService.SaveCachedCloudSessionToken(issuedCloudToken, CurrentWorkspaceId);
+                }
                 var localResp = await _authService.RegisterUserAccountAsync(request);
                 _apiClient.SetSession(localResp.AccessToken, localResp.Employee);
 
@@ -703,6 +707,10 @@ public sealed class MauiAdminGateway
             {
                 _apiClient.SetSession(localChallenge.AuthResult.AccessToken, localChallenge.AuthResult.Employee);
                 await PersistSessionAsync(localChallenge.AuthResult, rememberMe, deferBackgroundCloudSync: true);
+                if (!importedFromCloud && string.IsNullOrWhiteSpace(GoogleCloudSyncService.GetCachedCloudSessionToken(CurrentWorkspaceId)))
+                {
+                    await TryAcquireCloudSessionTokenBestEffortAsync(cleanRequest);
+                }
                 await WaitBrieflyForPlanSyncOnLoginAsync();
             }
             return localChallenge;
@@ -910,12 +918,12 @@ public sealed class MauiAdminGateway
         AuthStateChanged?.Invoke();
     }
 
-    private async Task EnsureCloudAccountRegisteredOrThrowAsync(
+    private async Task<string?> EnsureCloudAccountRegisteredOrThrowAsync(
         RegisterUserAccountRequest request,
         CancellationToken ct = default)
     {
         if (HasCustomServerUrl)
-            return;
+            return null;
 
         var centralUrl = WhatsAppLinkBuilder.NormalizePublicServerUrl(LatestAdminCentralServerUrl);
         if (string.IsNullOrWhiteSpace(centralUrl))
@@ -936,11 +944,18 @@ public sealed class MauiAdminGateway
                 throw new DomainException(errMsg);
             }
 
-            if (resp.StatusCode == System.Net.HttpStatusCode.BadRequest)
+            if (resp.StatusCode == System.Net.HttpStatusCode.Forbidden ||
+                resp.StatusCode == System.Net.HttpStatusCode.BadRequest)
             {
                 var errMsg = await TryReadErrorMessageAsync(resp, ct)
                     ?? "Verifique os dados informados para criar a conta.";
                 throw new DomainException(errMsg);
+            }
+
+            if (resp.IsSuccessStatusCode)
+            {
+                var verified = await resp.Content.ReadFromJsonAsync<CloudVerifyLoginResponseDto>(cancellationToken: ct);
+                return verified?.CloudSessionToken ?? verified?.Account?.CloudSessionToken;
             }
         }
         catch (DomainException)
@@ -950,6 +965,41 @@ public sealed class MauiAdminGateway
         catch
         {
             // Sem internet no momento: prossegue com validação local entre workspaces do dispositivo.
+        }
+
+        return null;
+    }
+
+    private async Task TryAcquireCloudSessionTokenBestEffortAsync(LoginRequest cleanRequest, CancellationToken ct = default)
+    {
+        if (HasCustomServerUrl || string.IsNullOrWhiteSpace(cleanRequest.Email) || string.IsNullOrWhiteSpace(cleanRequest.Password))
+            return;
+
+        var centralUrl = ResolveCentralBillingServerUrl(null, allowDefaultFallback: true);
+        if (string.IsNullOrWhiteSpace(centralUrl))
+            return;
+
+        try
+        {
+            using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            timeoutCts.CancelAfter(TimeSpan.FromSeconds(6));
+            using var content = System.Net.Http.Json.JsonContent.Create(cleanRequest);
+            using var response = await RemotePlatformBillingHttpClient.PostAsync(
+                $"{centralUrl.TrimEnd('/')}/api/cloud/accounts/verify-login",
+                content,
+                timeoutCts.Token);
+            if (response.IsSuccessStatusCode)
+            {
+                var res = await response.Content.ReadFromJsonAsync<CloudVerifyLoginResponseDto>(cancellationToken: timeoutCts.Token);
+                var tok = res?.CloudSessionToken ?? res?.Account?.CloudSessionToken;
+                if (!string.IsNullOrWhiteSpace(tok))
+                {
+                    GoogleCloudSyncService.SaveCachedCloudSessionToken(tok, CurrentWorkspaceId);
+                }
+            }
+        }
+        catch
+        {
         }
     }
 
@@ -3120,6 +3170,7 @@ public sealed class MauiAdminGateway
                 ? settings.StoreSlug.Trim()
                 : null;
 
+            var existingCloudSessionToken = GoogleCloudSyncService.GetCachedCloudSessionToken(CurrentWorkspaceId);
             var dto = new CloudAccountCredentialSyncDto(
                 FullName: employee?.FullName ?? user.Username,
                 Username: user.Username,
@@ -3129,7 +3180,8 @@ public sealed class MauiAdminGateway
                 StoreName: storeName,
                 StoreSlug: storeSlug,
                 PreviousPasswordHash: previousPasswordHash,
-                PreviousEmail: previousEmail);
+                PreviousEmail: previousEmail,
+                CloudSessionToken: existingCloudSessionToken);
 
             SetPendingCloudAccountSync(true);
 
@@ -3154,10 +3206,32 @@ public sealed class MauiAdminGateway
                         using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
                         timeoutCts.CancelAfter(perAttemptTimeout);
 
-                        using var content = System.Net.Http.Json.JsonContent.Create(dto);
-                        using var response = await RemotePlatformBillingHttpClient.PostAsync(endpoint, content, timeoutCts.Token);
+                        using var reqMsg = new HttpRequestMessage(HttpMethod.Post, endpoint)
+                        {
+                            Content = System.Net.Http.Json.JsonContent.Create(dto)
+                        };
+                        if (!string.IsNullOrWhiteSpace(existingCloudSessionToken))
+                        {
+                            reqMsg.Headers.TryAddWithoutValidation("X-YouLink-Cloud-Token", existingCloudSessionToken);
+                        }
+
+                        using var response = await RemotePlatformBillingHttpClient.SendAsync(reqMsg, timeoutCts.Token);
                         if (response.IsSuccessStatusCode)
                         {
+                            try
+                            {
+                                var rawUpsert = await response.Content.ReadAsStringAsync(timeoutCts.Token);
+                                using var doc = JsonDocument.Parse(rawUpsert);
+                                if (doc.RootElement.TryGetProperty("cloudSessionToken", out var tokProp) &&
+                                    tokProp.ValueKind == JsonValueKind.String &&
+                                    !string.IsNullOrWhiteSpace(tokProp.GetString()))
+                                {
+                                    GoogleCloudSyncService.SaveCachedCloudSessionToken(tokProp.GetString(), CurrentWorkspaceId);
+                                }
+                            }
+                            catch
+                            {
+                            }
                             SetPendingCloudAccountSync(false);
                             return;
                         }
@@ -3223,7 +3297,19 @@ public sealed class MauiAdminGateway
 
                     if (result?.Verified == true && result.Account is not null)
                     {
-                        return await _workspaceRepository.UpsertCloudHydratedAccountAsync(result.Account, ct);
+                        var hydrated = await _workspaceRepository.UpsertCloudHydratedAccountAsync(
+                            result.Account,
+                            ct,
+                            plainPassword: request.Password);
+                        if (hydrated)
+                        {
+                            var sessionTok = result.CloudSessionToken ?? result.Account.CloudSessionToken;
+                            if (!string.IsNullOrWhiteSpace(sessionTok))
+                            {
+                                GoogleCloudSyncService.SaveCachedCloudSessionToken(sessionTok, CurrentWorkspaceId);
+                            }
+                        }
+                        return hydrated;
                     }
 
                     return false;
@@ -3813,6 +3899,18 @@ public sealed class MauiAdminGateway
             ? WhatsAppLinkBuilder.GenerateStoreSlug(settings.StoreName)
             : settings.StoreSlug;
 
+        var cloudSessionToken = GoogleCloudSyncService.GetCachedCloudSessionToken(CurrentWorkspaceId);
+        string? publishToken = null;
+        if (_workspaceRepository is not null)
+        {
+            var rawSettings = await _workspaceRepository.GetStoreSettingsAsync(ct);
+            publishToken = rawSettings.CentralPublishToken;
+        }
+        if (string.IsNullOrWhiteSpace(cloudSessionToken) && string.IsNullOrWhiteSpace(publishToken))
+        {
+            throw new DomainException("Saia e entre novamente na sua conta (ou publique sua loja em 1 clique) para ativar a sessão segura do chat.");
+        }
+
         var centralUrl = WhatsAppLinkBuilder.NormalizePublicServerUrl(LatestAdminCentralServerUrl);
         if (string.IsNullOrWhiteSpace(centralUrl))
             centralUrl = AppUpdateCatalog.DefaultCentralPlatformServerUrl;
@@ -3820,9 +3918,11 @@ public sealed class MauiAdminGateway
         var auth = new MerchantChatAuthRequest(
             Email: CurrentEmployee.Email,
             Username: CurrentEmployee.EffectiveUsername,
-            PasswordHash: passwordHash,
+            PasswordHash: null,
             StoreSlug: slug,
-            StoreName: settings.StoreName);
+            StoreName: settings.StoreName,
+            PublishToken: publishToken,
+            CloudSessionToken: cloudSessionToken);
 
         return (centralUrl.TrimEnd('/'), auth);
     }

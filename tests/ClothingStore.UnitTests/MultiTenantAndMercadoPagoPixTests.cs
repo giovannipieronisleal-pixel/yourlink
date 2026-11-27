@@ -361,6 +361,12 @@ public sealed class MultiTenantAndMercadoPagoPixTests
                 payload, "loja-mp", null, null, false, "dona@lojamp.com", "https://central.youlink.com.br");
             Assert.IsTrue(publishRes.Success);
 
+            // Ativa plano pago no servidor (sincronização de cliente não auto-promove plano sem pagamento)
+            var mpTenantRepo = await gateway.ResolveReadRepositoryAsync("loja-mp");
+            var mpTenantSettings = await mpTenantRepo!.GetStoreSettingsAsync();
+            mpTenantSettings.UpdatePlanAndDesign(StoreSettings.PlanTierPremium);
+            await mpTenantRepo.UpdateStoreSettingsAsync(mpTenantSettings);
+
             var (startResp, _) = await gateway.StartMercadoPagoOAuthAsync(
                 "loja-mp",
                 null,
@@ -438,6 +444,12 @@ public sealed class MultiTenantAndMercadoPagoPixTests
             var pub = await gateway.PublishStoreAsync(
                 payload, "loja-auto", null, null, false, "auto@loja.com", "https://central.youlink.com.br");
             Assert.IsTrue(pub.Success);
+
+            // Ativa plano pago no servidor antes de conectar Mercado Pago e vender via Pix
+            var autoTenantRepo = await gateway.ResolveReadRepositoryAsync("loja-auto");
+            var autoTenantSettings = await autoTenantRepo!.GetStoreSettingsAsync();
+            autoTenantSettings.UpdatePlanAndDesign(StoreSettings.PlanTierPremium);
+            await autoTenantRepo.UpdateStoreSettingsAsync(autoTenantSettings);
 
             var (start, _) = await gateway.StartMercadoPagoOAuthAsync(
                 "loja-auto", null, pub.PublishToken, false, null,
@@ -710,7 +722,12 @@ public sealed class MultiTenantAndMercadoPagoPixTests
             Assert.IsTrue(pub.Success);
 
             var repo = await gateway.ResolveReadRepositoryAsync("loja-direto");
-            var prod = (await repo!.GetProductsAsync(false))[0];
+            var diretoSettings = await repo!.GetStoreSettingsAsync();
+            diretoSettings.UpdatePlanAndDesign(StoreSettings.PlanTierPremium);
+            diretoSettings.DirectPixSalesEnabled = true;
+            await repo.UpdateStoreSettingsAsync(diretoSettings);
+
+            var prod = (await repo.GetProductsAsync(false))[0];
             var order = await gateway.PlacePixOrderForStoreAsync(
                 "loja-direto",
                 new CreatePixOrderRequest

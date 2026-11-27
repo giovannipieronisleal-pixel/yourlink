@@ -67,30 +67,32 @@ public sealed class PlatformSubscriptionService
             _ => settings.BasicPlanMonthlyPrice
         };
 
-        if (request.UseOwnDedicatedServer)
-            expectedMonthlyBase = Math.Max(19.90m, expectedMonthlyBase - 10.00m);
-
-        var effectiveAmount = request.Amount > 0m
-            ? Math.Round(request.Amount, 2, MidpointRounding.AwayFromZero)
-            : Math.Round(expectedMonthlyBase * durationMonths, 2, MidpointRounding.AwayFromZero);
-
-        if (paymentMethod != PlatformSubscriptionOrder.MethodDirectPix)
+        // Segurança crítica (Item 5): o valor do plano é calculado EXCLUSIVAMENTE no servidor.
+        // Ignora completamente request.Amount enviado pelo cliente e só concede desconto Google
+        // quando a conta/loja tiver verificação OAuth real gravada no servidor.
+        string? verifiedServerGoogleTier = null;
+        if (_storeResolver is not null && !string.IsNullOrWhiteSpace(request.StoreSlug))
         {
-            var regularBase = normalizedTier switch
+            var tenantRepo = await _storeResolver.ResolveReadRepositoryAsync(request.StoreSlug, ct);
+            if (tenantRepo is not null && !ReferenceEquals(tenantRepo, _repository))
             {
-                StoreSettings.PlanTierPremium => settings.PremiumPlanMonthlyPrice,
-                StoreSettings.PlanTierIntermediate => settings.IntermediaryPlanMonthlyPrice,
-                _ => settings.BasicPlanMonthlyPrice
-            };
-            var maxBenefits = GoogleAccountTierVerifier.CalculatePlanBenefits(
-                regularBase,
-                usesFreeDomain: true,
-                GoogleAccountTierVerifier.TierWorkspace,
-                request.UseOwnDedicatedServer);
-            var minAllowedTotal = Math.Round(maxBenefits.FinalMonthlyPrice * durationMonths, 2, MidpointRounding.AwayFromZero);
-            if (effectiveAmount < minAllowedTotal)
-                effectiveAmount = minAllowedTotal;
+                var tenantSettings = await tenantRepo.GetStoreSettingsAsync(ct);
+                if (tenantSettings.GoogleAccountVerifiedAt.HasValue)
+                    verifiedServerGoogleTier = tenantSettings.GoogleAccountTier;
+            }
         }
+        else if (settings.GoogleAccountVerifiedAt.HasValue)
+        {
+            verifiedServerGoogleTier = settings.GoogleAccountTier;
+        }
+
+        var serverBenefits = GoogleAccountTierVerifier.CalculatePlanBenefits(
+            expectedMonthlyBase,
+            false,
+            verifiedServerGoogleTier,
+            false);
+
+        var effectiveAmount = Math.Round(serverBenefits.FinalMonthlyPrice * durationMonths, 2, MidpointRounding.AwayFromZero);
 
         if (effectiveAmount <= 0m)
             throw new DomainException("O valor da contratação do plano deve ser maior que zero.");

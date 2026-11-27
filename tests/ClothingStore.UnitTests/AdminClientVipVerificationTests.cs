@@ -129,8 +129,24 @@ public sealed class AdminClientVipVerificationTests
             var preVerify = await registry.VerifyLoginAsync(new LoginRequest("lojista.modelo@gmail.com", "Qualquer@123"));
             Assert.IsFalse(preVerify.Verified);
 
-            // 2) Client registers and posts UpsertAccountAsync WITHOUT SyncKey and with PlanTier = Basico
+            // 2) Sem confirmação de posse do e-mail (OTP), tentativa de assumir plano pré-liberado deve ser bloqueada (403)
             var clientHash = hasher.HashPassword("SenhaLojista@123");
+            var unverifiedClaim = await registry.UpsertAccountAsync(new CloudAccountCredentialSyncDto(
+                FullName: "Invasor Sem OTP",
+                Username: "lojista",
+                Email: "lojista.modelo@gmail.com",
+                PasswordHash: clientHash,
+                Phone: "41999991111",
+                StoreName: "Loja Modelo",
+                StoreSlug: "loja-modelo",
+                PlanTier: StoreSettings.PlanTierBasic),
+                hasValidSyncKey: false,
+                emailVerifiedByServer: false);
+            Assert.IsFalse(unverifiedClaim.Success, "Não deve permitir assumir e-mail com VIP pré-liberado sem confirmação por e-mail.");
+            Assert.AreEqual(403, unverifiedClaim.StatusCode);
+            Assert.IsTrue(unverifiedClaim.RequiresEmailVerification);
+
+            // Após confirmar o código OTP no servidor (emailVerifiedByServer = true), preserva o VIP pré-liberado
             var claim = await registry.UpsertAccountAsync(new CloudAccountCredentialSyncDto(
                 FullName: "Lojista Modelo",
                 Username: "lojista",
@@ -139,7 +155,9 @@ public sealed class AdminClientVipVerificationTests
                 Phone: "41999991111",
                 StoreName: "Loja Modelo",
                 StoreSlug: "loja-modelo",
-                PlanTier: StoreSettings.PlanTierBasic));
+                PlanTier: StoreSettings.PlanTierBasic),
+                hasValidSyncKey: false,
+                emailVerifiedByServer: true);
 
             Assert.IsTrue(claim.Success);
             var claimedMeta = await registry.GetPlanStatusWithAccountAsync("lojista.modelo@gmail.com", "lojista", "loja-modelo", "Loja Modelo");

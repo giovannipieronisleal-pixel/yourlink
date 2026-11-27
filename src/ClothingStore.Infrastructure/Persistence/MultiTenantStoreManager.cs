@@ -117,7 +117,8 @@ public sealed class MultiTenantStoreManager : IMultiTenantStoreResolver
         string? publishTokenHeader,
         bool hasValidSyncKey,
         string? authenticatedOwnerEmail,
-        CancellationToken ct = default)
+        CancellationToken ct = default,
+        bool isOwnerEmailServerVerified = false)
     {
         var hasRequestedSlug = !string.IsNullOrWhiteSpace(requestedSlug);
         var normalized = NormalizeStoreSlug(requestedSlug);
@@ -161,11 +162,13 @@ public sealed class MultiTenantStoreManager : IMultiTenantStoreResolver
             {
                 var issuedToken = GenerateSecretToken();
                 var now = DateTimeOffset.UtcNow;
+                var verifiedEmail = isOwnerEmailServerVerified ? NormalizeEmail(authenticatedOwnerEmail) : null;
                 index.Tenants[normalized] = new TenantSecretCredentials
                 {
                     StoreSlug = normalized,
                     PublishTokenHash = HashToken(issuedToken),
-                    OwnerEmail = NormalizeEmail(authenticatedOwnerEmail),
+                    OwnerEmail = verifiedEmail,
+                    IsOwnerEmailVerified = !string.IsNullOrWhiteSpace(verifiedEmail),
                     CreatedAt = now,
                     UpdatedAt = now
                 };
@@ -184,7 +187,10 @@ public sealed class MultiTenantStoreManager : IMultiTenantStoreResolver
             var tokenMatches = !string.IsNullOrWhiteSpace(publishTokenHeader) &&
                                VerifyTokenHash(publishTokenHeader, existing.PublishTokenHash);
 
-            var ownerMatches = !string.IsNullOrWhiteSpace(authenticatedOwnerEmail) &&
+            // Segurança crítica: NUNCA autoriza mutação/controle apenas por cabeçalho de e-mail enviado pelo cliente.
+            // O e-mail só autoriza quando autenticado criptograficamente pelo servidor (JWT ou CloudSessionToken válido).
+            var ownerMatches = isOwnerEmailServerVerified &&
+                               !string.IsNullOrWhiteSpace(authenticatedOwnerEmail) &&
                                !string.IsNullOrWhiteSpace(existing.OwnerEmail) &&
                                string.Equals(NormalizeEmail(authenticatedOwnerEmail), existing.OwnerEmail, StringComparison.OrdinalIgnoreCase);
 
@@ -197,9 +203,11 @@ public sealed class MultiTenantStoreManager : IMultiTenantStoreResolver
                     existing.PublishTokenHash = HashToken(rotatedToken);
                 }
 
-                if (string.IsNullOrWhiteSpace(existing.OwnerEmail) && !string.IsNullOrWhiteSpace(authenticatedOwnerEmail))
+                if (isOwnerEmailServerVerified && !string.IsNullOrWhiteSpace(authenticatedOwnerEmail))
                 {
-                    existing.OwnerEmail = NormalizeEmail(authenticatedOwnerEmail);
+                    if (string.IsNullOrWhiteSpace(existing.OwnerEmail))
+                        existing.OwnerEmail = NormalizeEmail(authenticatedOwnerEmail);
+                    existing.IsOwnerEmailVerified = true;
                 }
 
                 existing.UpdatedAt = DateTimeOffset.UtcNow;
@@ -233,7 +241,8 @@ public sealed class MultiTenantStoreManager : IMultiTenantStoreResolver
         string? publishTokenHeader,
         bool hasValidSyncKey,
         string? authenticatedOwnerEmail,
-        CancellationToken ct = default)
+        CancellationToken ct = default,
+        bool isOwnerEmailServerVerified = false)
     {
         if (hasValidSyncKey)
             return true;
@@ -256,7 +265,8 @@ public sealed class MultiTenantStoreManager : IMultiTenantStoreResolver
                 return true;
             }
 
-            if (!string.IsNullOrWhiteSpace(authenticatedOwnerEmail) &&
+            if (isOwnerEmailServerVerified &&
+                !string.IsNullOrWhiteSpace(authenticatedOwnerEmail) &&
                 !string.IsNullOrWhiteSpace(entry.OwnerEmail) &&
                 string.Equals(NormalizeEmail(authenticatedOwnerEmail), entry.OwnerEmail, StringComparison.OrdinalIgnoreCase))
             {
@@ -264,6 +274,28 @@ public sealed class MultiTenantStoreManager : IMultiTenantStoreResolver
             }
 
             return false;
+        }
+        finally
+        {
+            _indexLock.Release();
+        }
+    }
+
+    public async Task<bool> VerifyPublishTokenAsync(
+        string? storeSlug,
+        string? publishToken,
+        CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(storeSlug) || string.IsNullOrWhiteSpace(publishToken))
+            return false;
+
+        var normalized = NormalizeStoreSlug(storeSlug);
+        await _indexLock.WaitAsync(ct);
+        try
+        {
+            var index = LoadIndexUnsafe();
+            return index.Tenants.TryGetValue(normalized, out var entry) &&
+                   VerifyTokenHash(publishToken, entry.PublishTokenHash);
         }
         finally
         {

@@ -588,13 +588,13 @@ public class MultiAccountStoreIsolationTests
             Assert.IsTrue(upsertOk.Success);
             Assert.AreEqual(200, upsertOk.StatusCode);
 
-            // Senha incorreta NÃO vaza hash nem dados da conta
+            // Senha incorreta NÃO vaza hash, dados nem existência da conta
             var wrongPwd = await registry.VerifyLoginAsync(new LoginRequest("giovannilealpr@gmail.com", "errada"));
             Assert.IsFalse(wrongPwd.Verified);
-            Assert.IsTrue(wrongPwd.AccountExists);
+            Assert.IsFalse(wrongPwd.AccountExists);
             Assert.IsNull(wrongPwd.Account);
 
-            // Outro cliente tentando sobrescrever o mesmo e-mail sem o hash anterior é bloqueado com 401
+            // Outro cliente tentando sobrescrever o mesmo e-mail sem token de sessão válido é bloqueado com 401
             var rogueOverwrite = await registry.UpsertAccountAsync(new CloudAccountCredentialSyncDto(
                 FullName: "Invasor",
                 Username: "flavia",
@@ -607,8 +607,10 @@ public class MultiAccountStoreIsolationTests
             var verified = await registry.VerifyLoginAsync(new LoginRequest(" @flavia ", "sfgild1505s"));
             Assert.IsTrue(verified.Verified);
             Assert.IsNotNull(verified.Account);
+            Assert.IsTrue(string.IsNullOrEmpty(verified.Account!.PasswordHash));
+            Assert.IsFalse(string.IsNullOrWhiteSpace(verified.CloudSessionToken));
 
-            var hydrated = await repo.UpsertCloudHydratedAccountAsync(verified.Account!);
+            var hydrated = await repo.UpsertCloudHydratedAccountAsync(verified.Account!, plainPassword: "sfgild1505s");
             Assert.IsTrue(hydrated);
             Assert.AreEqual("Atelier Flavia", (await catalog.GetPublicStoreSettingsAsync()).StoreName);
 
@@ -617,19 +619,19 @@ public class MultiAccountStoreIsolationTests
             Assert.IsNotNull(loginAfterHydration.AuthResult);
             Assert.IsTrue(loginAfterHydration.AuthResult!.Employee.IsAdmin);
 
-            // Troca de senha em outro aparelho atualiza registro com PreviousPasswordHash e reidrata no aparelho local
+            // Troca de senha autenticada por CloudSessionToken atualiza registro e reidrata no aparelho local
             var updatedHash = hasher.HashPassword("NovaSenha@99");
             var updatePwd = await registry.UpsertAccountAsync(new CloudAccountCredentialSyncDto(
                 FullName: "Flavia Leal",
                 Username: "flavia",
                 Email: "giovannilealpr@gmail.com",
                 PasswordHash: updatedHash,
-                PreviousPasswordHash: originalHash));
+                CloudSessionToken: verified.CloudSessionToken));
             Assert.IsTrue(updatePwd.Success);
 
             var verifiedNew = await registry.VerifyLoginAsync(new LoginRequest("giovannilealpr@gmail.com", "NovaSenha@99"));
             Assert.IsTrue(verifiedNew.Verified);
-            Assert.IsTrue(await repo.UpsertCloudHydratedAccountAsync(verifiedNew.Account!));
+            Assert.IsTrue(await repo.UpsertCloudHydratedAccountAsync(verifiedNew.Account!, plainPassword: "NovaSenha@99"));
             var rehydratedLogin = await auth.LoginWithChallengeAsync(new LoginRequest("giovannilealpr@gmail.com", "NovaSenha@99"));
             Assert.IsNotNull(rehydratedLogin.AuthResult);
 
@@ -790,7 +792,11 @@ public class MultiAccountStoreIsolationTests
             Assert.IsTrue(verified.Verified);
             Assert.AreEqual(StoreSettings.PlanTierPremium, verified.Account?.PlanTier);
 
-            Assert.IsTrue(await repo.UpsertCloudHydratedAccountAsync(verified.Account!));
+            Assert.IsTrue(string.IsNullOrEmpty(verified.Account!.PasswordHash),
+                "VerifyLoginAsync nunca deve devolver PasswordHash na resposta.");
+            Assert.IsFalse(string.IsNullOrWhiteSpace(verified.CloudSessionToken),
+                "VerifyLoginAsync deve emitir CloudSessionToken temporário.");
+            Assert.IsTrue(await repo.UpsertCloudHydratedAccountAsync(verified.Account!, plainPassword: "SenhaForte@123"));
             Assert.AreEqual(StoreSettings.PlanTierPremium, (await repo.GetStoreSettingsAsync()).GetEffectivePlanTier());
 
             // Workspace local já existente em Básico é atualizado idempotentemente por ApplyCloudPlanSyncAsync

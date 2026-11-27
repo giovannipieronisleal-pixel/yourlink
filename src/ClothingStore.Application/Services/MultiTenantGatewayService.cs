@@ -164,7 +164,8 @@ public sealed class MultiTenantGatewayService
         bool hasValidSyncKey,
         string? authenticatedOwnerEmail,
         string publicServerOriginUrl,
-        CancellationToken ct = default)
+        CancellationToken ct = default,
+        bool isOwnerEmailServerVerified = false)
     {
         ArgumentNullException.ThrowIfNull(payload);
 
@@ -180,7 +181,8 @@ public sealed class MultiTenantGatewayService
             publishTokenHeader,
             hasValidSyncKey,
             authenticatedOwnerEmail,
-            ct);
+            ct,
+            isOwnerEmailServerVerified);
 
         if (!auth.Authorized || auth.Repository is null)
         {
@@ -215,7 +217,7 @@ public sealed class MultiTenantGatewayService
         }
 
         var syncService = CreateSyncService(auth.Repository);
-        var result = await syncService.ApplySyncPayloadAsync(payload, ct);
+        var result = await syncService.ApplySyncPayloadAsync(payload, ct, allowTrustedServerPlanFields: hasValidSyncKey);
 
         var effectiveBase = !string.IsNullOrWhiteSpace(publicServerOriginUrl)
             ? publicServerOriginUrl.TrimEnd('/')
@@ -322,7 +324,8 @@ public sealed class MultiTenantGatewayService
         string? publishTokenHeader,
         bool hasValidSyncKey,
         string? authenticatedOwnerEmail,
-        CancellationToken ct = default)
+        CancellationToken ct = default,
+        bool isOwnerEmailServerVerified = false)
     {
         var effectiveSlug = string.IsNullOrWhiteSpace(storeSlug) ? null : _storeResolver.NormalizeStoreSlug(storeSlug);
         var authorized = await _storeResolver.AuthorizeTenantOrdersPullAsync(
@@ -330,7 +333,8 @@ public sealed class MultiTenantGatewayService
             publishTokenHeader,
             hasValidSyncKey,
             authenticatedOwnerEmail,
-            ct);
+            ct,
+            isOwnerEmailServerVerified);
 
         if (!authorized)
             return null;
@@ -353,7 +357,8 @@ public sealed class MultiTenantGatewayService
         bool hasValidSyncKey,
         string? authenticatedOwnerEmail,
         string callbackRedirectUri,
-        CancellationToken ct = default)
+        CancellationToken ct = default,
+        bool isOwnerEmailServerVerified = false)
     {
         var appConfig = _mercadoPagoPixService.GetConfiguredApp();
         if (!appConfig.IsOAuthConfigured)
@@ -371,7 +376,8 @@ public sealed class MultiTenantGatewayService
             publishTokenHeader,
             hasValidSyncKey,
             authenticatedOwnerEmail,
-            ct);
+            ct,
+            isOwnerEmailServerVerified);
 
         if (!auth.Authorized)
         {
@@ -574,7 +580,8 @@ public sealed class MultiTenantGatewayService
         string? publishTokenHeader,
         bool hasValidSyncKey,
         string? authenticatedOwnerEmail,
-        CancellationToken ct = default)
+        CancellationToken ct = default,
+        bool isOwnerEmailServerVerified = false)
     {
         var effectiveSlug = string.IsNullOrWhiteSpace(storeSlug) ? null : _storeResolver.NormalizeStoreSlug(storeSlug);
         var authorized = await _storeResolver.AuthorizeTenantOrdersPullAsync(
@@ -582,7 +589,8 @@ public sealed class MultiTenantGatewayService
             publishTokenHeader,
             hasValidSyncKey,
             authenticatedOwnerEmail,
-            ct);
+            ct,
+            isOwnerEmailServerVerified);
 
         if (!authorized)
             return false;

@@ -1,6 +1,6 @@
 # YouLink — Catálogo Digital, Loja Online Multi-Tenant & Gestão (.NET 10)
 
-O **YouLink** é um aplicativo para **Android e Windows** integrado a uma **plataforma web pública (`ClothingStore.Web`)** com **Portal Central (`/`)**, **vitrines multi-loja (`/loja/{slug}`)** instaláveis como **PWA**, integração com **WhatsApp**, **Pix EMV** e **Mercado Pago**, controle de estoque visual por variante e **publicação online em 1 clique**.
+O **YouLink** é um aplicativo para **Android e Windows** integrado a uma **plataforma web pública (`ClothingStore.Web`)** com **Portal Central (`/`)**, **vitrines multi-loja (`/loja/{slug}`)** instaláveis como **PWA**, **Chat Interno no App e na Vitrine** (com conta do comprador e exclusão individual *"Apagar para mim"*), compras via **Pix EMV** e **Mercado Pago**, controle de estoque visual por variante e **publicação online em 1 clique** (sem dependência de números de telefone ou WhatsApp).
 
 ---
 
@@ -32,15 +32,16 @@ Em **Loja & Visual**, o lojista coloca o catálogo no ar em segundos sem termina
 ### Gestão de Loja, Categorias & Estoque Visual
 - **Início limpo sem produtos de exemplo:** crie categorias e cadastre produtos com fotos, variações (cor/tamanho/opção) e SKU.
 - **Estoque com identificação por foto (`/estoque`):** os cards de movimentação rápida exibem a foto do produto para conferência visual antes de tocar em **−1 Retirar**, **+1 Entrar**, **+5 Repor**, **+10 Lote** ou **✎ Mais**, além de prévia fotográfica na movimentação personalizada e miniatura no histórico de entradas e saídas.
-- **QR Code & WhatsApp prontos:** link direto `https://wa.me/...` e QR Code gerados automaticamente com o endereço oficial da loja.
+- **Chat Interno & QR Code da Vitrine:** comunicação direta entre compradores autenticados na vitrine web e o lojista dentro do aplicativo (`/mensagens`), com suporte a *"Apagar para mim"* (segurando a mensagem) e QR Code gerado automaticamente com o endereço oficial da loja.
 
-### Planos, Mercado Pago & Vendas via Pix
-Todos os níveis incluem endereço da loja (`/loja/{slug}`), HTTPS, PWA e publicação online:
+### Planos, Mercado Pago, Vendas via Pix & Chat Interno
+Todos os níveis incluem endereço da loja (`/loja/{slug}`), HTTPS, PWA, chat interno com clientes e publicação online:
 
-- **Plano Básico (`Basico`):** visual *Minimalista Luxo* + vitrine pública + pedidos direto no WhatsApp.
-- **Meia Versão (`Intermediario`):** **5 versões de site pré-prontas**, painel financeiro **Vendas & Quanto Vendeu** (`/vendas`) e vendas diretas pelo app/site via **Pix**.
-- **Premium Sob Medida (`Premium`):** **Estúdio Visual completo** (cores, tipografia, cantos, densidade e grade personalizáveis), painel `/vendas`, vendas via Pix e suporte a domínio próprio.
-- **Mercado Pago Integrado:** conexão rápida de conta via **OAuth 1-clique** (`MercadoPagoPixService`, `PlatformMercadoPagoTokenStore`) para lojistas receberem com split/credenciais próprias, além de checkout de assinatura de planos via **Pix** ou **Checkout Pro** (`PlatformSubscriptionService`) com confirmação automática por webhook/polling e **Gift Card** (`/planos`).
+- **Plano Básico (`Basico`):** visual *Minimalista Luxo* + vitrine pública + atendimento de clientes pelo Chat Interno no app.
+- **Meia Versão (`Intermediario`):** **5 versões de site pré-prontas**, painel financeiro **Vendas & Quanto Vendeu** (`/vendas`) e vendas diretas pelo app/site via **Pix** e **Mercado Pago**.
+- **Premium Sob Medida (`Premium`):** **Estúdio Visual completo** (cores, tipografia, cantos, densidade e grade personalizáveis), painel `/vendas`, vendas via Pix / Mercado Pago e suporte a domínio próprio.
+- **Mercado Pago Integrado:** conexão rápida de conta via **OAuth 1-clique** (`MercadoPagoPixService`, `PlatformMercadoPagoTokenStore`) para lojistas receberem com credenciais próprias, além de checkout de assinatura de planos calculado integralmente no servidor via **Pix** ou **Checkout Pro** (`PlatformSubscriptionService`) com confirmação automática por webhook/polling e **Gift Card** (`/planos`).
+- **Segurança Multi-Tenant & Integridade:** autorização de lojas via `PublishToken` e `CloudSessionToken` (SHA-256 com expiração e bloqueio contra força bruta), proteção contra falsificação de cabeçalhos atrás de proxy (`ForwardedHeaders`), verificação de integridade **SHA-256** nas atualizações automáticas do aplicativo e preservação das 3 últimas releases para rollback.
 
 ### Pix EMV, Raio de Entrega, Correios & PWA
 - **Pix Copia e Cola:** payload padrão BACEN EMV (`CRC-16/CCITT-FALSE`) via `PixPayloadBuilder`.

@@ -16,6 +16,7 @@ using ClothingStore.Shared.DTOs;
 using ClothingStore.Shared.Helpers;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Diagnostics;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.AspNetCore.ResponseCompression;
 
@@ -63,6 +64,14 @@ builder.Services.AddCors(options =>
     });
 });
 
+builder.Services.Configure<ForwardedHeadersOptions>(options =>
+{
+    options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
+    options.ForwardLimit = 1;
+    options.KnownIPNetworks.Clear();
+    options.KnownProxies.Clear();
+});
+
 // Proteção contra força bruta e spam automatizado em autenticação e pedidos públicos
 builder.Services.AddRateLimiter(options =>
 {
@@ -81,6 +90,28 @@ builder.Services.AddRateLimiter(options =>
             factory: _ => new FixedWindowRateLimiterOptions
             {
                 PermitLimit = 25,
+                Window = TimeSpan.FromMinutes(1),
+                QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
+                QueueLimit = 0
+            }));
+
+    options.AddPolicy("cloud-accounts", httpContext =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+            factory: _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = 30,
+                Window = TimeSpan.FromMinutes(1),
+                QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
+                QueueLimit = 0
+            }));
+
+    options.AddPolicy("giftcard-strict", httpContext =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+            factory: _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = 30,
                 Window = TimeSpan.FromMinutes(1),
                 QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
                 QueueLimit = 0
@@ -272,6 +303,7 @@ if (!Directory.Exists(webRootPath))
 {
     Directory.CreateDirectory(webRootPath);
 }
+app.UseForwardedHeaders();
 app.UseRequestDecompression();
 app.UseResponseCompression();
 app.UseStaticFiles();
@@ -306,11 +338,54 @@ static string? ResolveApiStoreSlug(HttpContext ctx, string? routeSlug = null)
 
 static string GetApiPublicOrigin(HttpContext ctx)
 {
+    var configuredOrigin = Environment.GetEnvironmentVariable("YOULINK_PUBLIC_ORIGIN")
+                           ?? Environment.GetEnvironmentVariable("PUBLIC_BASE_URL")
+                           ?? Environment.GetEnvironmentVariable("RENDER_EXTERNAL_URL");
+    if (!string.IsNullOrWhiteSpace(configuredOrigin))
+    {
+        var normalizedConfigured = WhatsAppLinkBuilder.NormalizePublicServerUrl(configuredOrigin);
+        if (!string.IsNullOrWhiteSpace(normalizedConfigured))
+            return normalizedConfigured;
+    }
+
     var proto = ctx.Request.Headers["X-Forwarded-Proto"].FirstOrDefault()?.Split(',')[0].Trim();
-    var host = ctx.Request.Headers["X-Forwarded-Host"].FirstOrDefault()?.Split(',')[0].Trim();
-    var scheme = string.IsNullOrWhiteSpace(proto) ? ctx.Request.Scheme : proto;
-    var hostValue = string.IsNullOrWhiteSpace(host) ? ctx.Request.Host.Value : host;
-    return string.IsNullOrWhiteSpace(hostValue) ? string.Empty : $"{scheme}://{hostValue}";
+    var scheme = string.Equals(proto, "https", StringComparison.OrdinalIgnoreCase)
+        ? "https"
+        : (string.Equals(ctx.Request.Scheme, "https", StringComparison.OrdinalIgnoreCase) ? "https" : "http");
+    var hostValue = ctx.Request.Host.Value?.Trim();
+    if (string.IsNullOrWhiteSpace(hostValue))
+        return string.Empty;
+
+    foreach (var ch in hostValue)
+    {
+        if (!(char.IsLetterOrDigit(ch) || ch is '.' or '-' or ':' or '[' or ']'))
+            return string.Empty;
+    }
+
+    return $"{scheme}://{hostValue}";
+}
+
+static async Task<(bool IsVerified, string? VerifiedEmail)> ResolveApiVerifiedOwnerEmailAsync(
+    HttpContext ctx,
+    CloudAccountRegistryService accountRegistry,
+    CancellationToken ct)
+{
+    if (ctx.User.Identity?.IsAuthenticated == true)
+    {
+        var jwtEmail = ctx.User.FindFirstValue(ClaimTypes.Email);
+        if (!string.IsNullOrWhiteSpace(jwtEmail))
+            return (true, jwtEmail);
+    }
+
+    var cloudToken = ctx.Request.Headers["X-YouLink-Cloud-Token"].FirstOrDefault();
+    if (!string.IsNullOrWhiteSpace(cloudToken))
+    {
+        var validated = await accountRegistry.ValidateSessionTokenAsync(cloudToken, ct);
+        if (validated.Verified && !string.IsNullOrWhiteSpace(validated.Email))
+            return (true, validated.Email);
+    }
+
+    return (false, null);
 }
 
 publicGroup.MapGet("/store-info", async (HttpContext ctx, MultiTenantGatewayService gateway, CancellationToken ct) =>
@@ -1547,6 +1622,7 @@ app.MapPost("/api/cloud/publish-store", async (
     CloudCatalogSyncPayload payload,
     IClothingStoreRepository repository,
     MultiTenantGatewayService gateway,
+    CloudAccountRegistryService accountRegistry,
     CancellationToken ct) =>
 {
     var hasJwtAccess = httpContext.User.Identity?.IsAuthenticated == true &&
@@ -1574,8 +1650,7 @@ app.MapPost("/api/cloud/publish-store", async (
     }
 
     var publishToken = httpContext.Request.Headers["X-YouLink-Publish-Token"].FirstOrDefault();
-    var ownerEmail = httpContext.User.FindFirstValue(ClaimTypes.Email)
-                     ?? httpContext.Request.Headers["X-YouLink-Owner-Email"].FirstOrDefault();
+    var (isEmailVerified, verifiedOwnerEmail) = await ResolveApiVerifiedOwnerEmailAsync(httpContext, accountRegistry, ct);
 
     var response = await gateway.PublishStoreAsync(
         payload,
@@ -1583,9 +1658,10 @@ app.MapPost("/api/cloud/publish-store", async (
         providedKey,
         publishToken,
         hasJwtAccess || hasValidSyncKey,
-        ownerEmail,
+        verifiedOwnerEmail,
         GetApiPublicOrigin(httpContext),
-        ct);
+        ct,
+        isOwnerEmailServerVerified: isEmailVerified);
 
     if (!response.Success)
         return Results.Conflict(new { error = response.Message });
@@ -1597,6 +1673,7 @@ app.MapGet("/api/cloud/orders", async (
     HttpContext httpContext,
     IClothingStoreRepository repository,
     MultiTenantGatewayService gateway,
+    CloudAccountRegistryService accountRegistry,
     CancellationToken ct) =>
 {
     var hasJwtAccess = httpContext.User.Identity?.IsAuthenticated == true &&
@@ -1610,15 +1687,15 @@ app.MapGet("/api/cloud/orders", async (
                           CryptographicOperations.FixedTimeEquals(Encoding.UTF8.GetBytes(expectedKey.Trim()), Encoding.UTF8.GetBytes(providedKey.Trim()));
 
     var publishToken = httpContext.Request.Headers["X-YouLink-Publish-Token"].FirstOrDefault();
-    var ownerEmail = httpContext.User.FindFirstValue(ClaimTypes.Email)
-                     ?? httpContext.Request.Headers["X-YouLink-Owner-Email"].FirstOrDefault();
+    var (isEmailVerified, verifiedOwnerEmail) = await ResolveApiVerifiedOwnerEmailAsync(httpContext, accountRegistry, ct);
 
     var res = await gateway.GetStoreOrdersForSyncAsync(
         ResolveApiStoreSlug(httpContext),
         publishToken,
         hasJwtAccess || hasValidSyncKey,
-        ownerEmail,
-        ct);
+        verifiedOwnerEmail,
+        ct,
+        isOwnerEmailServerVerified: isEmailVerified);
 
     return res is null ? Results.Unauthorized() : Results.Ok(res);
 }).AllowAnonymous();
@@ -1639,6 +1716,7 @@ app.MapPost("/api/payments/mercadopago/oauth/start", async (
     HttpContext ctx,
     IClothingStoreRepository repository,
     MultiTenantGatewayService gateway,
+    CloudAccountRegistryService accountRegistry,
     CancellationToken ct) =>
 {
     var hasJwtAccess = ctx.User.Identity?.IsAuthenticated == true && ctx.User.IsInRole(RoleNames.Admin);
@@ -1651,11 +1729,18 @@ app.MapPost("/api/payments/mercadopago/oauth/start", async (
                           CryptographicOperations.FixedTimeEquals(Encoding.UTF8.GetBytes(expectedKey.Trim()), Encoding.UTF8.GetBytes(providedKey.Trim()));
 
     var publishToken = ctx.Request.Headers["X-YouLink-Publish-Token"].FirstOrDefault();
-    var ownerEmail = ctx.User.FindFirstValue(ClaimTypes.Email) ?? ctx.Request.Headers["X-YouLink-Owner-Email"].FirstOrDefault();
+    var (isEmailVerified, verifiedOwnerEmail) = await ResolveApiVerifiedOwnerEmailAsync(ctx, accountRegistry, ct);
     var callbackUri = $"{GetApiPublicOrigin(ctx).TrimEnd('/')}/api/payments/mercadopago/oauth/callback";
 
     var (startResp, issuedToken) = await gateway.StartMercadoPagoOAuthAsync(
-        ResolveApiStoreSlug(ctx), providedKey, publishToken, hasJwtAccess || hasValidSyncKey, ownerEmail, callbackUri, ct);
+        ResolveApiStoreSlug(ctx),
+        providedKey,
+        publishToken,
+        hasJwtAccess || hasValidSyncKey,
+        verifiedOwnerEmail,
+        callbackUri,
+        ct,
+        isOwnerEmailServerVerified: isEmailVerified);
 
     return Results.Ok(new
     {
@@ -1689,6 +1774,7 @@ app.MapPost("/api/payments/mercadopago/disconnect", async (
     HttpContext ctx,
     IClothingStoreRepository repository,
     MultiTenantGatewayService gateway,
+    CloudAccountRegistryService accountRegistry,
     CancellationToken ct) =>
 {
     var hasJwtAccess = ctx.User.Identity?.IsAuthenticated == true && ctx.User.IsInRole(RoleNames.Admin);
@@ -1701,8 +1787,14 @@ app.MapPost("/api/payments/mercadopago/disconnect", async (
                           CryptographicOperations.FixedTimeEquals(Encoding.UTF8.GetBytes(expectedKey.Trim()), Encoding.UTF8.GetBytes(providedKey.Trim()));
 
     var publishToken = ctx.Request.Headers["X-YouLink-Publish-Token"].FirstOrDefault();
-    var ownerEmail = ctx.User.FindFirstValue(ClaimTypes.Email) ?? ctx.Request.Headers["X-YouLink-Owner-Email"].FirstOrDefault();
-    var ok = await gateway.DisconnectMercadoPagoAsync(ResolveApiStoreSlug(ctx), publishToken, hasJwtAccess || hasValidSyncKey, ownerEmail, ct);
+    var (isEmailVerified, verifiedOwnerEmail) = await ResolveApiVerifiedOwnerEmailAsync(ctx, accountRegistry, ct);
+    var ok = await gateway.DisconnectMercadoPagoAsync(
+        ResolveApiStoreSlug(ctx),
+        publishToken,
+        hasJwtAccess || hasValidSyncKey,
+        verifiedOwnerEmail,
+        ct,
+        isOwnerEmailServerVerified: isEmailVerified);
     return ok ? Results.Ok(new { disconnected = true }) : Results.Unauthorized();
 }).AllowAnonymous();
 
@@ -1711,6 +1803,7 @@ app.MapPost("/api/cloud/sync-state", async (
     CloudCatalogSyncPayload payload,
     IClothingStoreRepository repository,
     MultiTenantGatewayService gateway,
+    CloudAccountRegistryService accountRegistry,
     CancellationToken ct) =>
 {
     var hasJwtAccess = httpContext.User.Identity?.IsAuthenticated == true &&
@@ -1735,9 +1828,9 @@ app.MapPost("/api/cloud/sync-state", async (
     }
 
     var publishToken = httpContext.Request.Headers["X-YouLink-Publish-Token"].FirstOrDefault();
-    var ownerEmail = httpContext.User.FindFirstValue(ClaimTypes.Email) ?? httpContext.Request.Headers["X-YouLink-Owner-Email"].FirstOrDefault();
+    var (isEmailVerified, verifiedOwnerEmail) = await ResolveApiVerifiedOwnerEmailAsync(httpContext, accountRegistry, ct);
 
-    if (!hasJwtAccess && !hasValidSyncKey && string.IsNullOrWhiteSpace(publishToken))
+    if (!hasJwtAccess && !hasValidSyncKey && string.IsNullOrWhiteSpace(publishToken) && !isEmailVerified)
     {
         return Results.Unauthorized();
     }
@@ -1748,9 +1841,10 @@ app.MapPost("/api/cloud/sync-state", async (
         providedKey,
         publishToken,
         hasJwtAccess || hasValidSyncKey,
-        ownerEmail,
+        verifiedOwnerEmail,
         GetApiPublicOrigin(httpContext),
-        ct);
+        ct,
+        isOwnerEmailServerVerified: isEmailVerified);
 
     if (!result.Success)
         return Results.Unauthorized();
@@ -1926,13 +2020,10 @@ app.MapGet("/api/platform-sync/plan-catalog", async (
     var resolvedCentral = WhatsAppLinkBuilder.NormalizePublicServerUrl(settings.CentralCatalogBaseUrl);
     if (string.IsNullOrWhiteSpace(resolvedCentral) || StoreSettings.IsPlaceholderStoreUrl(resolvedCentral))
     {
-        var reqScheme = httpContext.Request.Headers["X-Forwarded-Proto"].FirstOrDefault()?.Split(',')[0].Trim();
-        var reqHost = httpContext.Request.Headers["X-Forwarded-Host"].FirstOrDefault()?.Split(',')[0].Trim();
-        var scheme = string.IsNullOrWhiteSpace(reqScheme) ? httpContext.Request.Scheme : reqScheme;
-        var host = string.IsNullOrWhiteSpace(reqHost) ? httpContext.Request.Host.Value : reqHost;
-        resolvedCentral = string.IsNullOrWhiteSpace(host)
+        var safeOrigin = GetApiPublicOrigin(httpContext);
+        resolvedCentral = string.IsNullOrWhiteSpace(safeOrigin)
             ? null
-            : WhatsAppLinkBuilder.NormalizePublicServerUrl($"{scheme}://{host}");
+            : WhatsAppLinkBuilder.NormalizePublicServerUrl(safeOrigin);
     }
 
     var resolvedSupportWhatsapp = WhatsAppLinkBuilder.SanitizeSupportPhone(

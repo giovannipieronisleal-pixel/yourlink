@@ -242,6 +242,14 @@ jobs:
           rm -rf flat-assets
           mkdir -p flat-assets
           find release-assets -type f -exec cp -f {} flat-assets/ \;
+          (
+            cd flat-assets
+            for asset in YouLink-Setup-x64.exe YouLink-Windows-x64.zip YouLink-Android.apk; do
+              if [[ -f "$asset" ]]; then
+                sha256sum "$asset" | tee "${asset}.sha256" >> SHA256SUMS.txt
+              fi
+            done
+          )
           ls -lh flat-assets/
 
           RELEASE_NOTES=$(printf '%s\n' \
@@ -271,14 +279,25 @@ jobs:
               --repo "$REPO_NAME"
           fi
 
-          # Só limpa releases antigos depois que o release atual estiver confirmado com sucesso
+          # Mantém as 3 releases mais recentes para permitir rollback seguro e apaga as mais antigas
           gh release view "$TAG" --repo "$REPO_NAME" >/dev/null
 
-          OLD_TAGS=$(gh release list --limit 100 --repo "$REPO_NAME" --json tagName --jq '.[].tagName' || true)
+          ALL_TAGS=$(gh release list --limit 100 --repo "$REPO_NAME" --json tagName --jq '.[].tagName' || true)
+          KEPT=0
           while IFS= read -r OLD_TAG; do
             OLD_TAG=$(echo "$OLD_TAG" | tr -d ' \t\r\n')
-            if [[ -n "$OLD_TAG" ]] && [[ "$OLD_TAG" != "$TAG" ]]; then
-              echo "Apagando release antigo: $OLD_TAG"
-              gh release delete "$OLD_TAG" --yes --repo "$REPO_NAME"
+            if [[ -z "$OLD_TAG" ]]; then
+              continue
             fi
-          done <<< "$OLD_TAGS"
+            if [[ "$OLD_TAG" == "$TAG" ]]; then
+              KEPT=$((KEPT + 1))
+              continue
+            fi
+            if [[ "$KEPT" -lt 3 ]]; then
+              echo "Preservando release recente para rollback: $OLD_TAG"
+              KEPT=$((KEPT + 1))
+              continue
+            fi
+            echo "Apagando release antigo: $OLD_TAG"
+            gh release delete "$OLD_TAG" --yes --repo "$REPO_NAME"
+          done <<< "$ALL_TAGS"

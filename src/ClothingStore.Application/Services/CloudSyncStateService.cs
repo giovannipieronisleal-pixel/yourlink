@@ -24,11 +24,12 @@ public sealed class CloudSyncStateService
 
     public async Task<CloudSyncApplyResult> ApplySyncPayloadAsync(
         CloudCatalogSyncPayload payload,
-        CancellationToken ct = default)
+        CancellationToken ct = default,
+        bool allowTrustedServerPlanFields = false)
     {
         ArgumentNullException.ThrowIfNull(payload);
 
-        var appliedSettings = await ApplySettingsAsync(payload.Settings, ct);
+        var appliedSettings = await ApplySettingsAsync(payload.Settings, allowTrustedServerPlanFields, ct);
         var categoriesBySlug = await UpsertCategoriesAsync(payload.Categories, ct);
 
         int productsCount;
@@ -167,6 +168,7 @@ public sealed class CloudSyncStateService
 
     private async Task<AdminStoreSettingsDto> ApplySettingsAsync(
         UpdateStoreSettingsRequest settingsRequest,
+        bool allowTrustedServerPlanFields,
         CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(settingsRequest.StoreName))
@@ -178,14 +180,35 @@ public sealed class CloudSyncStateService
         // Mantém fallback seguro caso algum payload mínimo omita WhatsApp/Descrição.
         var currentSettings = await _repository.GetStoreSettingsAsync(ct);
         var currentEffectiveTier = currentSettings.GetEffectivePlanTier();
-        var incomingTier = settingsRequest.PlanTier is not null
-            ? StoreSettings.NormalizePlanTier(settingsRequest.PlanTier)
-            : null;
-        if (!string.Equals(currentEffectiveTier, StoreSettings.PlanTierBasic, StringComparison.OrdinalIgnoreCase) &&
-            (incomingTier is null || string.Equals(incomingTier, StoreSettings.PlanTierBasic, StringComparison.OrdinalIgnoreCase)))
+
+        if (!allowTrustedServerPlanFields)
         {
-            // Preserva VIP ativo já concedido pelo Admin ou pago na nuvem quando o app cliente ainda sincroniza como Básico.
-            settingsRequest.PlanTier = currentSettings.PlanTier;
+            // Segurança crítica: sincronização/publicação vinda do app cliente NUNCA pode alterar
+            // nível de plano, preços da plataforma nem chave Pix oficial do proprietário da plataforma.
+            // Apenas pagamento aprovado (Mercado Pago), Gift Card ou ação autorizada do Admin alteram o plano.
+            settingsRequest.PlanTier = currentEffectiveTier;
+            settingsRequest.BasicPlanMonthlyPrice = null;
+            settingsRequest.IntermediaryPlanMonthlyPrice = null;
+            settingsRequest.PremiumPlanMonthlyPrice = null;
+            settingsRequest.PicpayPixKey = null;
+            settingsRequest.PlatformSupportWhatsapp = null;
+
+            if (!currentSettings.CanUseDirectPixSales())
+            {
+                settingsRequest.DirectPixSalesEnabled = false;
+            }
+        }
+        else
+        {
+            var incomingTier = settingsRequest.PlanTier is not null
+                ? StoreSettings.NormalizePlanTier(settingsRequest.PlanTier)
+                : null;
+            if (!string.Equals(currentEffectiveTier, StoreSettings.PlanTierBasic, StringComparison.OrdinalIgnoreCase) &&
+                (incomingTier is null || string.Equals(incomingTier, StoreSettings.PlanTierBasic, StringComparison.OrdinalIgnoreCase)))
+            {
+                // Preserva VIP ativo já concedido pelo Admin ou pago na nuvem quando o app cliente ainda sincroniza como Básico.
+                settingsRequest.PlanTier = currentSettings.PlanTier;
+            }
         }
 
         if (string.IsNullOrWhiteSpace(settingsRequest.WhatsappNumber))

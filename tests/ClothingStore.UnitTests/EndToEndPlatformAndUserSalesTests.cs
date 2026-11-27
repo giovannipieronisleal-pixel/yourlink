@@ -507,6 +507,10 @@ public sealed class EndToEndPlatformAndUserSalesTests
             Assert.IsTrue(publishA.Success, publishA.Message);
 
             var tenantRepoA = (await gateway.ResolveReadRepositoryAsync("loja-ana"))!;
+            var settingsAna = await tenantRepoA.GetStoreSettingsAsync();
+            settingsAna.UpdatePlanAndDesign(StoreSettings.PlanTierIntermediate);
+            settingsAna.DirectPixSalesEnabled = true;
+            await tenantRepoA.UpdateStoreSettingsAsync(settingsAna);
             var catServiceA = gateway.CreateCatalogService(tenantRepoA);
             var catalogA = await catServiceA.GetCatalogProductsAsync(new CatalogQueryFilter());
             var detailA = (await catServiceA.GetPublicProductDetailAsync(catalogA[0].Slug))!;
@@ -633,6 +637,11 @@ public sealed class EndToEndPlatformAndUserSalesTests
                 ]
             }, "loja-bruno", null, null, false, "bruno@loja.com", "https://youlink-loja.onrender.com");
             Assert.IsTrue(publishB.Success, publishB.Message);
+
+            var preBrunoRepo = (await gateway.ResolveReadRepositoryAsync("loja-bruno"))!;
+            var preBrunoSettings = await preBrunoRepo.GetStoreSettingsAsync();
+            preBrunoSettings.UpdatePlanAndDesign(StoreSettings.PlanTierPremium);
+            await preBrunoRepo.UpdateStoreSettingsAsync(preBrunoSettings);
 
             var oauthStart = await gateway.StartMercadoPagoOAuthAsync(
                 "loja-bruno",
@@ -989,6 +998,79 @@ public sealed class EndToEndPlatformAndUserSalesTests
             Assert.IsTrue(pubActiveDto!.Success);
             Assert.IsFalse(string.IsNullOrWhiteSpace(pubActiveDto.PublishToken), "Publicação de usuário deve emitir PublishToken exclusivo.");
 
+            // Libera o plano Intermediário no servidor com chave administrativa e sincroniza vendas Pix da loja
+            using (var grantVipReq = new HttpRequestMessage(HttpMethod.Post, "/api/platform-sync/apply-vip")
+            {
+                Content = JsonContent.Create(new RemoteApplyVipRequest(
+                    PlanTier: StoreSettings.PlanTierIntermediate,
+                    DurationDays: 30,
+                    ActivateSite: true,
+                    StoreName: "Loja Venda Viva HTTP",
+                    TargetEmail: "viva@youlink.com.br"))
+            })
+            {
+                grantVipReq.Headers.Add("X-YouLink-Sync-Key", "sales-loopback-secret");
+                var grantRes = await http.SendAsync(grantVipReq);
+                Assert.AreEqual(HttpStatusCode.OK, grantRes.StatusCode);
+            }
+
+            using (var enablePixReq = new HttpRequestMessage(HttpMethod.Post, "/api/cloud/publish-store?storeSlug=loja-venda-viva")
+            {
+                Content = JsonContent.Create(new CloudCatalogSyncPayload
+                {
+                    Settings = new UpdateStoreSettingsRequest
+                    {
+                        StoreName = "Loja Venda Viva HTTP",
+                        StoreSlug = "loja-venda-viva",
+                        WhatsappNumber = "5511999993333",
+                        StoreDescription = "Vitrine HTTP ao vivo",
+                        IsSiteActive = true,
+                        DirectPixSalesEnabled = true,
+                        PixGatewayMode = StoreSettings.PixGatewayDirect,
+                        StorePixKey = "vendaviva@pix.com.br",
+                        StorePixReceiverName = "Loja Venda Viva",
+                        OriginCep = "01310-100",
+                        OriginCity = "São Paulo",
+                        OriginState = "SP",
+                        ServerHostingMode = "PlatformShared"
+                    },
+                    Categories = [new SaveCategoryRequest { Name = "Moda", DisplayOrder = 1, IsActive = true }],
+                    CatalogSnapshot =
+                    [
+                        new CloudProductSyncDto
+                        {
+                            SourceId = Guid.NewGuid(),
+                            CategoryName = "Moda",
+                            CategorySlug = "moda",
+                            Name = "Blazer Executivo HTTP",
+                            Slug = "blazer-executivo-http",
+                            Description = "Corte impecável",
+                            BasePrice = 249.90m,
+                            IsVisibleOnSite = true,
+                            Variants =
+                            [
+                                new CloudProductVariantSyncDto
+                                {
+                                    Color = "Azul",
+                                    ColorHex = "#1E3A8A",
+                                    Size = "G",
+                                    Sku = "BLZ-HTTP-G",
+                                    StockQuantity = 8,
+                                    LowStockThreshold = 2,
+                                    IsActive = true
+                                }
+                            ],
+                            Images = []
+                        }
+                    ]
+                })
+            })
+            {
+                enablePixReq.Headers.Add("X-YouLink-Publish-Token", pubActiveDto.PublishToken);
+                var enablePixRes = await http.SendAsync(enablePixReq);
+                Assert.AreEqual(HttpStatusCode.OK, enablePixRes.StatusCode);
+            }
+
             // Busca produto publicado para pegar ProductId e VariantId reais da loja
             var pubProd = await http.GetFromJsonAsync<ProductDetailDto>("/api/public/stores/loja-venda-viva/products/blazer-executivo-http");
             Assert.IsNotNull(pubProd);
@@ -1103,6 +1185,21 @@ public sealed class EndToEndPlatformAndUserSalesTests
             var warmRes = await http.SendAsync(pubPausedWarm);
             Assert.AreEqual(HttpStatusCode.OK, warmRes.StatusCode, $"Falha ao preparar loja-pausada-http: {warmRes.StatusCode}");
             var warmDto = await warmRes.Content.ReadFromJsonAsync<CloudStorePublishResponse>();
+
+            using (var grantPausedVip = new HttpRequestMessage(HttpMethod.Post, "/api/platform-sync/apply-vip")
+            {
+                Content = JsonContent.Create(new RemoteApplyVipRequest(
+                    PlanTier: StoreSettings.PlanTierIntermediate,
+                    DurationDays: 30,
+                    ActivateSite: true,
+                    StoreName: "Loja Pausada HTTP",
+                    TargetEmail: "pausada@youlink.com.br"))
+            })
+            {
+                grantPausedVip.Headers.Add("X-YouLink-Sync-Key", "sales-loopback-secret");
+                var gvRes = await http.SendAsync(grantPausedVip);
+                Assert.AreEqual(HttpStatusCode.OK, gvRes.StatusCode);
+            }
             var pausedProd = await http.GetFromJsonAsync<ProductDetailDto>("/api/public/stores/loja-pausada-http/products/blusa-pausada");
             Assert.IsNotNull(pausedProd);
 

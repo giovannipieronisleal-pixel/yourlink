@@ -186,12 +186,13 @@
             </div>
 
             <div>
-                <label class="adm-label">Nova Senha (mínimo 4 caracteres) *</label>
+                <label class="adm-label">Nova Senha (mínimo 8 caracteres) *</label>
                 <input type="password"
                        class="adm-input"
+                       minlength="8"
                        @bind="_forgotNewPassword"
                        @bind:event="oninput"
-                       placeholder="Digite sua nova senha" />
+                       placeholder="Digite sua nova senha (mín. 8 caracteres)" />
             </div>
 
             <div>
@@ -257,13 +258,14 @@
             </div>
 
             <div>
-                <label class="adm-label">Senha de Acesso (mínimo 4 caracteres) *</label>
+                <label class="adm-label">Senha de Acesso (mínimo 8 caracteres) *</label>
                 <input type="password"
                        class="adm-input"
+                       minlength="8"
                        @bind="_regPassword"
                        @bind:event="oninput"
                        @onkeydown="HandleRegisterKeyDown"
-                       placeholder="Crie uma senha de acesso" />
+                       placeholder="Crie uma senha forte (mín. 8 caracteres)" />
             </div>
 
             <div>
@@ -275,6 +277,22 @@
                        @onkeydown="HandleRegisterKeyDown"
                        placeholder="Repita a mesma senha" />
             </div>
+
+            @if (_requiresRegisterEmailOtp)
+            {
+                <div style="padding: 0.75rem 0.85rem; border-radius: 10px; border: 1.5px solid var(--adm-accent); background: var(--adm-input-bg);">
+                    <label class="adm-label" style="margin-bottom: 0.35rem;">Código de Confirmação por E-mail (6 dígitos) *</label>
+                    <input type="text"
+                           class="adm-input"
+                           maxlength="6"
+                           @bind="_regEmailOtpCode"
+                           @bind:event="oninput"
+                           placeholder="Ex.: 123456" />
+                    <span style="font-size: 0.75rem; color: var(--adm-muted); display: block; margin-top: 0.3rem;">
+                        Enviamos um código para confirmar que este e-mail pertence a você antes de ativar o plano vinculado.
+                    </span>
+                </div>
+            }
 
             <label style="display: flex; align-items: center; gap: 0.5rem; font-size: 0.88rem; color: var(--adm-text); cursor: pointer; user-select: none; margin-top: 0.2rem;">
                 <input type="checkbox" @bind="_rememberMe" style="width: 17px; height: 17px; accent-color: var(--adm-accent);" />
@@ -593,6 +611,8 @@
     private string _regEmail = string.Empty;
     private string _regPassword = string.Empty;
     private string _regConfirmPassword = string.Empty;
+    private bool _requiresRegisterEmailOtp;
+    private string _regEmailOtpCode = string.Empty;
     private bool _acceptedLegalTerms;
     private string? _activeLegalDoc;
 
@@ -729,6 +749,11 @@
         }
         catch (Exception ex)
         {
+            if (ex.Message.Contains("plano pré-liberado", StringComparison.OrdinalIgnoreCase) ||
+                ex.Message.Contains("código de verificação", StringComparison.OrdinalIgnoreCase))
+            {
+                _requiresRegisterEmailOtp = true;
+            }
             _errorMessage = ex.Message;
         }
         finally
@@ -753,6 +778,11 @@
         }
         catch (Exception ex)
         {
+            if (ex.Message.Contains("plano pré-liberado", StringComparison.OrdinalIgnoreCase) ||
+                ex.Message.Contains("código de verificação", StringComparison.OrdinalIgnoreCase))
+            {
+                _requiresRegisterEmailOtp = true;
+            }
             _errorMessage = ex.Message;
         }
         finally
@@ -791,9 +821,9 @@
             return;
         }
 
-        if (string.IsNullOrWhiteSpace(_regPassword) || _regPassword.Length < 4)
+        if (string.IsNullOrWhiteSpace(_regPassword) || _regPassword.Trim().Length < 8)
         {
-            _errorMessage = "A senha deve ter no mínimo 4 caracteres.";
+            _errorMessage = "A senha deve ter no mínimo 8 caracteres.";
             return;
         }
 
@@ -816,7 +846,8 @@
                 _regFullName.Trim(),
                 _regEmail.Trim(),
                 _regPassword,
-                Username: _regUsername.Trim()));
+                Username: _regUsername.Trim(),
+                EmailOtpCode: string.IsNullOrWhiteSpace(_regEmailOtpCode) ? null : _regEmailOtpCode.Trim()));
 
             // Garante que o assistente da nova loja comece 100% em branco, sem herdar dados de outra conta.
             _initStoreName = string.Empty;
@@ -841,6 +872,11 @@
         }
         catch (Exception ex)
         {
+            if (ex.Message.Contains("plano pré-liberado", StringComparison.OrdinalIgnoreCase) ||
+                ex.Message.Contains("código de verificação", StringComparison.OrdinalIgnoreCase))
+            {
+                _requiresRegisterEmailOtp = true;
+            }
             _errorMessage = ex.Message;
         }
         finally
@@ -867,6 +903,11 @@
         }
         catch (Exception ex)
         {
+            if (ex.Message.Contains("plano pré-liberado", StringComparison.OrdinalIgnoreCase) ||
+                ex.Message.Contains("código de verificação", StringComparison.OrdinalIgnoreCase))
+            {
+                _requiresRegisterEmailOtp = true;
+            }
             _errorMessage = ex.Message;
         }
         finally
@@ -886,9 +927,9 @@
             return;
         }
 
-        if (string.IsNullOrWhiteSpace(_forgotNewPassword) || _forgotNewPassword.Length < 4)
+        if (string.IsNullOrWhiteSpace(_forgotNewPassword) || _forgotNewPassword.Trim().Length < 8)
         {
-            _errorMessage = "A nova senha deve ter no mínimo 4 caracteres.";
+            _errorMessage = "A nova senha deve ter no mínimo 8 caracteres.";
             return;
         }
 
@@ -916,6 +957,11 @@
         }
         catch (Exception ex)
         {
+            if (ex.Message.Contains("plano pré-liberado", StringComparison.OrdinalIgnoreCase) ||
+                ex.Message.Contains("código de verificação", StringComparison.OrdinalIgnoreCase))
+            {
+                _requiresRegisterEmailOtp = true;
+            }
             _errorMessage = ex.Message;
         }
         finally

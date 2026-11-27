@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using ClothingStore.Shared.DTOs;
@@ -21,7 +22,10 @@ public sealed record AppUpdateReleaseInfo(
     string? SelectedDownloadUrl,
     long? SelectedAssetSizeBytes,
     string Source,
-    string? SelectedApiDownloadUrl = null);
+    string? SelectedApiDownloadUrl = null,
+    string? SelectedAssetSha256 = null,
+    string? WindowsAssetSha256 = null,
+    string? AndroidAssetSha256 = null);
 
 /// <summary>
 /// Catálogo centralizado de versão do YouLink, parser de GitHub Releases e utilitários
@@ -29,7 +33,7 @@ public sealed record AppUpdateReleaseInfo(
 /// </summary>
 public static class AppUpdateCatalog
 {
-    public const string CurrentAppVersion = "1.0.79";
+    public const string CurrentAppVersion = "1.0.80";
     public const string DefaultCentralPlatformServerUrl = "https://youlink-loja.onrender.com";
     public const string DefaultCloudflareEdgeOrigin = "https://youlink-edge-accelerator.youlink-edge.workers.dev";
     public const string DefaultCloudPanelUrl = DefaultCloudflareEdgeOrigin + "/painel/index.html";
@@ -159,14 +163,17 @@ public static class AppUpdateCatalog
             string? windowsSetupApiUrl = null;
             string? windowsSetupName = null;
             long? windowsSetupSize = null;
+            string? windowsSetupSha256 = null;
             string? windowsUrl = null;
             string? windowsApiUrl = null;
             string? windowsName = null;
             long? windowsSize = null;
+            string? windowsSha256 = null;
             string? androidUrl = null;
             string? androidApiUrl = null;
             string? androidName = null;
             long? androidSize = null;
+            string? androidSha256 = null;
 
             if (root.TryGetProperty("assets", out var assetsProp) && assetsProp.ValueKind == JsonValueKind.Array)
             {
@@ -177,6 +184,7 @@ public static class AppUpdateCatalog
                     var apiUrl = TryGetOptionalString(asset, "url");
                     var effectiveUrl = !string.IsNullOrWhiteSpace(downloadUrl) ? downloadUrl : apiUrl;
                     long? size = TryGetOptionalInt64(asset, "size");
+                    var digest = NormalizeSha256Hex(TryGetOptionalString(asset, "digest") ?? TryGetOptionalString(asset, "sha256"));
 
                     if (string.IsNullOrWhiteSpace(assetName) || string.IsNullOrWhiteSpace(effectiveUrl))
                         continue;
@@ -187,6 +195,7 @@ public static class AppUpdateCatalog
                         windowsSetupApiUrl ??= apiUrl;
                         windowsSetupName ??= assetName;
                         windowsSetupSize ??= size;
+                        windowsSetupSha256 ??= digest;
                     }
                     else if (assetName.EndsWith(".zip", StringComparison.OrdinalIgnoreCase))
                     {
@@ -194,6 +203,7 @@ public static class AppUpdateCatalog
                         windowsApiUrl ??= apiUrl;
                         windowsName ??= assetName;
                         windowsSize ??= size;
+                        windowsSha256 ??= digest;
                     }
                     else if (assetName.EndsWith(".apk", StringComparison.OrdinalIgnoreCase))
                     {
@@ -201,6 +211,7 @@ public static class AppUpdateCatalog
                         androidApiUrl ??= apiUrl;
                         androidName ??= assetName;
                         androidSize ??= size;
+                        androidSha256 ??= digest;
                     }
                 }
             }
@@ -235,6 +246,15 @@ public static class AppUpdateCatalog
                     androidAssetName: androidName)
                 : (null, null, null);
 
+            var effectiveWinSha = preferWindowsSetup ? (windowsSetupSha256 ?? windowsSha256) : (windowsSha256 ?? windowsSetupSha256);
+            var selectedSha = string.Equals(selectedName, windowsSetupName, StringComparison.OrdinalIgnoreCase)
+                ? windowsSetupSha256
+                : string.Equals(selectedName, windowsName, StringComparison.OrdinalIgnoreCase)
+                    ? windowsSha256
+                    : string.Equals(selectedName, androidName, StringComparison.OrdinalIgnoreCase)
+                        ? androidSha256
+                        : null;
+
             return new AppUpdateReleaseInfo(
                 CurrentVersion: normalizedCurrent,
                 LatestVersion: normalizedLatest,
@@ -253,7 +273,10 @@ public static class AppUpdateCatalog
                 SelectedDownloadUrl: selectedUrl,
                 SelectedAssetSizeBytes: selectedSize,
                 Source: source,
-                SelectedApiDownloadUrl: selectedApiUrl);
+                SelectedApiDownloadUrl: selectedApiUrl,
+                SelectedAssetSha256: selectedSha,
+                WindowsAssetSha256: effectiveWinSha,
+                AndroidAssetSha256: androidSha256);
         }
         catch
         {
@@ -317,10 +340,17 @@ public static class AppUpdateCatalog
 
             var windowsSetupUrl = TryGetOptionalString(root, "windowsSetupUrl");
             var windowsSetupSize = TryGetOptionalInt64(root, "windowsSetupSizeBytes");
+            var windowsSetupSha256 = NormalizeSha256Hex(TryGetOptionalString(root, "windowsSetupSha256"));
             var windowsUrl = TryGetOptionalString(root, "windowsUrl");
             var windowsSize = TryGetOptionalInt64(root, "windowsSizeBytes");
+            var windowsSha256 = NormalizeSha256Hex(TryGetOptionalString(root, "windowsSha256"));
             var androidUrl = TryGetOptionalString(root, "androidUrl");
             var androidSize = TryGetOptionalInt64(root, "androidSizeBytes");
+            var androidSha256 = NormalizeSha256Hex(TryGetOptionalString(root, "androidSha256"));
+
+            var winSetupAssetName = ExtractAssetName(windowsSetupUrl, WindowsSetupAssetName);
+            var winAssetName = ExtractAssetName(windowsUrl, WindowsAssetName);
+            var andAssetName = ExtractAssetName(androidUrl, AndroidAssetName);
 
             var (selectedName, selectedUrl, selectedSize) = SelectPlatformAsset(
                 isWindows,
@@ -332,9 +362,18 @@ public static class AppUpdateCatalog
                 windowsSize,
                 androidUrl,
                 androidSize,
-                windowsSetupAssetName: ExtractAssetName(windowsSetupUrl, WindowsSetupAssetName),
-                windowsAssetName: ExtractAssetName(windowsUrl, WindowsAssetName),
-                androidAssetName: ExtractAssetName(androidUrl, AndroidAssetName));
+                windowsSetupAssetName: winSetupAssetName,
+                windowsAssetName: winAssetName,
+                androidAssetName: andAssetName);
+
+            var effectiveWinSha = preferWindowsSetup ? (windowsSetupSha256 ?? windowsSha256) : (windowsSha256 ?? windowsSetupSha256);
+            var selectedSha = string.Equals(selectedName, winSetupAssetName, StringComparison.OrdinalIgnoreCase)
+                ? windowsSetupSha256
+                : string.Equals(selectedName, winAssetName, StringComparison.OrdinalIgnoreCase)
+                    ? windowsSha256
+                    : string.Equals(selectedName, andAssetName, StringComparison.OrdinalIgnoreCase)
+                        ? androidSha256
+                        : null;
 
             return new AppUpdateReleaseInfo(
                 CurrentVersion: normalizedCurrent,
@@ -351,7 +390,10 @@ public static class AppUpdateCatalog
                 SelectedAssetName: selectedName,
                 SelectedDownloadUrl: selectedUrl,
                 SelectedAssetSizeBytes: selectedSize,
-                Source: source);
+                Source: source,
+                SelectedAssetSha256: selectedSha,
+                WindowsAssetSha256: effectiveWinSha,
+                AndroidAssetSha256: androidSha256);
         }
         catch
         {
@@ -618,30 +660,124 @@ public static class AppUpdateCatalog
         return sb.ToString();
     }
 
+    public static string? NormalizeSha256Hex(string? raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw))
+            return null;
+
+        var trimmed = raw.Trim();
+        if (trimmed.StartsWith("sha256:", StringComparison.OrdinalIgnoreCase))
+            trimmed = trimmed["sha256:".Length..].Trim();
+
+        if (trimmed.Length != 64)
+            return null;
+
+        foreach (var ch in trimmed)
+        {
+            var isHex = (ch >= '0' && ch <= '9') || (ch >= 'a' && ch <= 'f') || (ch >= 'A' && ch <= 'F');
+            if (!isHex)
+                return null;
+        }
+
+        return trimmed.ToLowerInvariant();
+    }
+
+    public static string? ParseSha256FromChecksumText(string? text, string? targetAssetFileName = null)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+            return null;
+
+        foreach (var rawLine in text.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries))
+        {
+            var line = rawLine.Trim();
+            if (line.Length < 64)
+                continue;
+
+            var parts = line.Split([' ', '\t', '*'], StringSplitOptions.RemoveEmptyEntries);
+            if (parts.Length == 0)
+                continue;
+
+            var candidateHash = NormalizeSha256Hex(parts[0]);
+            if (candidateHash is null)
+                continue;
+
+            if (parts.Length == 1 && string.IsNullOrWhiteSpace(targetAssetFileName))
+                return candidateHash;
+
+            if (parts.Length == 1)
+                return candidateHash;
+
+            var filePart = Path.GetFileName(parts[^1].Trim());
+            if (string.IsNullOrWhiteSpace(targetAssetFileName) ||
+                string.Equals(filePart, targetAssetFileName.Trim(), StringComparison.OrdinalIgnoreCase))
+            {
+                return candidateHash;
+            }
+        }
+
+        return null;
+    }
+
+    public static string ComputeFileSha256(string filePath)
+    {
+        using var stream = File.OpenRead(filePath);
+        var hash = SHA256.HashData(stream);
+        return Convert.ToHexString(hash).ToLowerInvariant();
+    }
+
+    public static void VerifyDownloadedPackageSha256(string filePath, string? expectedSha256)
+    {
+        var normalizedExpected = NormalizeSha256Hex(expectedSha256);
+        if (string.IsNullOrWhiteSpace(normalizedExpected))
+            return;
+
+        var actual = ComputeFileSha256(filePath);
+        var actualBytes = Encoding.ASCII.GetBytes(actual);
+        var expectedBytes = Encoding.ASCII.GetBytes(normalizedExpected);
+        if (actualBytes.Length != expectedBytes.Length ||
+            !CryptographicOperations.FixedTimeEquals(actualBytes, expectedBytes))
+        {
+            throw new InvalidOperationException(
+                $"Falha na verificação de integridade SHA-256 do pacote baixado (esperado {normalizedExpected[..12]}..., obtido {actual[..12]}...). Atualização abortada por segurança.");
+        }
+    }
+
     public static string BuildWindowsInstallerUpdateScript(
         int targetProcessId,
         string setupExePath,
         string targetLauncherPath,
         string logFilePath,
         string? appDisplayName = null,
-        string? updaterCacheRootDir = null)
+        string? updaterCacheRootDir = null,
+        string? expectedSha256 = null)
     {
         var effectiveDisplay = string.IsNullOrWhiteSpace(appDisplayName) ? "YouLink" : appDisplayName.Trim();
         var setupName = Path.GetFileName(setupExePath);
         var normalizedCacheRoot = string.IsNullOrWhiteSpace(updaterCacheRootDir)
             ? string.Empty
             : updaterCacheRootDir.TrimEnd('\\', '/');
+        var normalizedSha256 = NormalizeSha256Hex(expectedSha256) ?? string.Empty;
 
         var sb = new StringBuilder();
         sb.AppendLine("$ErrorActionPreference = 'Stop'");
         sb.AppendLine($"$targetPid = {targetProcessId}");
         sb.AppendLine($"$setupExe = '{EscapePowerShellSingleQuoted(setupExePath)}'");
+        sb.AppendLine($"$expectedSha256 = '{EscapePowerShellSingleQuoted(normalizedSha256)}'");
         sb.AppendLine($"$launchExe = '{EscapePowerShellSingleQuoted(targetLauncherPath)}'");
         sb.AppendLine($"$logPath = '{EscapePowerShellSingleQuoted(logFilePath)}'");
         sb.AppendLine($"$updaterRootDir = '{EscapePowerShellSingleQuoted(normalizedCacheRoot)}'");
         sb.AppendLine("$updateWorkDir = Split-Path -Path $logPath -Parent");
         sb.AppendLine("function Write-Log([string]$msg) { Add-Content -Path $logPath -Value \"[$(Get-Date -Format 'HH:mm:ss')] $msg\" -Encoding UTF8 }");
         sb.AppendLine($"Write-Log 'Iniciando atualização do {EscapePowerShellSingleQuoted(effectiveDisplay)} pelo instalador {EscapePowerShellSingleQuoted(setupName)}...'");
+        sb.AppendLine("if ($expectedSha256) {");
+        sb.AppendLine("    $actualSha256 = (Get-FileHash -Path $setupExe -Algorithm SHA256).Hash.ToLowerInvariant()");
+        sb.AppendLine("    if ($actualSha256 -ne $expectedSha256) {");
+        sb.AppendLine("        Write-Log \"ERRO CRÍTICO: SHA-256 divergente para $setupExe ($actualSha256 != $expectedSha256)\"");
+        sb.AppendLine("        Remove-Item -Path $setupExe -Force -ErrorAction SilentlyContinue");
+        sb.AppendLine("        throw 'Falha na verificação de integridade SHA-256 do instalador.'");
+        sb.AppendLine("    }");
+        sb.AppendLine("    Write-Log \"Integridade SHA-256 validada: $actualSha256\"");
+        sb.AppendLine("}");
         sb.AppendLine("for ($i = 0; $i -lt 40; $i++) {");
         sb.AppendLine("    $proc = Get-Process -Id $targetPid -ErrorAction SilentlyContinue");
         sb.AppendLine("    if ($null -eq $proc) { break }");

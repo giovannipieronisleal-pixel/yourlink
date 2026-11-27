@@ -66,8 +66,8 @@ public sealed class CloudChatStoreService
         if (string.IsNullOrWhiteSpace(email))
             return new BuyerAuthResultDto(false, "Informe um e-mail válido.");
 
-        if (password.Trim().Length < 4)
-            return new BuyerAuthResultDto(false, "A senha deve ter pelo menos 4 caracteres.");
+        if (password.Trim().Length < 8)
+            return new BuyerAuthResultDto(false, "A senha deve ter pelo menos 8 caracteres.");
 
         await _lock.WaitAsync(ct);
         try
@@ -129,13 +129,29 @@ public sealed class CloudChatStoreService
         {
             RefreshFromDiskIfModifiedUnsafe();
 
+            var now = DateTimeOffset.UtcNow;
             var buyer = _state.Buyers.FirstOrDefault(b => string.Equals(b.Email, email, StringComparison.OrdinalIgnoreCase));
-            if (buyer is null || !_passwordHasher.VerifyPassword(password, buyer.PasswordHash))
+            if (buyer is not null && buyer.LockoutEndsAt.HasValue && buyer.LockoutEndsAt.Value > now)
             {
-                return new BuyerAuthResultDto(false, "E-mail ou senha incorretos.");
+                return new BuyerAuthResultDto(false, "Muitas tentativas incorretas. Aguarde alguns minutos e tente novamente.");
             }
 
-            var now = DateTimeOffset.UtcNow;
+            if (buyer is null || !_passwordHasher.VerifyPassword(password, buyer.PasswordHash))
+            {
+                if (buyer is not null)
+                {
+                    buyer.FailedLoginAttempts++;
+                    if (buyer.FailedLoginAttempts >= 5)
+                    {
+                        buyer.LockoutEndsAt = now.AddMinutes(15);
+                    }
+                    SaveToDiskUnsafe();
+                }
+                return new BuyerAuthResultDto(false, "E-mail ou senha inválidos.");
+            }
+
+            buyer.FailedLoginAttempts = 0;
+            buyer.LockoutEndsAt = null;
             buyer.Sessions.RemoveAll(s => s.ExpiresAt <= now);
             if (buyer.Sessions.Count >= 8)
             {
@@ -890,6 +906,8 @@ public sealed class CloudChatStoreService
         public string FullName { get; set; } = string.Empty;
         public string Email { get; set; } = string.Empty;
         public string PasswordHash { get; set; } = string.Empty;
+        public int FailedLoginAttempts { get; set; }
+        public DateTimeOffset? LockoutEndsAt { get; set; }
         public DateTimeOffset CreatedAt { get; set; }
         public List<BuyerSessionEntry> Sessions { get; set; } = [];
     }

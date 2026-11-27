@@ -35,7 +35,8 @@ public sealed record RegisterUserAccountRequest(
 
     string? Phone = null,
     string? Username = null,
-    string? TurnstileToken = null);
+    string? TurnstileToken = null,
+    string? EmailOtpCode = null);
 
 public sealed record LoginRequest(
     [Required(ErrorMessage = "O login é obrigatório.")]
@@ -253,13 +254,17 @@ public sealed record CloudAccountCredentialSyncDto(
     bool IsRecurringSubscription = false,
     DateTimeOffset? BillingGraceEndsAt = null,
     bool IsBillingSuspended = false,
-    string? BillingWarningMessage = null);
+    string? BillingWarningMessage = null,
+    string? CloudSessionToken = null,
+    string? EmailOtpCode = null);
 
 public sealed record CloudVerifyLoginResponseDto(
     bool Verified,
     bool AccountExists,
     CloudAccountCredentialSyncDto? Account = null,
-    string? Message = null);
+    string? Message = null,
+    string? CloudSessionToken = null,
+    DateTimeOffset? CloudSessionExpiresAt = null);
 
 public sealed record CloudPlanStatusDto(
     string PlanTier,

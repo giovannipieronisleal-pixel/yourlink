@@ -554,14 +554,19 @@ public sealed class SwitchableClothingStoreRepository : IClothingStoreRepository
 
     public async Task<bool> UpsertCloudHydratedAccountAsync(
         ClothingStore.Shared.DTOs.CloudAccountCredentialSyncDto account,
-        CancellationToken ct = default)
+        CancellationToken ct = default,
+        string? plainPassword = null)
     {
-        if (account is null ||
-            string.IsNullOrWhiteSpace(account.Email) ||
-            string.IsNullOrWhiteSpace(account.PasswordHash))
+        if (account is null || string.IsNullOrWhiteSpace(account.Email))
         {
             return false;
         }
+
+        var effectivePasswordHash = !string.IsNullOrWhiteSpace(account.PasswordHash)
+            ? account.PasswordHash
+            : (!string.IsNullOrWhiteSpace(plainPassword)
+                ? _passwordHasher.HashPassword(plainPassword)
+                : null);
 
         var existingWs = await SwitchToWorkspaceForAccountAsync(account.Email, ct);
         if (string.IsNullOrWhiteSpace(existingWs) && !string.IsNullOrWhiteSpace(account.Username))
@@ -583,7 +588,10 @@ public sealed class SwitchableClothingStoreRepository : IClothingStoreRepository
                 {
                     existingUser.SetUsername(account.Username);
                 }
-                existingUser.SetPasswordHash(account.PasswordHash);
+                if (!string.IsNullOrWhiteSpace(effectivePasswordHash))
+                {
+                    existingUser.SetPasswordHash(effectivePasswordHash);
+                }
                 existingUser.IsActive = true;
 
                 var existingEmployee = await ActiveRepository.GetEmployeeByUserIdAsync(existingUser.Id, ct);
@@ -621,13 +629,18 @@ public sealed class SwitchableClothingStoreRepository : IClothingStoreRepository
             }
         }
 
+        if (string.IsNullOrWhiteSpace(effectivePasswordHash))
+        {
+            return false;
+        }
+
         var handle = await ProvisionIsolatedWorkspaceForNewAccountAsync(account.Email, account.Username, ct);
         try
         {
             var adminRole = await ActiveRepository.GetRoleByNameAsync(ClothingStore.Domain.Enums.RoleNames.Admin, ct)
                 ?? (await ActiveRepository.GetRolesAsync(ct)).First();
 
-            var newUser = new User(account.Email, account.PasswordHash, adminRole.Id, account.Username);
+            var newUser = new User(account.Email, effectivePasswordHash, adminRole.Id, account.Username);
             var newEmployee = new Employee(
                 newUser.Id,
                 string.IsNullOrWhiteSpace(account.FullName) ? newUser.Username : account.FullName,

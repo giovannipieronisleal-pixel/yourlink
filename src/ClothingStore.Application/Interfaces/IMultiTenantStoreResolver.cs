@@ -5,6 +5,7 @@ public sealed class TenantSecretCredentials
     public string StoreSlug { get; set; } = string.Empty;
     public string? PublishTokenHash { get; set; }
     public string? OwnerEmail { get; set; }
+    public bool IsOwnerEmailVerified { get; set; }
     public string? MercadoPagoAccessToken { get; set; }
     public string? MercadoPagoRefreshToken { get; set; }
     public DateTimeOffset? MercadoPagoTokenExpiresAt { get; set; }
@@ -50,13 +51,20 @@ public interface IMultiTenantStoreResolver
         string? publishTokenHeader,
         bool hasValidSyncKey,
         string? authenticatedOwnerEmail,
-        CancellationToken ct = default);
+        CancellationToken ct = default,
+        bool isOwnerEmailServerVerified = false);
 
     Task<bool> AuthorizeTenantOrdersPullAsync(
         string? storeSlug,
         string? publishTokenHeader,
         bool hasValidSyncKey,
         string? authenticatedOwnerEmail,
+        CancellationToken ct = default,
+        bool isOwnerEmailServerVerified = false);
+
+    Task<bool> VerifyPublishTokenAsync(
+        string? storeSlug,
+        string? publishToken,
         CancellationToken ct = default);
 
     Task<IReadOnlyList<string>> ListTenantSlugsAsync(CancellationToken ct = default);
