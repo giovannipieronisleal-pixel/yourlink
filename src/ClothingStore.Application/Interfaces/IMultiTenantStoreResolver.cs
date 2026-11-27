@@ -69,6 +69,15 @@ public interface IMultiTenantStoreResolver
 
     Task<IReadOnlyList<string>> ListTenantSlugsAsync(CancellationToken ct = default);
 
+    async Task<bool> TenantExistsAsync(string? storeSlug, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(storeSlug))
+            return false;
+        var norm = NormalizeStoreSlug(storeSlug);
+        var slugs = await ListTenantSlugsAsync(ct);
+        return slugs.Any(s => string.Equals(s, norm, StringComparison.OrdinalIgnoreCase));
+    }
+
     Task<TenantSecretCredentials?> GetTenantCredentialsAsync(
         string? storeSlug,
         CancellationToken ct = default);

@@ -319,6 +319,24 @@ public sealed class MultiTenantStoreManager : IMultiTenantStoreResolver
         }
     }
 
+    public async Task<bool> TenantExistsAsync(string? storeSlug, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(storeSlug))
+            return false;
+
+        var normalized = NormalizeStoreSlug(storeSlug);
+        await _indexLock.WaitAsync(ct);
+        try
+        {
+            var index = LoadIndexUnsafe();
+            return index.Tenants.ContainsKey(normalized);
+        }
+        finally
+        {
+            _indexLock.Release();
+        }
+    }
+
     public async Task<TenantSecretCredentials?> GetTenantCredentialsAsync(
         string? storeSlug,
         CancellationToken ct = default)
@@ -353,6 +371,7 @@ public sealed class MultiTenantStoreManager : IMultiTenantStoreResolver
                 StoreSlug = entry.StoreSlug,
                 PublishTokenHash = entry.PublishTokenHash,
                 OwnerEmail = entry.OwnerEmail,
+                IsOwnerEmailVerified = entry.IsOwnerEmailVerified,
                 MercadoPagoAccessToken = TokenProtectionHelper.UnprotectSecret(entry.MercadoPagoAccessToken, key),
                 MercadoPagoRefreshToken = TokenProtectionHelper.UnprotectSecret(entry.MercadoPagoRefreshToken, key),
                 MercadoPagoTokenExpiresAt = entry.MercadoPagoTokenExpiresAt,

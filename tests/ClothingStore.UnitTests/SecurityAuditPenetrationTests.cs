@@ -456,6 +456,18 @@ public sealed class SecurityAuditPenetrationTests
             Assert.AreEqual(HttpStatusCode.Forbidden, chatStealAttempt.StatusCode,
                 "CRÍTICO B: Conta logada que não é dona do StoreSlug nem tem o PublishToken da loja deve receber 403 no merchant-chat.");
 
+            // Lojista logado com loja ainda não publicada ("minha-loja" ou slug inédito) recebe lista vazia 200 OK sem erro 403 falso
+            var unpublishedOwnChat = await http.PostAsJsonAsync("/api/cloud/merchant-chat/threads", new MerchantChatAuthRequest(
+                Email: "invasor@evil.com",
+                Username: "invasor",
+                PasswordHash: null,
+                PublishToken: null,
+                StoreSlug: "minha-loja",
+                StoreName: "Minha Loja",
+                CloudSessionToken: attackerLogin.CloudSessionToken));
+            Assert.AreEqual(HttpStatusCode.OK, unpublishedOwnChat.StatusCode,
+                "Loja padrão 'minha-loja' ou ainda não publicada deve retornar lista vazia 200 OK sem 403 falso.");
+
             // Dono legítimo com PublishToken da loja-vitima consegue ler normalmente (200 OK)
             var ownerChatOk = await http.PostAsJsonAsync("/api/cloud/merchant-chat/threads", new MerchantChatAuthRequest(
                 Email: "vitima@loja.com",

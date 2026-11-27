@@ -1965,7 +1965,13 @@ app.MapPost("/api/cloud/merchant-chat/threads", async (
     CloudChatStoreService chatStore,
     CancellationToken ct) =>
 {
-    var storeAccess = await AuthorizeMerchantStoreChatAccessAsync(authRequest, httpContext, accountRegistry, gateway, ct);
+    var storeAccess = await AuthorizeMerchantStoreChatAccessAsync(
+        authRequest,
+        httpContext,
+        accountRegistry,
+        gateway,
+        ct,
+        allowEmptyWhenUnpublished: true);
     if (!storeAccess.Authorized || string.IsNullOrWhiteSpace(storeAccess.AuthorizedStoreSlug))
         return storeAccess.FailureResult ?? Results.Unauthorized();
 
@@ -2666,7 +2672,8 @@ static async Task<(bool Authorized, string? AuthorizedStoreSlug, IResult? Failur
     HttpContext ctx,
     CloudAccountRegistryService accountRegistry,
     MultiTenantGatewayService gateway,
-    CancellationToken ct)
+    CancellationToken ct,
+    bool allowEmptyWhenUnpublished = false)
 {
     if (authRequest is null)
         return (false, null, Results.Unauthorized());
@@ -2688,9 +2695,25 @@ static async Task<(bool Authorized, string? AuthorizedStoreSlug, IResult? Failur
         : auth.StoreSlug;
 
     if (string.IsNullOrWhiteSpace(candidateSlug))
-        return (false, null, Results.BadRequest(new { error = "Informe o identificador (slug) da loja." }));
+    {
+        return allowEmptyWhenUnpublished
+            ? (false, null, Results.Ok(Array.Empty<ChatThreadSummaryDto>()))
+            : (false, null, Results.BadRequest(new { error = "Informe o identificador (slug) da loja." }));
+    }
 
     var normalizedSlug = gateway.StoreResolver.NormalizeStoreSlug(candidateSlug);
+
+    // Se a loja ainda está com o nome/slug padrão não configurado ("minha-loja") ou ainda não foi publicada
+    // no índice multi-tenant do servidor, na listagem retorna lista vazia (200 OK) sem erro 403 falso e sem vazar dados.
+    if (allowEmptyWhenUnpublished)
+    {
+        if (string.Equals(normalizedSlug, "minha-loja", StringComparison.OrdinalIgnoreCase) ||
+            !await gateway.StoreResolver.TenantExistsAsync(normalizedSlug, ct))
+        {
+            return (false, null, Results.Ok(Array.Empty<ChatThreadSummaryDto>()));
+        }
+    }
+
     var effectivePublishToken = !string.IsNullOrWhiteSpace(authRequest.PublishToken)
         ? authRequest.PublishToken
         : ctx.Request.Headers["X-YouLink-Publish-Token"].FirstOrDefault();
@@ -2708,7 +2731,7 @@ static async Task<(bool Authorized, string? AuthorizedStoreSlug, IResult? Failur
     if (!ownsStore)
     {
         return (false, null, Results.Json(
-            new { error = "Acesso negado: esta conta não é proprietária da loja informada." },
+            new { error = $"A loja '/loja/{normalizedSlug}' pertence a outra conta no servidor. Defina o nome exclusivo da sua loja em 'Minha Loja' e clique em Publicar Loja Online." },
             statusCode: StatusCodes.Status403Forbidden));
     }
 

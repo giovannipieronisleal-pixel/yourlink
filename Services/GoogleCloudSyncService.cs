@@ -219,14 +219,14 @@ public sealed class GoogleCloudSyncService
         }
     }
 
-    private string? GetCachedPublishToken(string? storeSlug)
+    public static string? GetCachedPublishTokenForWorkspace(string? storeSlug, string? workspaceId)
     {
         if (string.IsNullOrWhiteSpace(storeSlug))
             return null;
 
         try
         {
-            var key = ResolvePublishTokenKey(storeSlug, CurrentWorkspaceId);
+            var key = ResolvePublishTokenKey(storeSlug, workspaceId);
             var value = Preferences.Default.Get(key, string.Empty);
             return string.IsNullOrWhiteSpace(value) ? null : value.Trim();
         }
@@ -235,6 +235,9 @@ public sealed class GoogleCloudSyncService
             return null;
         }
     }
+
+    private string? GetCachedPublishToken(string? storeSlug) =>
+        GetCachedPublishTokenForWorkspace(storeSlug, CurrentWorkspaceId);
 
     private void SaveCachedPublishToken(string? storeSlug, string? token)
     {

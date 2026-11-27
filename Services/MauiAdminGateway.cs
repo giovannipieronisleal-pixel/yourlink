@@ -3911,6 +3911,8 @@ public sealed class MauiAdminGateway
             var rawSettings = await _workspaceRepository.GetStoreSettingsAsync(ct);
             publishToken = rawSettings.CentralPublishToken;
         }
+        publishToken ??= GoogleCloudSyncService.GetCachedPublishTokenForWorkspace(slug, CurrentWorkspaceId);
+
         if (string.IsNullOrWhiteSpace(cloudSessionToken) && string.IsNullOrWhiteSpace(publishToken))
         {
             throw new DomainException("Saia e entre novamente na sua conta (ou publique sua loja em 1 clique) para ativar a sessão segura do chat.");
@@ -3932,6 +3934,27 @@ public sealed class MauiAdminGateway
         return (centralUrl.TrimEnd('/'), auth);
     }
 
+    private static async Task EnsureChatResponseSucceededAsync(HttpResponseMessage resp, CancellationToken ct)
+    {
+        if (resp.IsSuccessStatusCode)
+            return;
+
+        var serverMsg = await TryReadErrorMessageAsync(resp, ct);
+        if (!string.IsNullOrWhiteSpace(serverMsg))
+            throw new DomainException(serverMsg);
+
+        if (resp.StatusCode == System.Net.HttpStatusCode.Unauthorized)
+            throw new DomainException("Sua sessão na nuvem expirou ou foi atualizada. Clique em 'Sair' no menu e entre novamente na sua conta.");
+
+        if (resp.StatusCode == System.Net.HttpStatusCode.Forbidden)
+            throw new DomainException("Esta vitrine ainda não está vinculada a esta conta no servidor. Configure o nome da sua loja em 'Minha Loja' e clique em Publicar.");
+
+        if ((int)resp.StatusCode == 429)
+            throw new DomainException("Muitas solicitações seguidas no chat. Aguarde alguns segundos e tente novamente.");
+
+        throw new DomainException($"Não foi possível carregar o chat no momento (HTTP {(int)resp.StatusCode}).");
+    }
+
     public async Task<IReadOnlyList<ChatThreadSummaryDto>> GetMerchantStoreChatThreadsAsync(CancellationToken ct = default)
     {
         var (baseUrl, auth) = await BuildMerchantChatAuthAsync(ct);
@@ -3944,7 +3967,7 @@ public sealed class MauiAdminGateway
         if (resp.StatusCode == System.Net.HttpStatusCode.NotFound)
             return [];
 
-        resp.EnsureSuccessStatusCode();
+        await EnsureChatResponseSucceededAsync(resp, ct);
         return await System.Net.Http.Json.HttpContentJsonExtensions.ReadFromJsonAsync<List<ChatThreadSummaryDto>>(resp.Content, cancellationToken: ct)
                ?? [];
     }
@@ -3973,7 +3996,7 @@ public sealed class MauiAdminGateway
             new MerchantSendChatMessageRequest(auth, text),
             ct);
 
-        resp.EnsureSuccessStatusCode();
+        await EnsureChatResponseSucceededAsync(resp, ct);
         return await System.Net.Http.Json.HttpContentJsonExtensions.ReadFromJsonAsync<ChatThreadDetailDto>(resp.Content, cancellationToken: ct);
     }
 
@@ -3998,9 +4021,7 @@ public sealed class MauiAdminGateway
             auth,
             ct);
 
-        if (!resp.IsSuccessStatusCode)
-            return null;
-
+        await EnsureChatResponseSucceededAsync(resp, ct);
         return await System.Net.Http.Json.HttpContentJsonExtensions.ReadFromJsonAsync<ChatThreadDetailDto>(resp.Content, cancellationToken: ct);
     }
 
@@ -4013,7 +4034,7 @@ public sealed class MauiAdminGateway
             new MerchantSendChatMessageRequest(auth, text),
             ct);
 
-        resp.EnsureSuccessStatusCode();
+        await EnsureChatResponseSucceededAsync(resp, ct);
         return await System.Net.Http.Json.HttpContentJsonExtensions.ReadFromJsonAsync<ChatThreadDetailDto>(resp.Content, cancellationToken: ct);
     }
 
