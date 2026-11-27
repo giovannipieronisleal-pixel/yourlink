@@ -6,6 +6,7 @@
 @using ClothingStore.Application.Services
 @inject CatalogDataGateway CatalogDataGateway
 @inject StoreCartService CartService
+@inject StoreBuyerChatStateService BuyerChat
 @inject CloudflareTurnstileService TurnstileService
 @inject NavigationManager Navigation
 @inject IJSRuntime JS
@@ -215,6 +216,13 @@ else
                             }
                         }
 
+                        <button type="button"
+                                class="lux-btn lux-btn-outline"
+                                style="width: 100%; font-size: 0.94rem; padding: 0.85rem 1.2rem;"
+                                @onclick="OpenProductChat">
+                            💬 Conversar com a Loja no App
+                        </button>
+
                         @if (CatalogFeatureFlags.PhoneFeaturesEnabled && !string.IsNullOrWhiteSpace(_store.WhatsappNumber))
                         {
                             <a href="@WhatsAppLinkBuilder.BuildProductConsultationLink(_store.WhatsappNumber, _product.Name, _selectedColor, _selectedSize)"
@@ -320,8 +328,6 @@ else
 
                                 <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 0.55rem; margin-bottom: 0.65rem;">
                                     <input type="text" @bind="_buyerName" placeholder="Seu Nome Completo *"
-                                           style="padding:0.5rem 0.65rem; border:1px solid var(--brand-border,#D6D3D1); border-radius:6px;" />
-                                    <input type="text" @bind="_buyerWhatsapp" placeholder="Seu WhatsApp (DDD + Número) *"
                                            style="padding:0.5rem 0.65rem; border:1px solid var(--brand-border,#D6D3D1); border-radius:6px;" />
                                     <input type="text" @bind="_buyerStreet" placeholder="Rua / Logradouro *"
                                            style="padding:0.5rem 0.65rem; border:1px solid var(--brand-border,#D6D3D1); border-radius:6px;" />
@@ -435,13 +441,12 @@ else
                                 }
 
                                 <div style="display:flex; gap:0.5rem; flex-wrap:wrap;">
-                                    @if (!string.IsNullOrWhiteSpace(WhatsAppLinkBuilder.SanitizePhoneNumber(_store?.WhatsappNumber)))
-                                    {
-                                        <a href="@BuildOrderProofWhatsAppUrl(_createdPixOrder)" target="_blank" rel="noopener noreferrer"
-                                           class="lux-btn lux-btn-whatsapp" style="flex:1;">
-                                            💬 Falar com a Loja no WhatsApp
-                                        </a>
-                                    }
+                                    <button type="button"
+                                            class="lux-btn lux-btn-primary"
+                                            style="flex: 1;"
+                                            @onclick="() => OpenOrderChat(_createdPixOrder)">
+                                        💬 Falar com a Loja no Chat (Pedido #@_createdPixOrder.OrderNumber)
+                                    </button>
                                     <button type="button" class="lux-btn lux-btn-outline" @onclick="ResetPixOrderForm">
                                         Novo Pedido
                                     </button>
@@ -745,6 +750,20 @@ else
                 string.Equals(v.Size, size, StringComparison.OrdinalIgnoreCase))
             .Sum(v => v.StockQuantity) ?? 0;
 
+    private void OpenProductChat()
+    {
+        if (_product is null)
+            return;
+
+        var variantInfo = HasMeaningfulColors || HasMeaningfulSizes ? $" ({FormatSelectedVariantLabel()})" : string.Empty;
+        BuyerChat.OpenChat($"Produto: {_product.Name}{variantInfo}", $"Olá! Tenho interesse em {_product.Name}{variantInfo}.");
+    }
+
+    private void OpenOrderChat(StoreOrderDto order)
+    {
+        BuyerChat.OpenChat($"Pedido #{order.OrderNumber}", $"Olá! Acabei de gerar o pedido #{order.OrderNumber} via Pix.");
+    }
+
     private string FormatSelectedVariantLabel()
     {
         var parts = new List<string>(2);
@@ -868,13 +887,17 @@ else
                 }
             }
 
+            var effectiveName = !string.IsNullOrWhiteSpace(_buyerName)
+                ? _buyerName
+                : (BuyerChat.CurrentBuyer?.FullName ?? string.Empty);
+
             var order = await CatalogDataGateway.PlacePixOrderAsync(new CreatePixOrderRequest
             {
                 ProductId = _product.Id,
                 ProductVariantId = SelectedVariant.Id,
                 Quantity = Math.Max(1, _orderQuantity),
-                CustomerName = _buyerName,
-                CustomerWhatsapp = _buyerWhatsapp,
+                CustomerName = effectiveName,
+                CustomerWhatsapp = string.IsNullOrWhiteSpace(_buyerWhatsapp) ? "5511900000000" : _buyerWhatsapp,
                 Cep = _buyerCep,
                 Street = _buyerStreet,
                 Number = _buyerNumber,

@@ -126,6 +126,8 @@ builder.Services.AddSingleton<IClothingStoreRepository>(sp =>
     new ClothingStoreRepository(sp.GetRequiredService<IPasswordHasher>(), sharedDbPath));
 builder.Services.AddSingleton(sp =>
     new CloudAccountRegistryService(appDataRoot, sp.GetRequiredService<IPasswordHasher>()));
+builder.Services.AddSingleton(sp =>
+    new CloudChatStoreService(appDataRoot, sp.GetRequiredService<IPasswordHasher>()));
 builder.Services.AddSingleton(_ => new RemoteConfigAndTelemetryStore(appDataRoot));
 builder.Services.AddSingleton(sp =>
     new CloudflareTurnstileService(sp.GetRequiredService<IHttpClientFactory>().CreateClient("CloudflareTurnstile")));
@@ -192,6 +194,7 @@ builder.Services.AddScoped<PlatformSubscriptionService>(sp =>
 builder.Services.AddScoped<CatalogDataGateway>();
 builder.Services.AddScoped<PlatformPortalService>();
 builder.Services.AddScoped<StoreCartService>();
+builder.Services.AddScoped<StoreBuyerChatStateService>();
 
 var app = builder.Build();
 if (cloudMirror is not null)
@@ -1659,6 +1662,350 @@ app.MapPost("/api/cloud/accounts/password-reset/confirm", async (
         NewPasswordHash: newHash,
         Message: "✓ Senha redefinida com sucesso! Agora entre com sua nova senha."));
 }).DisableAntiforgery().RequireCors("YouLinkPwaCors").RequireRateLimiting("giftcard-strict");
+
+// =====================================================================
+// CONTAS DE COMPRADOR & CHAT INTERNO (VITRINE ↔ LOJISTA & LOJISTA ↔ SUPORTE)
+// =====================================================================
+
+app.MapPost("/api/cloud/buyers/register", async (
+    HttpContext httpContext,
+    RegisterBuyerAccountRequest request,
+    CloudChatStoreService chatStore,
+    CancellationToken ct) =>
+{
+    var res = await chatStore.RegisterBuyerAsync(request, ct);
+    if (!res.Success)
+        return Results.BadRequest(res);
+
+    await TryFlushCloudMirrorAsync(httpContext, ct);
+    return Results.Ok(res);
+}).DisableAntiforgery().RequireCors("YouLinkPwaCors").RequireRateLimiting("giftcard-strict");
+
+app.MapPost("/api/cloud/buyers/login", async (
+    HttpContext httpContext,
+    BuyerLoginRequest request,
+    CloudChatStoreService chatStore,
+    CancellationToken ct) =>
+{
+    var res = await chatStore.LoginBuyerAsync(request, ct);
+    if (!res.Success)
+        return Results.BadRequest(res);
+
+    await TryFlushCloudMirrorAsync(httpContext, ct);
+    return Results.Ok(res);
+}).DisableAntiforgery().RequireCors("YouLinkPwaCors").RequireRateLimiting("giftcard-strict");
+
+app.MapGet("/api/cloud/buyers/me", async (
+    HttpContext httpContext,
+    CloudChatStoreService chatStore,
+    CancellationToken ct) =>
+{
+    var token = httpContext.Request.Headers["X-Buyer-Token"].FirstOrDefault();
+    var session = await chatStore.ValidateBuyerTokenAsync(token, ct);
+    return session is null ? Results.Unauthorized() : Results.Ok(session);
+}).RequireCors("YouLinkPwaCors");
+
+app.MapGet("/api/cloud/store-chat/{storeSlug}/my-thread", async (
+    string storeSlug,
+    string? storeName,
+    HttpContext httpContext,
+    CloudChatStoreService chatStore,
+    CancellationToken ct) =>
+{
+    var token = httpContext.Request.Headers["X-Buyer-Token"].FirstOrDefault();
+    var session = await chatStore.ValidateBuyerTokenAsync(token, ct);
+    if (session is null)
+        return Results.Unauthorized();
+
+    var detail = await chatStore.GetOrCreateBuyerStoreThreadAsync(session.BuyerId, storeSlug, storeName, ct);
+    return detail is null ? Results.BadRequest() : Results.Ok(detail);
+}).RequireCors("YouLinkPwaCors");
+
+app.MapPost("/api/cloud/store-chat/{storeSlug}/messages", async (
+    string storeSlug,
+    SendBuyerChatMessageRequest request,
+    HttpContext httpContext,
+    CloudChatStoreService chatStore,
+    CancellationToken ct) =>
+{
+    var token = httpContext.Request.Headers["X-Buyer-Token"].FirstOrDefault();
+    var session = await chatStore.ValidateBuyerTokenAsync(token, ct);
+    if (session is null)
+        return Results.Unauthorized();
+
+    var detail = await chatStore.SendBuyerStoreMessageAsync(
+        session.BuyerId,
+        storeSlug,
+        request.StoreName,
+        request.Text,
+        request.ContextBadge,
+        ct);
+    if (detail is null)
+        return Results.BadRequest(new { error = "Informe uma mensagem válida." });
+
+    await TryFlushCloudMirrorAsync(httpContext, ct);
+    return Results.Ok(detail);
+}).DisableAntiforgery().RequireCors("YouLinkPwaCors");
+
+app.MapPost("/api/cloud/store-chat/{storeSlug}/threads/{threadId:guid}/messages/{messageId:guid}/delete-for-me", async (
+    string storeSlug,
+    Guid threadId,
+    Guid messageId,
+    HttpContext httpContext,
+    CloudChatStoreService chatStore,
+    CancellationToken ct) =>
+{
+    var token = httpContext.Request.Headers["X-Buyer-Token"].FirstOrDefault();
+    var session = await chatStore.ValidateBuyerTokenAsync(token, ct);
+    if (session is null)
+        return Results.Unauthorized();
+
+    var deleted = await chatStore.DeleteMessageForActorAsync(
+        threadId,
+        messageId,
+        CloudChatStoreService.BuildBuyerActorKey(session.BuyerId),
+        ct);
+    if (!deleted)
+        return Results.NotFound();
+
+    await TryFlushCloudMirrorAsync(httpContext, ct);
+    return Results.Ok(new { deleted = true });
+}).DisableAntiforgery().RequireCors("YouLinkPwaCors");
+
+app.MapPost("/api/cloud/merchant-chat/threads", async (
+    MerchantChatAuthRequest authRequest,
+    CloudAccountRegistryService accountRegistry,
+    CloudChatStoreService chatStore,
+    CancellationToken ct) =>
+{
+    var auth = await accountRegistry.VerifyPasswordHashAsync(authRequest.Email, authRequest.Username, authRequest.PasswordHash, ct);
+    if (!auth.Verified)
+        return Results.Unauthorized();
+
+    var targetSlug = !string.IsNullOrWhiteSpace(auth.StoreSlug) && string.IsNullOrWhiteSpace(authRequest.StoreSlug)
+        ? auth.StoreSlug!
+        : authRequest.StoreSlug;
+    var threads = await chatStore.GetMerchantStoreThreadsAsync(targetSlug, ct);
+    return Results.Ok(threads);
+}).DisableAntiforgery().RequireCors("YouLinkPwaCors");
+
+app.MapPost("/api/cloud/merchant-chat/threads/{threadId:guid}", async (
+    Guid threadId,
+    MerchantChatAuthRequest authRequest,
+    HttpContext httpContext,
+    CloudAccountRegistryService accountRegistry,
+    CloudChatStoreService chatStore,
+    CancellationToken ct) =>
+{
+    var auth = await accountRegistry.VerifyPasswordHashAsync(authRequest.Email, authRequest.Username, authRequest.PasswordHash, ct);
+    if (!auth.Verified)
+        return Results.Unauthorized();
+
+    var targetSlug = !string.IsNullOrWhiteSpace(auth.StoreSlug) && string.IsNullOrWhiteSpace(authRequest.StoreSlug)
+        ? auth.StoreSlug!
+        : authRequest.StoreSlug;
+    var detail = await chatStore.GetMerchantStoreThreadDetailAsync(targetSlug, threadId, ct);
+    if (detail is null)
+        return Results.NotFound();
+
+    await TryFlushCloudMirrorAsync(httpContext, ct);
+    return Results.Ok(detail);
+}).DisableAntiforgery().RequireCors("YouLinkPwaCors");
+
+app.MapPost("/api/cloud/merchant-chat/threads/{threadId:guid}/send", async (
+    Guid threadId,
+    MerchantSendChatMessageRequest request,
+    HttpContext httpContext,
+    CloudAccountRegistryService accountRegistry,
+    CloudChatStoreService chatStore,
+    CancellationToken ct) =>
+{
+    var auth = await accountRegistry.VerifyPasswordHashAsync(request.Auth.Email, request.Auth.Username, request.Auth.PasswordHash, ct);
+    if (!auth.Verified)
+        return Results.Unauthorized();
+
+    var targetSlug = !string.IsNullOrWhiteSpace(auth.StoreSlug) && string.IsNullOrWhiteSpace(request.Auth.StoreSlug)
+        ? auth.StoreSlug!
+        : request.Auth.StoreSlug;
+    var detail = await chatStore.SendMerchantStoreReplyAsync(targetSlug, request.Auth.StoreName, threadId, request.Text, request.ContextBadge, ct);
+    if (detail is null)
+        return Results.BadRequest(new { error = "Não foi possível enviar a mensagem." });
+
+    await TryFlushCloudMirrorAsync(httpContext, ct);
+    return Results.Ok(detail);
+}).DisableAntiforgery().RequireCors("YouLinkPwaCors");
+
+app.MapPost("/api/cloud/merchant-chat/threads/{threadId:guid}/messages/{messageId:guid}/delete-for-me", async (
+    Guid threadId,
+    Guid messageId,
+    MerchantChatAuthRequest authRequest,
+    HttpContext httpContext,
+    CloudAccountRegistryService accountRegistry,
+    CloudChatStoreService chatStore,
+    CancellationToken ct) =>
+{
+    var auth = await accountRegistry.VerifyPasswordHashAsync(authRequest.Email, authRequest.Username, authRequest.PasswordHash, ct);
+    if (!auth.Verified)
+        return Results.Unauthorized();
+
+    var targetSlug = !string.IsNullOrWhiteSpace(auth.StoreSlug) && string.IsNullOrWhiteSpace(authRequest.StoreSlug)
+        ? auth.StoreSlug!
+        : authRequest.StoreSlug;
+    var deleted = await chatStore.DeleteMessageForActorAsync(
+        threadId,
+        messageId,
+        CloudChatStoreService.BuildMerchantStoreActorKey(targetSlug),
+        ct);
+    if (!deleted)
+        return Results.NotFound();
+
+    await TryFlushCloudMirrorAsync(httpContext, ct);
+    return Results.Ok(new { deleted = true });
+}).DisableAntiforgery().RequireCors("YouLinkPwaCors");
+
+app.MapPost("/api/cloud/support-chat/my-thread", async (
+    MerchantChatAuthRequest authRequest,
+    HttpContext httpContext,
+    CloudAccountRegistryService accountRegistry,
+    CloudChatStoreService chatStore,
+    CancellationToken ct) =>
+{
+    var auth = await accountRegistry.VerifyPasswordHashAsync(authRequest.Email, authRequest.Username, authRequest.PasswordHash, ct);
+    if (!auth.Verified)
+        return Results.Unauthorized();
+
+    var accountKey = !string.IsNullOrWhiteSpace(auth.Email) ? auth.Email! : (authRequest.Username ?? authRequest.StoreSlug);
+    var handle = !string.IsNullOrWhiteSpace(authRequest.Username) ? authRequest.Username : accountKey;
+    var storeSlug = !string.IsNullOrWhiteSpace(authRequest.StoreSlug) ? authRequest.StoreSlug : (auth.StoreSlug ?? "minha-loja");
+    var storeName = !string.IsNullOrWhiteSpace(authRequest.StoreName) ? authRequest.StoreName : storeSlug;
+
+    var detail = await chatStore.GetOrCreateMerchantSupportThreadAsync(accountKey, handle, storeSlug, storeName, ct);
+    await TryFlushCloudMirrorAsync(httpContext, ct);
+    return Results.Ok(detail);
+}).DisableAntiforgery().RequireCors("YouLinkPwaCors");
+
+app.MapPost("/api/cloud/support-chat/send", async (
+    MerchantSendChatMessageRequest request,
+    HttpContext httpContext,
+    CloudAccountRegistryService accountRegistry,
+    CloudChatStoreService chatStore,
+    CancellationToken ct) =>
+{
+    var auth = await accountRegistry.VerifyPasswordHashAsync(request.Auth.Email, request.Auth.Username, request.Auth.PasswordHash, ct);
+    if (!auth.Verified)
+        return Results.Unauthorized();
+
+    var accountKey = !string.IsNullOrWhiteSpace(auth.Email) ? auth.Email! : (request.Auth.Username ?? request.Auth.StoreSlug);
+    var handle = !string.IsNullOrWhiteSpace(request.Auth.Username) ? request.Auth.Username : accountKey;
+    var storeSlug = !string.IsNullOrWhiteSpace(request.Auth.StoreSlug) ? request.Auth.StoreSlug : (auth.StoreSlug ?? "minha-loja");
+    var storeName = !string.IsNullOrWhiteSpace(request.Auth.StoreName) ? request.Auth.StoreName : storeSlug;
+
+    var detail = await chatStore.SendMerchantSupportMessageAsync(accountKey, handle, storeSlug, storeName, request.Text, request.ContextBadge, ct);
+    if (detail is null)
+        return Results.BadRequest(new { error = "Informe uma mensagem válida." });
+
+    await TryFlushCloudMirrorAsync(httpContext, ct);
+    return Results.Ok(detail);
+}).DisableAntiforgery().RequireCors("YouLinkPwaCors");
+
+app.MapPost("/api/cloud/support-chat/threads/{threadId:guid}/messages/{messageId:guid}/delete-for-me", async (
+    Guid threadId,
+    Guid messageId,
+    MerchantChatAuthRequest authRequest,
+    HttpContext httpContext,
+    CloudAccountRegistryService accountRegistry,
+    CloudChatStoreService chatStore,
+    CancellationToken ct) =>
+{
+    var auth = await accountRegistry.VerifyPasswordHashAsync(authRequest.Email, authRequest.Username, authRequest.PasswordHash, ct);
+    if (!auth.Verified)
+        return Results.Unauthorized();
+
+    var accountKey = !string.IsNullOrWhiteSpace(auth.Email) ? auth.Email! : (authRequest.Username ?? authRequest.StoreSlug);
+    var deleted = await chatStore.DeleteMessageForActorAsync(
+        threadId,
+        messageId,
+        CloudChatStoreService.BuildMerchantSupportActorKey(accountKey),
+        ct);
+    if (!deleted)
+        return Results.NotFound();
+
+    await TryFlushCloudMirrorAsync(httpContext, ct);
+    return Results.Ok(new { deleted = true });
+}).DisableAntiforgery().RequireCors("YouLinkPwaCors");
+
+app.MapGet("/api/platform-sync/support-chat/threads", async (
+    HttpContext httpContext,
+    IClothingStoreRepository repository,
+    CloudChatStoreService chatStore,
+    CancellationToken ct) =>
+{
+    if (!await IsAuthorizedSyncRequestAsync(httpContext, repository, ct))
+        return Results.Unauthorized();
+
+    var threads = await chatStore.GetPlatformSupportThreadsAsync(ct);
+    return Results.Ok(threads);
+});
+
+app.MapGet("/api/platform-sync/support-chat/threads/{threadId:guid}", async (
+    Guid threadId,
+    HttpContext httpContext,
+    IClothingStoreRepository repository,
+    CloudChatStoreService chatStore,
+    CancellationToken ct) =>
+{
+    if (!await IsAuthorizedSyncRequestAsync(httpContext, repository, ct))
+        return Results.Unauthorized();
+
+    var detail = await chatStore.GetPlatformSupportThreadDetailAsync(threadId, ct);
+    if (detail is null)
+        return Results.NotFound();
+
+    await TryFlushCloudMirrorAsync(httpContext, ct);
+    return Results.Ok(detail);
+});
+
+app.MapPost("/api/platform-sync/support-chat/threads/{threadId:guid}/send", async (
+    Guid threadId,
+    PlatformSupportSendMessageRequest request,
+    HttpContext httpContext,
+    IClothingStoreRepository repository,
+    CloudChatStoreService chatStore,
+    CancellationToken ct) =>
+{
+    if (!await IsAuthorizedSyncRequestAsync(httpContext, repository, ct))
+        return Results.Unauthorized();
+
+    var detail = await chatStore.SendPlatformSupportReplyAsync(threadId, request.Text, request.SenderLabel, ct);
+    if (detail is null)
+        return Results.BadRequest(new { error = "Informe uma mensagem válida." });
+
+    await TryFlushCloudMirrorAsync(httpContext, ct);
+    return Results.Ok(detail);
+}).DisableAntiforgery();
+
+app.MapPost("/api/platform-sync/support-chat/threads/{threadId:guid}/messages/{messageId:guid}/delete-for-me", async (
+    Guid threadId,
+    Guid messageId,
+    HttpContext httpContext,
+    IClothingStoreRepository repository,
+    CloudChatStoreService chatStore,
+    CancellationToken ct) =>
+{
+    if (!await IsAuthorizedSyncRequestAsync(httpContext, repository, ct))
+        return Results.Unauthorized();
+
+    var deleted = await chatStore.DeleteMessageForActorAsync(
+        threadId,
+        messageId,
+        CloudChatStoreService.PlatformOwnerActorKey,
+        ct);
+    if (!deleted)
+        return Results.NotFound();
+
+    await TryFlushCloudMirrorAsync(httpContext, ct);
+    return Results.Ok(new { deleted = true });
+}).DisableAntiforgery();
 
 app.MapGet("/api/cloud/plan-status", async (
     string? email,

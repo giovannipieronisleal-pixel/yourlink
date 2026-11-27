@@ -4,6 +4,7 @@
 @inject CatalogDataGateway CatalogDataGateway
 @inject PlatformPortalService PortalService
 @inject StoreCartService CartService
+@inject StoreBuyerChatStateService BuyerChat
 @inject NavigationManager Navigation
 @inject IJSRuntime JS
 
@@ -86,6 +87,15 @@
                         </button>
                     }
 
+                    @if (_store is { IsSiteActive: true })
+                    {
+                        <button type="button"
+                                class="lux-btn lux-btn-primary lux-btn-sm"
+                                @onclick="() => BuyerChat.OpenChat()">
+                            💬 Chat
+                        </button>
+                    }
+
                     @if (CatalogFeatureFlags.PhoneFeaturesEnabled && _store is { IsSiteActive: true } && !string.IsNullOrWhiteSpace(_store.WhatsappNumber))
                     {
                         <a href="@WhatsAppLinkBuilder.BuildGeneralStoreLink(_store.WhatsappNumber, _store.StoreName)"
@@ -156,7 +166,7 @@
         </div>
     </footer>
 
-    @if ((CatalogFeatureFlags.SalesAndOrdersEnabled || CatalogFeatureFlags.PhoneFeaturesEnabled) && !_isPortalMode && _store is { IsSiteActive: true } && !string.IsNullOrWhiteSpace(_store.WhatsappNumber))
+    @if (!_isPortalMode && _store is { IsSiteActive: true })
     {
         <div class="lux-mobile-wa-bar">
             <a href="@CatalogHref" class="lux-btn lux-btn-outline lux-btn-sm" style="flex: 1;">
@@ -166,21 +176,17 @@
             {
                 <button type="button"
                         class="lux-btn lux-btn-primary lux-btn-sm"
-                        style="flex: 1.4;"
+                        style="flex: 1.2;"
                         @onclick="CartService.OpenDrawer">
                     🛍️ Sacola (@CartService.TotalQuantity)
                 </button>
             }
-            else
-            {
-                <a href="@WhatsAppLinkBuilder.BuildGeneralStoreLink(_store.WhatsappNumber, _store.StoreName)"
-                   target="_blank"
-                   rel="noopener noreferrer"
-                   class="lux-btn lux-btn-whatsapp lux-btn-sm"
-                   style="flex: 1.4;">
-                    💬 Pedir no WhatsApp
-                </a>
-            }
+            <button type="button"
+                    class="lux-btn lux-btn-primary lux-btn-sm"
+                    style="flex: 1.2;"
+                    @onclick="() => BuyerChat.OpenChat()">
+                💬 Chat da Loja
+            </button>
         </div>
     }
 
@@ -259,16 +265,12 @@
                             <strong>@CartService.SubtotalAmount.ToString("C", PtBr)</strong>
                         </div>
 
-                        @if (!string.IsNullOrWhiteSpace(_store.WhatsappNumber))
-                        {
-                            <a href="@WhatsAppLinkBuilder.BuildCartOrderLink(_store.WhatsappNumber, _store.StoreName, CartService.ToWhatsAppItems(), _cartNotes)"
-                               target="_blank"
-                               rel="noopener noreferrer"
-                               class="lux-btn lux-btn-whatsapp"
-                               style="width: 100%;">
-                                💬 Enviar Pedido Completo no WhatsApp
-                            </a>
-                        }
+                        <button type="button"
+                                class="lux-btn lux-btn-primary"
+                                style="width: 100%;"
+                                @onclick="SendCartToStoreChat">
+                            💬 Enviar Sacola pelo Chat da Loja
+                        </button>
                         <button type="button"
                                 class="lux-btn lux-btn-outline lux-btn-sm"
                                 style="width: 100%;"
@@ -279,6 +281,11 @@
                 }
             </aside>
         </div>
+    }
+
+    @if (!_isPortalMode && _store is { IsSiteActive: true })
+    {
+        <StoreBuyerChatDrawer StoreSlug="@EffectiveCartSlug" StoreName="@(_store.StoreName)" />
     }
 </div>
 
@@ -347,6 +354,19 @@
 
     private Task ClearCartAsync() =>
         CartService.ClearAsync(JS, EffectiveCartSlug);
+
+    private void SendCartToStoreChat()
+    {
+        var lines = CartService.Items
+            .Select(i => $"• {i.Quantity}x {i.ProductName} ({FormatCartVariant(i)}) — {(i.UnitPrice * i.Quantity).ToString("C", PtBr)}")
+            .ToList();
+        var summary = "Olá! Gostaria de finalizar estes itens da sacola:\n" + string.Join("\n", lines) +
+                      $"\nTotal: {CartService.SubtotalAmount.ToString("C", PtBr)}" +
+                      (string.IsNullOrWhiteSpace(_cartNotes) ? string.Empty : $"\nObs.: {_cartNotes.Trim()}");
+
+        CartService.CloseDrawer();
+        BuyerChat.OpenChat($"Sacola ({CartService.TotalQuantity} un.)", summary);
+    }
 
     private string BuildCartProductHref(string productSlug) =>
         string.IsNullOrWhiteSpace(_activeStoreSlug)

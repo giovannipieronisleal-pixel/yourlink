@@ -3780,6 +3780,149 @@ public sealed class MauiAdminGateway
         {
         }
     }
+
+    // =========================================================================
+    // CHAT INTERNO DO APP (CLIENTES DA VITRINE & SUPORTE YOULINK)
+    // =========================================================================
+
+    private static readonly HttpClient ChatHttpClient = new() { Timeout = TimeSpan.FromSeconds(18) };
+
+    private async Task<(string BaseUrl, MerchantChatAuthRequest Auth)> BuildMerchantChatAuthAsync(CancellationToken ct)
+    {
+        if (!IsAuthenticated || CurrentEmployee is null)
+            throw new DomainException("Entre na sua conta para acessar o chat.");
+
+        string? passwordHash = null;
+        if (_workspaceRepository is not null)
+        {
+            var user = await _workspaceRepository.GetUserByIdAsync(CurrentEmployee.UserId, ct);
+            passwordHash = user?.PasswordHash;
+        }
+
+        if (string.IsNullOrWhiteSpace(passwordHash))
+            throw new DomainException("Credenciais da sessão não disponíveis para sincronizar o chat.");
+
+        // Garante que a conta já esteja registrada na nuvem antes de autenticar o chat
+        if (GetPendingCloudAccountSync())
+        {
+            await SyncAccountByUserIdToCloudAsync(CurrentEmployee.UserId, ct: ct);
+        }
+
+        var settings = CachedAdminSettings ?? await _employeeAndSettingsService.GetAdminStoreSettingsAsync(ct);
+        var slug = string.IsNullOrWhiteSpace(settings.StoreSlug)
+            ? WhatsAppLinkBuilder.GenerateStoreSlug(settings.StoreName)
+            : settings.StoreSlug;
+
+        var centralUrl = WhatsAppLinkBuilder.NormalizePublicServerUrl(LatestAdminCentralServerUrl);
+        if (string.IsNullOrWhiteSpace(centralUrl))
+            centralUrl = AppUpdateCatalog.DefaultCentralPlatformServerUrl;
+
+        var auth = new MerchantChatAuthRequest(
+            Email: CurrentEmployee.Email,
+            Username: CurrentEmployee.EffectiveUsername,
+            PasswordHash: passwordHash,
+            StoreSlug: slug,
+            StoreName: settings.StoreName);
+
+        return (centralUrl.TrimEnd('/'), auth);
+    }
+
+    public async Task<IReadOnlyList<ChatThreadSummaryDto>> GetMerchantStoreChatThreadsAsync(CancellationToken ct = default)
+    {
+        var (baseUrl, auth) = await BuildMerchantChatAuthAsync(ct);
+        using var resp = await System.Net.Http.Json.HttpClientJsonExtensions.PostAsJsonAsync(
+            ChatHttpClient,
+            $"{baseUrl}/api/cloud/merchant-chat/threads",
+            auth,
+            ct);
+
+        if (resp.StatusCode == System.Net.HttpStatusCode.NotFound)
+            return [];
+
+        resp.EnsureSuccessStatusCode();
+        return await System.Net.Http.Json.HttpContentJsonExtensions.ReadFromJsonAsync<List<ChatThreadSummaryDto>>(resp.Content, cancellationToken: ct)
+               ?? [];
+    }
+
+    public async Task<ChatThreadDetailDto?> GetMerchantStoreChatThreadDetailAsync(Guid threadId, CancellationToken ct = default)
+    {
+        var (baseUrl, auth) = await BuildMerchantChatAuthAsync(ct);
+        using var resp = await System.Net.Http.Json.HttpClientJsonExtensions.PostAsJsonAsync(
+            ChatHttpClient,
+            $"{baseUrl}/api/cloud/merchant-chat/threads/{threadId:D}",
+            auth,
+            ct);
+
+        if (!resp.IsSuccessStatusCode)
+            return null;
+
+        return await System.Net.Http.Json.HttpContentJsonExtensions.ReadFromJsonAsync<ChatThreadDetailDto>(resp.Content, cancellationToken: ct);
+    }
+
+    public async Task<ChatThreadDetailDto?> SendMerchantStoreChatReplyAsync(Guid threadId, string text, CancellationToken ct = default)
+    {
+        var (baseUrl, auth) = await BuildMerchantChatAuthAsync(ct);
+        using var resp = await System.Net.Http.Json.HttpClientJsonExtensions.PostAsJsonAsync(
+            ChatHttpClient,
+            $"{baseUrl}/api/cloud/merchant-chat/threads/{threadId:D}/send",
+            new MerchantSendChatMessageRequest(auth, text),
+            ct);
+
+        resp.EnsureSuccessStatusCode();
+        return await System.Net.Http.Json.HttpContentJsonExtensions.ReadFromJsonAsync<ChatThreadDetailDto>(resp.Content, cancellationToken: ct);
+    }
+
+    public async Task<bool> DeleteMerchantStoreChatMessageForMeAsync(Guid threadId, Guid messageId, CancellationToken ct = default)
+    {
+        var (baseUrl, auth) = await BuildMerchantChatAuthAsync(ct);
+        using var resp = await System.Net.Http.Json.HttpClientJsonExtensions.PostAsJsonAsync(
+            ChatHttpClient,
+            $"{baseUrl}/api/cloud/merchant-chat/threads/{threadId:D}/messages/{messageId:D}/delete-for-me",
+            auth,
+            ct);
+
+        return resp.IsSuccessStatusCode;
+    }
+
+    public async Task<ChatThreadDetailDto?> GetMySupportChatThreadAsync(CancellationToken ct = default)
+    {
+        var (baseUrl, auth) = await BuildMerchantChatAuthAsync(ct);
+        using var resp = await System.Net.Http.Json.HttpClientJsonExtensions.PostAsJsonAsync(
+            ChatHttpClient,
+            $"{baseUrl}/api/cloud/support-chat/my-thread",
+            auth,
+            ct);
+
+        if (!resp.IsSuccessStatusCode)
+            return null;
+
+        return await System.Net.Http.Json.HttpContentJsonExtensions.ReadFromJsonAsync<ChatThreadDetailDto>(resp.Content, cancellationToken: ct);
+    }
+
+    public async Task<ChatThreadDetailDto?> SendMySupportChatMessageAsync(string text, CancellationToken ct = default)
+    {
+        var (baseUrl, auth) = await BuildMerchantChatAuthAsync(ct);
+        using var resp = await System.Net.Http.Json.HttpClientJsonExtensions.PostAsJsonAsync(
+            ChatHttpClient,
+            $"{baseUrl}/api/cloud/support-chat/send",
+            new MerchantSendChatMessageRequest(auth, text),
+            ct);
+
+        resp.EnsureSuccessStatusCode();
+        return await System.Net.Http.Json.HttpContentJsonExtensions.ReadFromJsonAsync<ChatThreadDetailDto>(resp.Content, cancellationToken: ct);
+    }
+
+    public async Task<bool> DeleteMySupportChatMessageForMeAsync(Guid threadId, Guid messageId, CancellationToken ct = default)
+    {
+        var (baseUrl, auth) = await BuildMerchantChatAuthAsync(ct);
+        using var resp = await System.Net.Http.Json.HttpClientJsonExtensions.PostAsJsonAsync(
+            ChatHttpClient,
+            $"{baseUrl}/api/cloud/support-chat/threads/{threadId:D}/messages/{messageId:D}/delete-for-me",
+            auth,
+            ct);
+
+        return resp.IsSuccessStatusCode;
+    }
 }
 
 public sealed record UserPlanStatusPopupNotice(

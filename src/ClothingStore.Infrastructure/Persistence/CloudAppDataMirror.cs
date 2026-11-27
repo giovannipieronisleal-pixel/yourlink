@@ -359,7 +359,8 @@ public sealed class CloudAppDataMirror : IDisposable
         "platform_owner_settings.json",
         "platform_mp_credentials.json",
         "tenants_index.json",
-        "cloud_accounts_registry.json"
+        "cloud_accounts_registry.json",
+        "cloud_chat_store.json"
     };
 
     private readonly string _rootDirectory;

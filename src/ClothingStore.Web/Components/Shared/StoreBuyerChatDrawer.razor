@@ -1,0 +1,427 @@
+@using ClothingStore.Shared.DTOs
+@using ClothingStore.Web.Services
+@inject StoreBuyerChatStateService BuyerChat
+@inject IJSRuntime JS
+@implements IDisposable
+
+@if (BuyerChat.IsDrawerOpen)
+{
+    <div class="lux-cart-backdrop" style="z-index: 1100;" @onclick="BuyerChat.CloseChat">
+        <aside class="lux-cart-drawer"
+               style="display: flex; flex-direction: column; max-width: 430px; width: 100%;"
+               aria-label="Chat com a loja"
+               @onclick:stopPropagation="true">
+
+            <!-- Cabeçalho -->
+            <div class="lux-cart-drawer-head" style="border-bottom: 1px solid var(--brand-border, #E5E7EB); padding-bottom: 0.75rem;">
+                <div>
+                    <span class="lux-hero-eyebrow" style="margin-bottom: 0.1rem;">Atendimento Direto no App</span>
+                    <h2 style="margin: 0; font-size: 1.15rem; font-weight: 800;">
+                        💬 @StoreName
+                    </h2>
+                    @if (BuyerChat.IsAuthenticated && BuyerChat.CurrentBuyer is not null)
+                    {
+                        <div style="font-size: 0.75rem; color: var(--brand-text-muted, #64748B); margin-top: 0.15rem;">
+                            Conectado como <strong>@BuyerChat.CurrentBuyer.FullName</strong> (@BuyerChat.CurrentBuyer.MaskedEmail)
+                            &bull;
+                            <button type="button"
+                                    style="background: none; border: none; padding: 0; color: #DC2626; font-weight: 700; cursor: pointer; font-size: 0.75rem;"
+                                    @onclick="HandleLogoutAsync">
+                                Sair
+                            </button>
+                        </div>
+                    }
+                </div>
+                <button type="button" class="lux-btn lux-btn-outline lux-btn-sm" @onclick="BuyerChat.CloseChat">
+                    ✕ Fechar
+                </button>
+            </div>
+
+            @if (!string.IsNullOrWhiteSpace(_error))
+            {
+                <div style="margin: 0.65rem 0; padding: 0.6rem 0.75rem; border-radius: 8px; background: rgba(220,38,38,0.1); border: 1px solid rgba(220,38,38,0.3); color: #B91C1C; font-size: 0.82rem;">
+                    @_error
+                </div>
+            }
+
+            @if (!BuyerChat.IsAuthenticated)
+            {
+                <!-- TELA DE LOGIN / CADASTRO OBRIGATÓRIO DO COMPRADOR -->
+                <div style="padding: 1rem 0.2rem; display: flex; flex-direction: column; gap: 0.85rem; overflow-y: auto;">
+                    <div style="padding: 0.8rem 0.9rem; border-radius: 10px; background: var(--brand-surface-subtle, #F8FAFC); border: 1px solid var(--brand-border, #E2E8F0); font-size: 0.83rem; line-height: 1.45;">
+                        🔒 <strong>Entre ou crie sua conta rápida</strong> para conversar diretamente com <strong>@StoreName</strong> e acompanhar seus pedidos sem precisar de WhatsApp.
+                    </div>
+
+                    <div style="display: flex; gap: 0.4rem;">
+                        <button type="button"
+                                class="lux-btn @(_authMode == "login" ? "lux-btn-primary" : "lux-btn-outline") lux-btn-sm"
+                                style="flex: 1;"
+                                @onclick='() => { _authMode = "login"; _error = null; }'>
+                            Já tenho conta
+                        </button>
+                        <button type="button"
+                                class="lux-btn @(_authMode == "register" ? "lux-btn-primary" : "lux-btn-outline") lux-btn-sm"
+                                style="flex: 1;"
+                                @onclick='() => { _authMode = "register"; _error = null; }'>
+                            Criar conta rápida
+                        </button>
+                    </div>
+
+                    @if (_authMode == "register")
+                    {
+                        <div>
+                            <label class="lux-filter-label">Seu Nome *</label>
+                            <input type="text" class="lux-input" @bind="_regName" placeholder="Ex.: Mariana Souza" />
+                        </div>
+                    }
+
+                    <div>
+                        <label class="lux-filter-label">Seu E-mail *</label>
+                        <input type="email" class="lux-input" @bind="_authEmail" placeholder="voce@exemplo.com" />
+                    </div>
+
+                    <div>
+                        <label class="lux-filter-label">Senha *</label>
+                        <input type="password" class="lux-input" @bind="_authPassword" placeholder="Mínimo 4 caracteres" />
+                    </div>
+
+                    <button type="button"
+                            class="lux-btn lux-btn-primary"
+                            style="width: 100%; padding: 0.8rem; font-weight: 700;"
+                            disabled="@_busy"
+                            @onclick="SubmitAuthAsync">
+                        @(_busy ? "Aguarde..." : (_authMode == "register" ? "✓ Criar Conta e Abrir Chat" : "Entrar no Chat"))
+                    </button>
+                </div>
+            }
+            else
+            {
+                <!-- ÁREA DE MENSAGENS DO CHAT -->
+                <div style="font-size: 0.73rem; color: var(--brand-text-muted, #64748B); padding: 0.4rem 0; text-align: center;">
+                    💡 Dica: segure (ou clique com botão direito) em uma mensagem para <strong>Apagar para mim</strong>.
+                </div>
+
+                @if (!string.IsNullOrWhiteSpace(_activeContextBadge))
+                {
+                    <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; padding: 0.42rem 0.7rem; border-radius: 8px; background: rgba(37,99,235,0.1); border: 1px solid rgba(37,99,235,0.28); font-size: 0.78rem; margin-bottom: 0.45rem;">
+                        <span>📌 Assunto: <strong>@_activeContextBadge</strong></span>
+                        <button type="button" style="border:none; background:none; cursor:pointer; font-weight:700;" @onclick="() => _activeContextBadge = null">✕</button>
+                    </div>
+                }
+
+                <div style="flex: 1; min-height: 240px; overflow-y: auto; display: flex; flex-direction: column; gap: 0.55rem; padding: 0.5rem 0.2rem;">
+                    @if (_thread is null || _thread.Messages.Count == 0)
+                    {
+                        <div style="margin: auto; text-align: center; color: var(--brand-text-muted, #64748B); font-size: 0.85rem; padding: 1.5rem 0.75rem;">
+                            Envie uma mensagem abaixo para falar diretamente com <strong>@StoreName</strong>.
+                        </div>
+                    }
+                    else
+                    {
+                        @foreach (var msg in _thread.Messages)
+                        {
+                            var isSelected = _selectedMsgId == msg.Id;
+                            <div style="display: flex; flex-direction: column; align-items: @(msg.IsMine ? "flex-end" : "flex-start");">
+                                <div @onpointerdown="() => StartHold(msg)"
+                                     @onpointerup="CancelHold"
+                                     @onpointerleave="CancelHold"
+                                     @onpointercancel="CancelHold"
+                                     @oncontextmenu="() => SelectForDelete(msg)"
+                                     @oncontextmenu:preventDefault="true"
+                                     style="max-width: 84%; padding: 0.6rem 0.8rem; border-radius: @(msg.IsMine ? "14px 14px 4px 14px" : "14px 14px 14px 4px"); background: @(msg.IsMine ? "#2563EB" : "var(--brand-surface-subtle, #F1F5F9)"); color: @(msg.IsMine ? "#FFFFFF" : "var(--brand-text, #0F172A)"); border: @(isSelected ? "2px solid #EF4444" : "1px solid rgba(148,163,184,0.22)"); user-select: none; -webkit-user-select: none; cursor: pointer; box-shadow: 0 1px 2px rgba(0,0,0,0.06);">
+                                    @if (!string.IsNullOrWhiteSpace(msg.ContextBadge))
+                                    {
+                                        <div style="font-size: 0.69rem; font-weight: 700; opacity: 0.88; margin-bottom: 0.22rem; padding-bottom: 0.18rem; border-bottom: 1px solid rgba(255,255,255,0.22);">
+                                            📌 @msg.ContextBadge
+                                        </div>
+                                    }
+                                    <div style="font-size: 0.88rem; line-height: 1.42; white-space: pre-wrap; word-break: break-word;">@msg.Text</div>
+                                    <div style="font-size: 0.67rem; opacity: 0.75; text-align: right; margin-top: 0.22rem;">
+                                        @msg.SentAt.ToLocalTime().ToString("dd/MM HH:mm")
+                                    </div>
+                                </div>
+                            </div>
+                        }
+                    }
+                </div>
+
+                @if (_selectedMsg is not null)
+                {
+                    <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; padding: 0.6rem 0.75rem; margin-top: 0.45rem; border-radius: 10px; background: rgba(220,38,38,0.1); border: 1px solid rgba(220,38,38,0.35);">
+                        <span style="font-size: 0.8rem; font-weight: 600;">Apagar esta mensagem só para você?</span>
+                        <div style="display: flex; gap: 0.35rem;">
+                            <button type="button"
+                                    class="lux-btn lux-btn-sm"
+                                    style="background: #DC2626; color: #FFFFFF; border: none;"
+                                    disabled="@_busy"
+                                    @onclick="ConfirmDeleteForMeAsync">
+                                🗑️ Apagar para mim
+                            </button>
+                            <button type="button"
+                                    class="lux-btn lux-btn-outline lux-btn-sm"
+                                    @onclick="() => { _selectedMsg = null; _selectedMsgId = null; }">
+                                Cancelar
+                            </button>
+                        </div>
+                    </div>
+                }
+
+                <!-- Caixa de Envio -->
+                <form @onsubmit="SendMessageAsync" @onsubmit:preventDefault="true" style="display: flex; gap: 0.45rem; padding-top: 0.65rem; border-top: 1px solid var(--brand-border, #E5E7EB); margin-top: 0.45rem;">
+                    <input type="text"
+                           class="lux-input"
+                           style="flex: 1;"
+                           maxlength="1500"
+                           placeholder="Digite sua mensagem para a loja..."
+                           @bind="_draftText"
+                           @bind:event="oninput" />
+                    <button type="submit"
+                            class="lux-btn lux-btn-primary"
+                            style="padding: 0 1rem; font-weight: 700;"
+                            disabled="@(_busy || string.IsNullOrWhiteSpace(_draftText))">
+                        Enviar
+                    </button>
+                </form>
+            }
+        </aside>
+    </div>
+}
+
+@code {
+    [Parameter] public string? StoreSlug { get; set; }
+    [Parameter] public string StoreName { get; set; } = "Loja";
+
+    private string _authMode = "login";
+    private string _regName = string.Empty;
+    private string _authEmail = string.Empty;
+    private string _authPassword = string.Empty;
+
+    private ChatThreadDetailDto? _thread;
+    private string _draftText = string.Empty;
+    private string? _activeContextBadge;
+    private bool _busy;
+    private string? _error;
+
+    private ChatMessageDto? _selectedMsg;
+    private Guid? _selectedMsgId;
+    private CancellationTokenSource? _holdCts;
+    private CancellationTokenSource? _pollCts;
+
+    private string EffectiveSlug => string.IsNullOrWhiteSpace(StoreSlug) ? "minha-loja" : StoreSlug!;
+
+    protected override void OnInitialized()
+    {
+        BuyerChat.OnChanged += HandleChatStateChanged;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            await BuyerChat.EnsureSessionLoadedAsync(JS);
+        }
+    }
+
+    private void HandleChatStateChanged()
+    {
+        _ = InvokeAsync(async () =>
+        {
+            if (BuyerChat.IsDrawerOpen)
+            {
+                if (!string.IsNullOrWhiteSpace(BuyerChat.PendingContextBadge))
+                    _activeContextBadge = BuyerChat.PendingContextBadge;
+                if (!string.IsNullOrWhiteSpace(BuyerChat.PendingDraftText))
+                    _draftText = BuyerChat.PendingDraftText;
+                BuyerChat.ClearPendingDraft();
+
+                if (BuyerChat.IsAuthenticated)
+                {
+                    await RefreshThreadAsync();
+                    StartPolling();
+                }
+            }
+            else
+            {
+                StopPolling();
+            }
+
+            StateHasChanged();
+        });
+    }
+
+    private async Task SubmitAuthAsync()
+    {
+        _error = null;
+        _busy = true;
+        try
+        {
+            var result = _authMode == "register"
+                ? await BuyerChat.RegisterAsync(JS, new RegisterBuyerAccountRequest(_regName, _authEmail, _authPassword))
+                : await BuyerChat.LoginAsync(JS, new BuyerLoginRequest(_authEmail, _authPassword));
+
+            if (!result.Success)
+            {
+                _error = result.Message;
+                return;
+            }
+
+            _authPassword = string.Empty;
+            await RefreshThreadAsync();
+            StartPolling();
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task HandleLogoutAsync()
+    {
+        StopPolling();
+        _thread = null;
+        _selectedMsg = null;
+        _selectedMsgId = null;
+        await BuyerChat.LogoutAsync(JS);
+    }
+
+    private async Task RefreshThreadAsync()
+    {
+        try
+        {
+            _thread = await BuyerChat.LoadThreadAsync(EffectiveSlug, StoreName);
+        }
+        catch
+        {
+        }
+    }
+
+    private async Task SendMessageAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_draftText) || _busy)
+            return;
+
+        _error = null;
+        _busy = true;
+        try
+        {
+            var textToSend = _draftText.Trim();
+            var badge = _activeContextBadge;
+            _draftText = string.Empty;
+            _activeContextBadge = null;
+
+            var updated = await BuyerChat.SendMessageAsync(EffectiveSlug, StoreName, textToSend, badge);
+            if (updated is not null)
+                _thread = updated;
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private void StartHold(ChatMessageDto msg)
+    {
+        CancelHold();
+        _holdCts = new CancellationTokenSource();
+        var token = _holdCts.Token;
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await Task.Delay(460, token);
+                if (!token.IsCancellationRequested)
+                {
+                    await InvokeAsync(() =>
+                    {
+                        SelectForDelete(msg);
+                        StateHasChanged();
+                    });
+                }
+            }
+            catch (OperationCanceledException)
+            {
+            }
+        });
+    }
+
+    private void CancelHold()
+    {
+        _holdCts?.Cancel();
+        _holdCts?.Dispose();
+        _holdCts = null;
+    }
+
+    private void SelectForDelete(ChatMessageDto msg)
+    {
+        _selectedMsg = msg;
+        _selectedMsgId = msg.Id;
+    }
+
+    private async Task ConfirmDeleteForMeAsync()
+    {
+        if (_selectedMsg is null || _thread is null)
+            return;
+
+        _busy = true;
+        try
+        {
+            await BuyerChat.DeleteMessageForMeAsync(_thread.Summary.ThreadId, _selectedMsg.Id);
+            _selectedMsg = null;
+            _selectedMsgId = null;
+            await RefreshThreadAsync();
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private void StartPolling()
+    {
+        if (_pollCts is not null)
+            return;
+
+        _pollCts = new CancellationTokenSource();
+        var token = _pollCts.Token;
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                using var timer = new PeriodicTimer(TimeSpan.FromSeconds(4));
+                while (await timer.WaitForNextTickAsync(token))
+                {
+                    if (!BuyerChat.IsDrawerOpen || !BuyerChat.IsAuthenticated)
+                        break;
+
+                    await RefreshThreadAsync();
+                    await InvokeAsync(StateHasChanged);
+                }
+            }
+            catch (OperationCanceledException)
+            {
+            }
+        });
+    }
+
+    private void StopPolling()
+    {
+        _pollCts?.Cancel();
+        _pollCts?.Dispose();
+        _pollCts = null;
+    }
+
+    public void Dispose()
+    {
+        BuyerChat.OnChanged -= HandleChatStateChanged;
+        CancelHold();
+        StopPolling();
+    }
+}

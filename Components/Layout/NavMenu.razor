@@ -28,6 +28,11 @@
             </NavLink>
         }
 
+        <NavLink class="adm-nav-item" href="/mensagens">
+            <span class="adm-nav-icon">💬</span>
+            <span>Chat</span>
+        </NavLink>
+
         <NavLink class="adm-nav-item" href="/configuracoes-loja" @onclick="() => Gateway.RequestSettingsHub()">
             <span class="adm-nav-icon">🏪</span>
             <span>Minha Loja</span>
@@ -213,6 +218,14 @@
                 }
                 @if (Gateway.IsAdmin)
                 {
+                    <NavLink class="adm-mobile-sheet-link" href="/mensagens" @onclick="CloseMobileMore">
+                        <span class="adm-mobile-sheet-icon">💬</span>
+                        <span class="adm-mobile-sheet-copy">
+                            <span class="adm-mobile-sheet-item-title">Chat &amp; Suporte</span>
+                            <span class="adm-mobile-sheet-item-desc">Mensagens de clientes e suporte YouLink</span>
+                        </span>
+                        <span class="adm-mobile-sheet-chevron" aria-hidden="true">›</span>
+                    </NavLink>
                     @if (CatalogFeatureFlags.SalesAndOrdersEnabled)
                     {
                         <NavLink class="adm-mobile-sheet-link" href="/pedidos" @onclick="CloseMobileMore">
@@ -274,15 +287,12 @@
                 Consulte o guia de instalação no Windows/Android, documentos de privacidade ou fale com nosso suporte quando disponível.
             </p>
             <div style="display: flex; flex-direction: column; gap: 0.55rem;">
-                @if (CatalogFeatureFlags.PhoneFeaturesEnabled && !string.IsNullOrWhiteSpace(SupportWhatsappUrl))
-                {
-                    <button type="button"
-                            class="adm-btn adm-btn-success"
-                            style="width: 100%; justify-content: center;"
-                            @onclick="() => Gateway.OpenExternalUrlSafeAsync(SupportWhatsappUrl)">
-                        💬 Falar com Suporte no WhatsApp
-                    </button>
-                }
+                <button type="button"
+                        class="adm-btn adm-btn-success"
+                        style="width: 100%; justify-content: center;"
+                        @onclick='() => { CloseHelpModal(); Navigation.NavigateTo("/mensagens?aba=suporte"); }'>
+                    💬 Abrir Chat com Suporte YouLink
+                </button>
                 <button type="button"
                         class="adm-btn adm-btn-primary"
                         style="width: 100%; justify-content: center;"

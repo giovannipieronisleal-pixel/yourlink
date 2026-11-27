@@ -1,0 +1,473 @@
+@page "/mensagens"
+@using ClothingStore.Shared.DTOs
+@inject MauiAdminGateway Gateway
+@inject NavigationManager Navigation
+@implements IDisposable
+
+<div style="display: flex; flex-direction: column; gap: 1rem;">
+    <!-- Cabeçalho -->
+    <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.75rem;">
+        <div>
+            <h1 style="font-size: 1.45rem; font-weight: 800; margin: 0; color: var(--adm-text);">
+                💬 Central de Mensagens
+            </h1>
+            <p style="font-size: 0.85rem; color: var(--adm-muted); margin: 0.2rem 0 0;">
+                Converse com clientes da sua vitrine e com o suporte oficial direto pelo aplicativo. Segure uma mensagem para <strong>Apagar para mim</strong>.
+            </p>
+        </div>
+
+        <!-- Abas: Clientes da Loja vs Suporte YouLink -->
+        <div style="display: flex; gap: 0.4rem; background: var(--adm-input-bg); padding: 4px; border-radius: 10px; border: 1px solid var(--adm-border);">
+            <button type="button"
+                    class="adm-btn @(_activeTab == "store" ? "adm-btn-primary" : "adm-btn-outline")"
+                    style="border: none; padding: 0.5rem 0.85rem; font-size: 0.84rem;"
+                    @onclick='() => SwitchTabAsync("store")'>
+                🛍️ Clientes (@(_storeThreads.Sum(t => t.UnreadCount) > 0 ? $"{_storeThreads.Count} • {_storeThreads.Sum(t => t.UnreadCount)} nova(s)" : _storeThreads.Count.ToString()))
+            </button>
+            <button type="button"
+                    class="adm-btn @(_activeTab == "support" ? "adm-btn-primary" : "adm-btn-outline")"
+                    style="border: none; padding: 0.5rem 0.85rem; font-size: 0.84rem;"
+                    @onclick='() => SwitchTabAsync("support")'>
+                🛟 Suporte YouLink
+            </button>
+        </div>
+    </div>
+
+    @if (!string.IsNullOrWhiteSpace(_error))
+    {
+        <div class="alert-banner alert-error">@_error</div>
+    }
+
+    @if (_activeTab == "store")
+    {
+        <!-- CHAT COMPRADORES ↔ LOJISTA -->
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr)); gap: 1rem; align-items: stretch;">
+            <!-- Lista de Conversas de Compradores -->
+            <section class="adm-card" style="display: @(_selectedStoreThread is not null && _mobileChatFocused ? "none" : "flex"); flex-direction: column; gap: 0.55rem; max-height: 70vh; overflow-y: auto;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.3rem;">
+                    <strong style="font-size: 0.95rem;">Conversas de Compradores</strong>
+                    <button type="button" class="adm-btn adm-btn-outline" style="padding: 0.3rem 0.6rem; font-size: 0.78rem;" disabled="@_loading" @onclick="RefreshCurrentViewAsync">
+                        🔄 Atualizar
+                    </button>
+                </div>
+
+                @if (_storeThreads.Count == 0)
+                {
+                    <div style="padding: 1.5rem 0.75rem; text-align: center; color: var(--adm-muted); font-size: 0.86rem;">
+                        Nenhuma conversa iniciada ainda. Quando um comprador entrar na conta dele na sua vitrine e enviar uma mensagem, ela aparece aqui na hora!
+                    </div>
+                }
+                else
+                {
+                    @foreach (var t in _storeThreads)
+                    {
+                        var isActive = _selectedStoreThread?.Summary.ThreadId == t.ThreadId;
+                        <button type="button"
+                                @onclick="() => OpenStoreThreadAsync(t.ThreadId)"
+                                style="text-align: left; width: 100%; padding: 0.75rem 0.85rem; border-radius: 10px; border: 1.5px solid @(isActive ? "var(--adm-primary)" : "var(--adm-border)"); background: @(isActive ? "var(--adm-input-bg)" : "var(--adm-surface)"); color: var(--adm-text); cursor: pointer;">
+                            <div style="display: flex; justify-content: space-between; align-items: center; gap: 0.4rem;">
+                                <strong style="font-size: 0.9rem;">@t.CounterpartyName</strong>
+                                @if (t.UnreadCount > 0)
+                                {
+                                    <span class="pill-badge pill-green">@t.UnreadCount nova(s)</span>
+                                }
+                                else
+                                {
+                                    <span style="font-size: 0.72rem; color: var(--adm-muted);">@t.UpdatedAt.ToLocalTime().ToString("dd/MM HH:mm")</span>
+                                }
+                            </div>
+                            <div style="font-size: 0.74rem; color: var(--adm-muted); margin-top: 0.1rem;">
+                                @t.CounterpartyCode &bull; @t.CounterpartyHandle
+                            </div>
+                            @if (!string.IsNullOrWhiteSpace(t.LastMessagePreview))
+                            {
+                                <div style="font-size: 0.8rem; color: var(--adm-muted); margin-top: 0.28rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                    @t.LastMessagePreview
+                                </div>
+                            }
+                        </button>
+                    }
+                }
+            </section>
+
+            <!-- Conversa Selecionada -->
+            <section class="adm-card" style="display: flex; flex-direction: column; min-height: 440px; max-height: 70vh;">
+                @if (_selectedStoreThread is null)
+                {
+                    <div style="margin: auto; text-align: center; color: var(--adm-muted); font-size: 0.9rem; padding: 1.5rem;">
+                        Selecione um comprador na lista para visualizar e responder as mensagens.
+                    </div>
+                }
+                else
+                {
+                    <div style="display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; padding-bottom: 0.7rem; border-bottom: 1px solid var(--adm-border);">
+                        <div>
+                            <strong style="font-size: 1rem;">@_selectedStoreThread.Summary.CounterpartyName</strong>
+                            <div style="font-size: 0.75rem; color: var(--adm-muted);">
+                                @_selectedStoreThread.Summary.CounterpartyCode &bull; @_selectedStoreThread.Summary.CounterpartyHandle
+                            </div>
+                        </div>
+                        <button type="button" class="adm-btn adm-btn-outline" style="padding: 0.32rem 0.65rem; font-size: 0.78rem;" @onclick="() => _mobileChatFocused = false">
+                            ← Lista
+                        </button>
+                    </div>
+
+                    @RenderMessageList(_selectedStoreThread)
+
+                    @RenderDeleteBar(isSupport: false)
+
+                    <form @onsubmit="SendStoreReplyAsync" @onsubmit:preventDefault="true" style="display: flex; gap: 0.5rem; padding-top: 0.7rem; border-top: 1px solid var(--adm-border); margin-top: 0.45rem;">
+                        <input type="text"
+                               class="adm-input"
+                               style="flex: 1;"
+                               maxlength="1500"
+                               placeholder="Responder ao cliente..."
+                               @bind="_storeReplyText"
+                               @bind:event="oninput" />
+                        <button type="submit"
+                                class="adm-btn adm-btn-primary"
+                                disabled="@(_sending || string.IsNullOrWhiteSpace(_storeReplyText))">
+                            Enviar
+                        </button>
+                    </form>
+                }
+            </section>
+        </div>
+    }
+    else
+    {
+        <!-- CHAT LOJISTA ↔ SUPORTE YOULINK -->
+        <section class="adm-card" style="display: flex; flex-direction: column; min-height: 460px; max-height: 72vh;">
+            <div style="display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; padding-bottom: 0.75rem; border-bottom: 1px solid var(--adm-border);">
+                <div>
+                    <strong style="font-size: 1.02rem;">🛟 Suporte Oficial YouLink</strong>
+                    <div style="font-size: 0.78rem; color: var(--adm-muted);">
+                        Canal direto entre sua loja e a administração da plataforma YouLink.
+                    </div>
+                </div>
+                <button type="button" class="adm-btn adm-btn-outline" style="padding: 0.35rem 0.7rem; font-size: 0.8rem;" disabled="@_loading" @onclick="RefreshCurrentViewAsync">
+                    🔄 Atualizar
+                </button>
+            </div>
+
+            @RenderMessageList(_supportThread)
+
+            @RenderDeleteBar(isSupport: true)
+
+            <form @onsubmit="SendSupportMessageAsync" @onsubmit:preventDefault="true" style="display: flex; gap: 0.5rem; padding-top: 0.7rem; border-top: 1px solid var(--adm-border); margin-top: 0.45rem;">
+                <input type="text"
+                       class="adm-input"
+                       style="flex: 1;"
+                       maxlength="1500"
+                       placeholder="Escreva sua dúvida ou solicitação para o suporte..."
+                       @bind="_supportReplyText"
+                       @bind:event="oninput" />
+                <button type="submit"
+                        class="adm-btn adm-btn-primary"
+                        disabled="@(_sending || string.IsNullOrWhiteSpace(_supportReplyText))">
+                    Enviar
+                </button>
+            </form>
+        </section>
+    }
+</div>
+
+@code {
+    [SupplyParameterFromQuery(Name = "aba")]
+    public string? InitialTab { get; set; }
+
+    private string _activeTab = "store";
+    private IReadOnlyList<ChatThreadSummaryDto> _storeThreads = [];
+    private ChatThreadDetailDto? _selectedStoreThread;
+    private ChatThreadDetailDto? _supportThread;
+    private bool _mobileChatFocused;
+
+    private string _storeReplyText = string.Empty;
+    private string _supportReplyText = string.Empty;
+    private bool _loading;
+    private bool _sending;
+    private string? _error;
+
+    private ChatMessageDto? _selectedMsgForDelete;
+    private CancellationTokenSource? _holdCts;
+    private CancellationTokenSource? _pollCts;
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (string.Equals(InitialTab, "suporte", StringComparison.OrdinalIgnoreCase))
+            _activeTab = "support";
+
+        await RefreshCurrentViewAsync();
+        StartPolling();
+    }
+
+    private RenderFragment RenderMessageList(ChatThreadDetailDto? detail) => __builder =>
+    {
+        <div style="flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 0.55rem; padding: 0.75rem 0.25rem;">
+            @if (detail is null || detail.Messages.Count == 0)
+            {
+                <div style="margin: auto; text-align: center; color: var(--adm-muted); font-size: 0.86rem; padding: 1.5rem;">
+                    Nenhuma mensagem nesta conversa ainda.
+                </div>
+            }
+            else
+            {
+                @foreach (var msg in detail.Messages)
+                {
+                    var isSelected = _selectedMsgForDelete?.Id == msg.Id;
+                    <div style="display: flex; flex-direction: column; align-items: @(msg.IsMine ? "flex-end" : "flex-start");">
+                        <div @onpointerdown="() => StartHold(msg)"
+                             @onpointerup="CancelHold"
+                             @onpointerleave="CancelHold"
+                             @onpointercancel="CancelHold"
+                             @oncontextmenu="() => _selectedMsgForDelete = msg"
+                             @oncontextmenu:preventDefault="true"
+                             style="max-width: 82%; padding: 0.62rem 0.85rem; border-radius: @(msg.IsMine ? "14px 14px 4px 14px" : "14px 14px 14px 4px"); background: @(msg.IsMine ? "var(--adm-primary)" : "var(--adm-input-bg)"); color: @(msg.IsMine ? "#FFFFFF" : "var(--adm-text)"); border: @(isSelected ? "2px solid var(--adm-danger)" : "1px solid var(--adm-border)"); user-select: none; -webkit-user-select: none; cursor: pointer;">
+                            @if (!msg.IsMine)
+                            {
+                                <div style="font-size: 0.7rem; font-weight: 700; opacity: 0.8; margin-bottom: 0.15rem;">@msg.SenderDisplayName</div>
+                            }
+                            @if (!string.IsNullOrWhiteSpace(msg.ContextBadge))
+                            {
+                                <div style="font-size: 0.71rem; font-weight: 700; opacity: 0.9; margin-bottom: 0.2rem; padding-bottom: 0.18rem; border-bottom: 1px solid rgba(148,163,184,0.3);">
+                                    📌 @msg.ContextBadge
+                                </div>
+                            }
+                            <div style="font-size: 0.9rem; line-height: 1.45; white-space: pre-wrap; word-break: break-word;">@msg.Text</div>
+                            <div style="font-size: 0.68rem; opacity: 0.75; text-align: right; margin-top: 0.2rem;">
+                                @msg.SentAt.ToLocalTime().ToString("dd/MM HH:mm")
+                            </div>
+                        </div>
+                    </div>
+                }
+            }
+        </div>
+    };
+
+    private RenderFragment RenderDeleteBar(bool isSupport) => __builder =>
+    {
+        @if (_selectedMsgForDelete is not null)
+        {
+            <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; padding: 0.6rem 0.8rem; border-radius: 10px; background: rgba(220,38,38,0.12); border: 1px solid var(--adm-danger); margin-top: 0.35rem;">
+                <span style="font-size: 0.82rem; font-weight: 600;">Apagar mensagem selecionada só para você?</span>
+                <div style="display: flex; gap: 0.4rem;">
+                    <button type="button"
+                            class="adm-btn adm-btn-danger"
+                            style="padding: 0.35rem 0.7rem; font-size: 0.78rem;"
+                            disabled="@_sending"
+                            @onclick="() => ConfirmDeleteForMeAsync(isSupport)">
+                        🗑️ Apagar para mim
+                    </button>
+                    <button type="button"
+                            class="adm-btn adm-btn-outline"
+                            style="padding: 0.35rem 0.65rem; font-size: 0.78rem;"
+                            @onclick="() => _selectedMsgForDelete = null">
+                        Cancelar
+                    </button>
+                </div>
+            </div>
+        }
+    };
+
+    private async Task SwitchTabAsync(string tab)
+    {
+        _activeTab = tab;
+        _selectedMsgForDelete = null;
+        _error = null;
+        await RefreshCurrentViewAsync();
+    }
+
+    private async Task RefreshCurrentViewAsync()
+    {
+        _loading = true;
+        try
+        {
+            if (_activeTab == "store")
+            {
+                _storeThreads = await Gateway.GetMerchantStoreChatThreadsAsync();
+                if (_selectedStoreThread is not null)
+                {
+                    _selectedStoreThread = await Gateway.GetMerchantStoreChatThreadDetailAsync(_selectedStoreThread.Summary.ThreadId);
+                }
+                else if (_storeThreads.Count > 0)
+                {
+                    _selectedStoreThread = await Gateway.GetMerchantStoreChatThreadDetailAsync(_storeThreads[0].ThreadId);
+                }
+            }
+            else
+            {
+                _supportThread = await Gateway.GetMySupportChatThreadAsync();
+            }
+            _error = null;
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private async Task OpenStoreThreadAsync(Guid threadId)
+    {
+        _selectedMsgForDelete = null;
+        _mobileChatFocused = true;
+        try
+        {
+            _selectedStoreThread = await Gateway.GetMerchantStoreChatThreadDetailAsync(threadId);
+            _storeThreads = await Gateway.GetMerchantStoreChatThreadsAsync();
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+    }
+
+    private async Task SendStoreReplyAsync()
+    {
+        if (_selectedStoreThread is null || string.IsNullOrWhiteSpace(_storeReplyText) || _sending)
+            return;
+
+        _sending = true;
+        _error = null;
+        try
+        {
+            var text = _storeReplyText.Trim();
+            _storeReplyText = string.Empty;
+            var updated = await Gateway.SendMerchantStoreChatReplyAsync(_selectedStoreThread.Summary.ThreadId, text);
+            if (updated is not null)
+                _selectedStoreThread = updated;
+            _storeThreads = await Gateway.GetMerchantStoreChatThreadsAsync();
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _sending = false;
+        }
+    }
+
+    private async Task SendSupportMessageAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_supportReplyText) || _sending)
+            return;
+
+        _sending = true;
+        _error = null;
+        try
+        {
+            var text = _supportReplyText.Trim();
+            _supportReplyText = string.Empty;
+            var updated = await Gateway.SendMySupportChatMessageAsync(text);
+            if (updated is not null)
+                _supportThread = updated;
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _sending = false;
+        }
+    }
+
+    private void StartHold(ChatMessageDto msg)
+    {
+        CancelHold();
+        _holdCts = new CancellationTokenSource();
+        var token = _holdCts.Token;
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await Task.Delay(460, token);
+                if (!token.IsCancellationRequested)
+                {
+                    await InvokeAsync(() =>
+                    {
+                        _selectedMsgForDelete = msg;
+                        StateHasChanged();
+                    });
+                }
+            }
+            catch (OperationCanceledException)
+            {
+            }
+        });
+    }
+
+    private void CancelHold()
+    {
+        _holdCts?.Cancel();
+        _holdCts?.Dispose();
+        _holdCts = null;
+    }
+
+    private async Task ConfirmDeleteForMeAsync(bool isSupport)
+    {
+        if (_selectedMsgForDelete is null)
+            return;
+
+        _sending = true;
+        try
+        {
+            var msg = _selectedMsgForDelete;
+            _selectedMsgForDelete = null;
+
+            if (isSupport)
+            {
+                await Gateway.DeleteMySupportChatMessageForMeAsync(msg.ThreadId, msg.Id);
+            }
+            else
+            {
+                await Gateway.DeleteMerchantStoreChatMessageForMeAsync(msg.ThreadId, msg.Id);
+            }
+
+            await RefreshCurrentViewAsync();
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _sending = false;
+        }
+    }
+
+    private void StartPolling()
+    {
+        _pollCts = new CancellationTokenSource();
+        var token = _pollCts.Token;
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                using var timer = new PeriodicTimer(TimeSpan.FromSeconds(5));
+                while (await timer.WaitForNextTickAsync(token))
+                {
+                    if (!_sending)
+                    {
+                        await RefreshCurrentViewAsync();
+                        await InvokeAsync(StateHasChanged);
+                    }
+                }
+            }
+            catch (OperationCanceledException)
+            {
+            }
+        });
+    }
+
+    public void Dispose()
+    {
+        CancelHold();
+        _pollCts?.Cancel();
+        _pollCts?.Dispose();
+    }
+}

@@ -280,9 +280,9 @@ public sealed class PlatformEnhancementsTests
         Assert.IsTrue(storeSettings.Contains("ConfirmWhatsappVerificationCodeAsync", StringComparison.Ordinal),
             "As configurações da loja devem confirmar o código de 4 dígitos do WhatsApp.");
         Assert.IsFalse(CatalogFeatureFlags.PhoneFeaturesEnabled,
-            "As funções de telefone/WhatsApp devem estar desativadas no modo catálogo.");
-        Assert.IsFalse(CatalogFeatureFlags.SalesAndOrdersEnabled,
-            "As funções de vendas/pedidos devem estar desativadas no modo catálogo.");
+            "As funções de telefone/WhatsApp devem permanecer desativadas.");
+        Assert.IsTrue(CatalogFeatureFlags.SalesAndOrdersEnabled,
+            "As funções de vendas/pedidos via Pix e Mercado Pago devem estar ativas com chat interno.");
 
         var validWa = WhatsAppLinkBuilder.ValidateBrazilianWhatsAppNumber("(41) 98877-6655");
         Assert.IsTrue(validWa.IsValid);

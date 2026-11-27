@@ -496,7 +496,6 @@
 
                                     <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 0.55rem; margin-bottom: 0.65rem;">
                                         <input type="text" class="adm-input" @bind="_buyerName" placeholder="Nome do Cliente *" />
-                                        <input type="text" class="adm-input" @bind="_buyerWhatsapp" placeholder="Telefone / Contato *" />
                                         @if (!_expressMobileMode)
                                         {
                                             <input type="text" class="adm-input" @bind="_buyerStreet" placeholder="Rua / Logradouro *" />
@@ -834,7 +833,7 @@
                 ProductVariantId = selectedVariant.Id,
                 Quantity = Math.Max(1, _orderQuantity),
                 CustomerName = _buyerName,
-                CustomerWhatsapp = _buyerWhatsapp,
+                CustomerWhatsapp = string.IsNullOrWhiteSpace(_buyerWhatsapp) ? "5511900000000" : _buyerWhatsapp,
                 Cep = _buyerCep,
                 Street = _buyerStreet,
                 Number = _buyerNumber,
