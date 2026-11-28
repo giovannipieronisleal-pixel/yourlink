@@ -1,4 +1,5 @@
 using System.Text.Json;
+using ClothingStore.Application.Services;
 using ClothingStore.Infrastructure.Persistence;
 using ClothingStore.Shared.DTOs;
 using Microsoft.JSInterop;
@@ -7,7 +8,7 @@ namespace ClothingStore.Web.Services;
 
 /// <summary>
 /// Gerencia a sessão autenticada do comprador na vitrine web e o estado da gaveta de Chat Interno com a Loja.
-/// Exige login do comprador para conversar com o lojista e suporta "Apagar para mim" ao segurar a mensagem.
+/// Exige login (e verificação de e-mail no cadastro) do comprador para conversar com o lojista e suporta "Apagar para mim".
 /// </summary>
 public sealed class StoreBuyerChatStateService
 {
@@ -15,6 +16,7 @@ public sealed class StoreBuyerChatStateService
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
     private readonly CloudChatStoreService _chatStore;
+    private readonly EmailOtpService _emailOtp;
     private bool _loadedFromStorage;
 
     public event Action? OnChanged;
@@ -26,9 +28,10 @@ public sealed class StoreBuyerChatStateService
 
     public bool IsAuthenticated => CurrentBuyer is not null && CurrentBuyer.ExpiresAt > DateTimeOffset.UtcNow;
 
-    public StoreBuyerChatStateService(CloudChatStoreService chatStore)
+    public StoreBuyerChatStateService(CloudChatStoreService chatStore, EmailOtpService emailOtp)
     {
         _chatStore = chatStore;
+        _emailOtp = emailOtp;
     }
 
     public void OpenChat(string? contextBadge = null, string? draftText = null)
@@ -86,8 +89,53 @@ public sealed class StoreBuyerChatStateService
         }
     }
 
+    public async Task<SendEmailOtpResponse> SendRegisterOtpAsync(BuyerRegisterSendOtpRequest request)
+    {
+        var check = await _chatStore.ValidateNewBuyerRegistrationAsync(request?.FullName, request?.Email, request?.Password);
+        if (!check.Valid)
+        {
+            return new SendEmailOtpResponse(
+                Sent: false,
+                ProviderConfigured: _emailOtp.IsConfigured,
+                MaskedEmail: string.Empty,
+                ExpiresInSeconds: 0,
+                ResendAfterSeconds: 0,
+                Message: check.ErrorMessage ?? "Verifique os dados informados.");
+        }
+
+        return await _emailOtp.SendOtpAsync(new SendEmailOtpRequest(
+            Email: check.NormalizedEmail,
+            Purpose: "buyer_register",
+            ContextLabel: "confirmação de nova conta na vitrine YouLink"));
+    }
+
     public async Task<BuyerAuthResultDto> RegisterAsync(IJSRuntime js, RegisterBuyerAccountRequest request)
     {
+        var preCheck = await _chatStore.ValidateNewBuyerRegistrationAsync(request?.FullName, request?.Email, request?.Password);
+        if (!preCheck.Valid)
+            return new BuyerAuthResultDto(false, preCheck.ErrorMessage ?? "Verifique os dados informados.");
+
+        if (string.IsNullOrWhiteSpace(request?.EmailOtpCode))
+        {
+            var sent = await SendRegisterOtpAsync(new BuyerRegisterSendOtpRequest(
+                request?.FullName ?? string.Empty,
+                request?.Email ?? string.Empty,
+                request?.Password ?? string.Empty));
+
+            return new BuyerAuthResultDto(
+                Success: false,
+                Message: sent.Sent
+                    ? $"Enviamos um código de 6 dígitos para {sent.MaskedEmail}. Digite o código abaixo para ativar sua conta."
+                    : sent.Message,
+                RequiresEmailOtp: true);
+        }
+
+        var otpVerify = _emailOtp.VerifyOtp(new VerifyEmailOtpRequest(preCheck.NormalizedEmail, request.EmailOtpCode.Trim(), "buyer_register"));
+        if (!otpVerify.Verified)
+        {
+            return new BuyerAuthResultDto(false, otpVerify.Message, RequiresEmailOtp: true);
+        }
+
         var result = await _chatStore.RegisterBuyerAsync(request);
         if (result.Success && result.Session is not null)
         {

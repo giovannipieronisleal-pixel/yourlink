@@ -621,8 +621,94 @@ public sealed class MauiAdminGateway
             () => _authService.GetSetupStatusAsync());
     }
 
+    public async Task<SendEmailOtpResponse> SendRegisterEmailOtpAsync(
+        CloudRegisterSendOtpRequest request,
+        CancellationToken ct = default)
+    {
+        var baseUrl = WhatsAppLinkBuilder.NormalizePublicServerUrl(LatestAdminCentralServerUrl);
+        if (string.IsNullOrWhiteSpace(baseUrl))
+            baseUrl = AppUpdateCatalog.DefaultCentralPlatformServerUrl;
+
+        try
+        {
+            using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(18) };
+            using var resp = await client.PostAsJsonAsync(
+                $"{baseUrl.TrimEnd('/')}/api/cloud/accounts/register/send-code",
+                request,
+                ct);
+
+            if (resp.StatusCode == System.Net.HttpStatusCode.NotFound)
+            {
+                // Compatibilidade transitória caso o servidor ainda esteja subindo o deploy novo:
+                // dispara o código diretamente pelo endpoint padrão de OTP com purpose = account_register.
+                using var fallbackResp = await client.PostAsJsonAsync(
+                    $"{baseUrl.TrimEnd('/')}/api/cloud/email-otp/send",
+                    new SendEmailOtpRequest(
+                        Email: request.Email.Trim(),
+                        Purpose: "account_register",
+                        ContextLabel: "confirmação de nova conta YouLink"),
+                    ct);
+
+                if (!fallbackResp.IsSuccessStatusCode)
+                {
+                    var fbErr = await TryReadErrorMessageAsync(fallbackResp, ct)
+                        ?? "Não foi possível enviar o código de verificação para este e-mail.";
+                    throw new DomainException(fbErr);
+                }
+
+                var fbDto = await fallbackResp.Content.ReadFromJsonAsync<SendEmailOtpResponse>(cancellationToken: ct);
+                if (fbDto is null || !fbDto.Sent)
+                    throw new DomainException(fbDto?.Message ?? "Não foi possível enviar o código de verificação agora.");
+
+                return fbDto;
+            }
+
+            if (resp.StatusCode == System.Net.HttpStatusCode.Conflict)
+            {
+                var conflictErr = await TryReadErrorMessageAsync(resp, ct)
+                    ?? "Já existe uma conta cadastrada com este e-mail ou usuário. Use a aba 'Entrar'.";
+                throw new DomainException(conflictErr);
+            }
+
+            if ((int)resp.StatusCode == 429)
+            {
+                var rateErr = await TryReadErrorMessageAsync(resp, ct)
+                    ?? "Muitas solicitações seguidas. Aguarde um minuto e tente novamente.";
+                throw new DomainException(rateErr);
+            }
+
+            if (!resp.IsSuccessStatusCode)
+            {
+                var errMsg = await TryReadErrorMessageAsync(resp, ct)
+                    ?? "Verifique os dados informados para receber o código por e-mail.";
+                throw new DomainException(errMsg);
+            }
+
+            var dto = await resp.Content.ReadFromJsonAsync<SendEmailOtpResponse>(cancellationToken: ct);
+            if (dto is null || !dto.Sent)
+                throw new DomainException(dto?.Message ?? "Não foi possível enviar o código de verificação para este e-mail.");
+
+            return dto;
+        }
+        catch (DomainException)
+        {
+            throw;
+        }
+        catch
+        {
+            throw new DomainException(
+                "Não foi possível conectar ao servidor YouLink para enviar o código de 6 dígitos ao seu e-mail. Verifique sua conexão com a internet e tente novamente.");
+        }
+    }
+
     public async Task<LoginResponse> RegisterUserAccountAsync(RegisterUserAccountRequest request)
     {
+        var otpDigits = new string((request.EmailOtpCode ?? string.Empty).Where(char.IsDigit).ToArray());
+        if (!HasCustomServerUrl && otpDigits.Length != 6)
+        {
+            throw new DomainException("Digite o código de verificação de 6 dígitos enviado para o seu e-mail para concluir a criação da conta.");
+        }
+
         if (_workspaceRepository is not null)
         {
             // Verifica primeiro na nuvem se este e-mail ou nome de usuário já existe em outro aparelho

@@ -415,9 +415,24 @@ public sealed class SecurityAuditPenetrationTests
             Assert.IsNotNull(victimPubBody);
             Assert.IsFalse(string.IsNullOrWhiteSpace(victimPubBody!.PublishToken));
 
-            // Comprador abre conversa na loja da vítima
-            var buyerReg = await http.PostAsJsonAsync("/api/cloud/buyers/register", new RegisterBuyerAccountRequest(
+            // Comprador tentando criar conta sem confirmar OTP no e-mail é bloqueado!
+            var unverifiedBuyerReg = await http.PostAsJsonAsync("/api/cloud/buyers/register", new RegisterBuyerAccountRequest(
+                "Cliente Sem OTP", "semotp-comprador@comprador.com", "Cliente#12345"));
+            Assert.IsTrue(
+                unverifiedBuyerReg.StatusCode is HttpStatusCode.Forbidden or HttpStatusCode.BadRequest,
+                $"v1.0.85: Cadastro de comprador sem código OTP deve ser bloqueado (status={unverifiedBuyerReg.StatusCode}).");
+            var unverifiedBuyerBody = await unverifiedBuyerReg.Content.ReadFromJsonAsync<BuyerAuthResultDto>();
+            Assert.IsTrue(unverifiedBuyerBody?.RequiresEmailOtp == true,
+                "v1.0.85: /api/cloud/buyers/register sem OTP deve sinalizar RequiresEmailOtp=true.");
+
+            // Provisiona comprador verificado no store compartilhado e autentica via /api/cloud/buyers/login para abrir conversa na loja da vítima
+            var seededBuyerStore = new CloudChatStoreService(tempDir, new Pbkdf2PasswordHasher());
+            var seededBuyer = await seededBuyerStore.RegisterBuyerAsync(new RegisterBuyerAccountRequest(
                 "Cliente Real", "cliente@comprador.com", "Cliente#12345"));
+            Assert.IsTrue(seededBuyer.Success);
+
+            var buyerReg = await http.PostAsJsonAsync("/api/cloud/buyers/login", new BuyerLoginRequest(
+                "cliente@comprador.com", "Cliente#12345"));
             var buyerAuth = await buyerReg.Content.ReadFromJsonAsync<BuyerAuthResultDto>();
             Assert.IsTrue(buyerAuth?.Success == true);
 
@@ -924,6 +939,23 @@ public sealed class SecurityAuditPenetrationTests
                 "🟠 v1.0.84: /api/cloud/accounts/password-reset/confirm deve confirmar as lojas do e-mail redefinido.");
             Assert.IsFalse(programCs.Contains("ResolveChatReadRateLimitPartitionKey", StringComparison.Ordinal),
                 "🟠 v1.0.84: chat-read deve usar apenas o IP para evitar bypass trocando cabeçalho não validado.");
+            Assert.IsTrue(programCs.Contains("/api/cloud/accounts/register/send-code", StringComparison.Ordinal),
+                "v1.0.85: Servidor deve expor /api/cloud/accounts/register/send-code para verificação em 2 etapas no cadastro de lojista.");
+            Assert.IsTrue(programCs.Contains("/api/cloud/buyers/register/send-code", StringComparison.Ordinal),
+                "v1.0.85: Servidor deve expor /api/cloud/buyers/register/send-code para verificação em 2 etapas no cadastro de comprador.");
+
+            var loginRazor = await File.ReadAllTextAsync(Path.Combine(repoRoot, "Components", "Pages", "Login.razor"));
+            var painelJs = await File.ReadAllTextAsync(Path.Combine(repoRoot, "src", "ClothingStore.Web", "wwwroot", "painel", "app.js"));
+            var buyerDrawerRazor = await File.ReadAllTextAsync(Path.Combine(repoRoot, "src", "ClothingStore.Web", "Components", "Shared", "StoreBuyerChatDrawer.razor"));
+
+            Assert.IsTrue(loginRazor.Contains("HandleSendRegisterOtpStepAsync", StringComparison.Ordinal) &&
+                          loginRazor.Contains("HandleConfirmRegisterOtpAsync", StringComparison.Ordinal),
+                "v1.0.85: App MAUI (Login.razor) deve exigir verificação de e-mail em 2 etapas toda vez que um usuário novo criar conta.");
+            Assert.IsTrue(painelJs.Contains("/api/cloud/accounts/register/send-code", StringComparison.Ordinal) &&
+                          painelJs.Contains("resend-reg-otp-btn", StringComparison.Ordinal),
+                "v1.0.85: Painel Web PWA deve exigir verificação de e-mail em 2 etapas toda vez que um usuário novo criar conta.");
+            Assert.IsTrue(buyerDrawerRazor.Contains("SendBuyerOtpStepAsync", StringComparison.Ordinal),
+                "v1.0.85: Vitrine (StoreBuyerChatDrawer.razor) deve exigir verificação de e-mail em 2 etapas ao criar nova conta de comprador.");
         }
         finally
         {

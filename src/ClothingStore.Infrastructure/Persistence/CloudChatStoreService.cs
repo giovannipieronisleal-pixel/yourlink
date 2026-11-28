@@ -54,6 +54,42 @@ public sealed class CloudChatStoreService
     // 1. AUTENTICAÇÃO DE COMPRADORES DA VITRINE
     // =========================================================================
 
+    public async Task<(bool Valid, string NormalizedEmail, string? ErrorMessage)> ValidateNewBuyerRegistrationAsync(
+        string? rawFullName,
+        string? rawEmail,
+        string? rawPassword,
+        CancellationToken ct = default)
+    {
+        var fullName = (rawFullName ?? string.Empty).Trim();
+        var email = NormalizeEmail(rawEmail);
+        var password = rawPassword ?? string.Empty;
+
+        if (fullName.Length < 2)
+            return (false, email, "Informe seu nome (mínimo 2 caracteres).");
+
+        if (string.IsNullOrWhiteSpace(email))
+            return (false, string.Empty, "Informe um e-mail válido.");
+
+        if (password.Trim().Length < 8)
+            return (false, email, "A senha deve ter pelo menos 8 caracteres.");
+
+        await _lock.WaitAsync(ct);
+        try
+        {
+            RefreshFromDiskIfModifiedUnsafe();
+            if (_state.Buyers.Any(b => string.Equals(b.Email, email, StringComparison.OrdinalIgnoreCase)))
+            {
+                return (false, email, "Já existe uma conta com este e-mail. Toque em 'Já tenho conta' para entrar.");
+            }
+        }
+        finally
+        {
+            _lock.Release();
+        }
+
+        return (true, email, null);
+    }
+
     public async Task<BuyerAuthResultDto> RegisterBuyerAsync(
         RegisterBuyerAccountRequest request,
         CancellationToken ct = default)

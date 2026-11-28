@@ -3,6 +3,12 @@ namespace ClothingStore.Shared.DTOs;
 public sealed record RegisterBuyerAccountRequest(
     string FullName,
     string Email,
+    string Password,
+    string? EmailOtpCode = null);
+
+public sealed record BuyerRegisterSendOtpRequest(
+    string FullName,
+    string Email,
     string Password);
 
 public sealed record BuyerLoginRequest(
@@ -19,7 +25,8 @@ public sealed record BuyerAuthSessionDto(
 public sealed record BuyerAuthResultDto(
     bool Success,
     string Message,
-    BuyerAuthSessionDto? Session = null);
+    BuyerAuthSessionDto? Session = null,
+    bool RequiresEmailOtp = false);
 
 public sealed record ChatMessageDto(
     Guid Id,

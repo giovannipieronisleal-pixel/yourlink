@@ -878,30 +878,49 @@
             </form>
           ` : `
             <form id="register-form">
-              <div class="field">
-                <label>Seu nome</label>
-                <input class="input" name="fullName" required value="${esc(state.regDraft?.fullName || "")}" placeholder="Ex.: Lojista Modelo" />
-              </div>
-              <div class="field">
-                <label>Usuário</label>
-                <input class="input" name="username" required value="${esc(state.regDraft?.username || "")}" placeholder="ex: minhaloja" />
-              </div>
-              <div class="field">
-                <label>E-mail</label>
-                <input class="input" name="email" type="email" required value="${esc(state.regDraft?.email || "")}" placeholder="seu@email.com" />
-              </div>
-              <div class="field">
-                <label>Senha</label>
-                <input class="input" name="password" type="password" minlength="8" required value="${esc(state.regDraft?.password || "")}" placeholder="Mínimo 8 caracteres" />
-              </div>
               ${state.requiresRegisterEmailOtp ? `
-              <div class="field">
-                <label>Código enviado para seu e-mail (6 dígitos)</label>
-                <input class="input" name="emailOtpCode" maxlength="6" required value="${esc(state.regDraft?.emailOtpCode || "")}" placeholder="Ex.: 123456" />
-              </div>` : ""}
-              <button type="submit" class="adm-btn adm-btn-success adm-btn-block" ${state.busy ? "disabled" : ""}>
-                ${state.busy ? "Validando..." : (state.requiresRegisterEmailOtp ? "Confirmar código e criar loja" : "Criar minha loja grátis")}
-              </button>
+                <div style="padding:0.9rem;border-radius:12px;background:rgba(37,99,235,0.09);border:1.5px solid rgba(37,99,235,0.35);margin-bottom:0.9rem;text-align:center;">
+                  <div style="font-weight:800;font-size:1.02rem;">📧 Verifique seu E-mail</div>
+                  <div style="font-size:0.84rem;color:var(--adm-muted);margin-top:0.2rem;">
+                    Digite o código de 6 dígitos enviado para <strong>${esc(state.regDraft?.email || "")}</strong>
+                  </div>
+                </div>
+                <div class="field">
+                  <label style="text-align:center;display:block;">Código de verificação (6 dígitos)</label>
+                  <input class="input" name="emailOtpCode" maxlength="6" inputmode="numeric" autocomplete="one-time-code" required value="${esc(state.regDraft?.emailOtpCode || "")}" placeholder="000000" style="font-size:1.55rem;text-align:center;letter-spacing:0.32em;font-weight:800;" />
+                </div>
+                <button type="submit" class="adm-btn adm-btn-success adm-btn-block" ${state.busy ? "disabled" : ""}>
+                  ${state.busy ? "Confirmando..." : "✓ Confirmar código e criar loja"}
+                </button>
+                <div style="display:flex;gap:0.5rem;margin-top:0.65rem;flex-wrap:wrap;">
+                  <button type="button" class="adm-btn adm-btn-outline adm-btn-sm" id="resend-reg-otp-btn" style="flex:1;" ${state.busy ? "disabled" : ""}>
+                    🔄 Reenviar código
+                  </button>
+                  <button type="button" class="adm-btn adm-btn-outline adm-btn-sm" id="back-reg-step-btn" style="flex:1;" ${state.busy ? "disabled" : ""}>
+                    ← Alterar e-mail
+                  </button>
+                </div>
+              ` : `
+                <div class="field">
+                  <label>Seu nome</label>
+                  <input class="input" name="fullName" required value="${esc(state.regDraft?.fullName || "")}" placeholder="Ex.: Lojista Modelo" />
+                </div>
+                <div class="field">
+                  <label>Usuário</label>
+                  <input class="input" name="username" required value="${esc(state.regDraft?.username || "")}" placeholder="ex: minhaloja" />
+                </div>
+                <div class="field">
+                  <label>E-mail</label>
+                  <input class="input" name="email" type="email" required value="${esc(state.regDraft?.email || "")}" placeholder="seu@email.com" />
+                </div>
+                <div class="field">
+                  <label>Senha</label>
+                  <input class="input" name="password" type="password" minlength="8" required value="${esc(state.regDraft?.password || "")}" placeholder="Mínimo 8 caracteres" />
+                </div>
+                <button type="submit" class="adm-btn adm-btn-primary adm-btn-block" ${state.busy ? "disabled" : ""}>
+                  ${state.busy ? "Enviando código..." : "📧 Enviar código e verificar e-mail"}
+                </button>
+              `}
             </form>
           `}
         </div>
@@ -1699,18 +1718,84 @@
 
     const regForm = document.getElementById("register-form");
     if (regForm) {
+      const resendBtn = document.getElementById("resend-reg-otp-btn");
+      if (resendBtn) {
+        resendBtn.onclick = async () => {
+          state.busy = true;
+          state.msgErr = null;
+          state.msgOk = null;
+          render();
+          try {
+            const sent = await apiJson("/api/cloud/accounts/register/send-code", {
+              method: "POST",
+              body: JSON.stringify({
+                fullName: state.regDraft.fullName,
+                username: state.regDraft.username,
+                email: state.regDraft.email,
+                password: state.regDraft.password
+              })
+            });
+            setStatus("📧 " + (sent?.message || "Novo código enviado para seu e-mail!"), null);
+          } catch (err) {
+            setStatus(null, err.message);
+          } finally {
+            state.busy = false;
+            render();
+          }
+        };
+      }
+
+      const backBtn = document.getElementById("back-reg-step-btn");
+      if (backBtn) {
+        backBtn.onclick = () => {
+          state.requiresRegisterEmailOtp = false;
+          state.regDraft.emailOtpCode = "";
+          state.msgErr = null;
+          state.msgOk = null;
+          render();
+        };
+      }
+
       regForm.onsubmit = async (e) => {
         e.preventDefault();
         const fd = new FormData(regForm);
-        state.regDraft = {
-          fullName: String(fd.get("fullName") || ""),
-          username: String(fd.get("username") || ""),
-          email: String(fd.get("email") || ""),
-          password: String(fd.get("password") || ""),
-          emailOtpCode: String(fd.get("emailOtpCode") || "").trim()
-        };
+        if (!state.requiresRegisterEmailOtp) {
+          state.regDraft = {
+            fullName: String(fd.get("fullName") || "").trim(),
+            username: String(fd.get("username") || "").trim(),
+            email: String(fd.get("email") || "").trim(),
+            password: String(fd.get("password") || ""),
+            emailOtpCode: ""
+          };
+          state.busy = true;
+          state.msgErr = null;
+          state.msgOk = null;
+          render();
+          try {
+            const sent = await apiJson("/api/cloud/accounts/register/send-code", {
+              method: "POST",
+              body: JSON.stringify({
+                fullName: state.regDraft.fullName,
+                username: state.regDraft.username,
+                email: state.regDraft.email,
+                password: state.regDraft.password
+              })
+            });
+            state.requiresRegisterEmailOtp = true;
+            setStatus("📧 " + (sent?.message || "Enviamos um código de 6 dígitos para seu e-mail!"), null);
+          } catch (err) {
+            setStatus(null, err.message);
+          } finally {
+            state.busy = false;
+            render();
+          }
+          return;
+        }
+
+        state.regDraft.emailOtpCode = String(fd.get("emailOtpCode") || "").trim();
         state.busy = true;
         state.msgErr = null;
+        state.msgOk = null;
         render();
         try {
           const res = await apiJson("/api/cloud/accounts/register", {
@@ -1734,7 +1819,7 @@
           state.categories = [];
           state.store = { ...createDefaultStore(), storeName: res.account.storeName || "Minha Loja" };
           state.activeTab = "settings";
-          setStatus("🎉 Conta criada! Preencha os dados da sua loja abaixo e salve.", null);
+          setStatus("🎉 E-mail verificado e conta criada! Preencha os dados da sua loja abaixo e salve.", null);
         } catch (err) {
           if (err.requiresEmailOtp) {
             state.requiresRegisterEmailOtp = true;

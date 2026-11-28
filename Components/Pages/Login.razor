@@ -38,6 +38,16 @@
                 Apenas você pode definir ou alterar sua senha com o código enviado ao seu Gmail cadastrado.
             </p>
         }
+        else if (_activeTab == "register" && _requiresRegisterEmailOtp)
+        {
+            <div style="font-size: 2.3rem; margin: 0.5rem 0 0.2rem;">📧</div>
+            <h1 style="font-size: 1.58rem; font-weight: 800; margin: 0.25rem 0; color: var(--adm-text);">
+                Verifique seu E-mail
+            </h1>
+            <p style="font-size: 0.86rem; color: var(--adm-muted); margin: 0;">
+                Etapa 2 de 2 • Digite o código de 6 dígitos enviado para <strong>@_regEmail.Trim()</strong>
+            </p>
+        }
         else if (_activeTab == "register")
         {
             <div style="font-size: 2.3rem; margin: 0.5rem 0 0.2rem;">🎉</div>
@@ -45,7 +55,7 @@
                 Bem-vindo(a)! Crie sua Conta
             </h1>
             <p style="font-size: 0.86rem; color: var(--adm-muted); margin: 0;">
-                Crie sua conta para gerenciar seu catálogo, estoque e começar a vender online.
+                Etapa 1 de 2 • Preencha seus dados e confirme seu e-mail com um código rápido de 6 dígitos.
             </p>
         }
         else
@@ -222,116 +232,154 @@
     }
     else if (_activeTab == "register")
     {
-        @* TELA 2: FORMULÁRIO DE CADASTRO (JANELA INICIAL PADRÃO) *@
-        <div style="display: flex; flex-direction: column; gap: 0.95rem;">
-            <div>
-                <label class="adm-label">Seu Nome Completo *</label>
-                <input type="text"
-                       class="adm-input"
-                       @bind="_regFullName"
-                       @bind:event="oninput"
-                       @onkeydown="HandleRegisterKeyDown"
-                       placeholder="Ex.: Marina Costa" />
-            </div>
+        @if (_requiresRegisterEmailOtp)
+        {
+            @* ETAPA 2 DE 2: VERIFICAÇÃO OBRIGATÓRIA DE E-MAIL NA CRIAÇÃO DA CONTA *@
+            <div style="display: flex; flex-direction: column; gap: 1rem;">
+                <div style="text-align: center; padding: 0.9rem; background: var(--adm-input-bg); border-radius: 12px; border: 1.5px solid var(--adm-accent);">
+                    <div style="font-weight: 800; font-size: 0.96rem; color: var(--adm-text);">Código de Verificação enviado por E-mail</div>
+                    <div style="font-size: 0.81rem; color: var(--adm-muted); margin-top: 0.25rem; line-height: 1.4;">
+                        Confira a Caixa de Entrada (ou abas Atualizações / Spam) de <strong>@_regEmail.Trim()</strong> e digite os 6 números abaixo:
+                    </div>
+                </div>
 
-            <div>
-                <label class="adm-label">Seu Nome de Usuário *</label>
-                <input type="text"
-                       class="adm-input"
-                       @bind="_regUsername"
-                       @bind:event="oninput"
-                       @onkeydown="HandleRegisterKeyDown"
-                       placeholder="Ex.: marina" />
-            </div>
-
-            <div>
-                <label class="adm-label">Seu Gmail / E-mail *</label>
-                <input type="email"
-                       class="adm-input"
-                       @bind="_regEmail"
-                       @bind:event="oninput"
-                       @onkeydown="HandleRegisterKeyDown"
-                       placeholder="Ex.: seu.email@gmail.com" />
-                <span style="font-size: 0.75rem; color: var(--adm-muted);">
-                    Obrigatório para que somente você possa alterar sua senha pelo e-mail.
-                </span>
-            </div>
-
-            <div>
-                <label class="adm-label">Senha de Acesso (mínimo 8 caracteres) *</label>
-                <input type="password"
-                       class="adm-input"
-                       minlength="8"
-                       @bind="_regPassword"
-                       @bind:event="oninput"
-                       @onkeydown="HandleRegisterKeyDown"
-                       placeholder="Crie uma senha forte (mín. 8 caracteres)" />
-            </div>
-
-            <div>
-                <label class="adm-label">Confirmar Senha *</label>
-                <input type="password"
-                       class="adm-input"
-                       @bind="_regConfirmPassword"
-                       @bind:event="oninput"
-                       @onkeydown="HandleRegisterKeyDown"
-                       placeholder="Repita a mesma senha" />
-            </div>
-
-            @if (_requiresRegisterEmailOtp)
-            {
-                <div style="padding: 0.75rem 0.85rem; border-radius: 10px; border: 1.5px solid var(--adm-accent); background: var(--adm-input-bg);">
-                    <label class="adm-label" style="margin-bottom: 0.35rem;">Código de Confirmação por E-mail (6 dígitos) *</label>
+                <div>
+                    <label class="adm-label" style="text-align: center; display: block;">Código de 6 dígitos *</label>
                     <input type="text"
                            class="adm-input"
                            maxlength="6"
+                           inputmode="numeric"
+                           autocomplete="one-time-code"
+                           style="font-size: 1.65rem; text-align: center; letter-spacing: 0.36em; font-weight: 800; font-family: monospace;"
                            @bind="_regEmailOtpCode"
                            @bind:event="oninput"
-                           placeholder="Ex.: 123456" />
-                    <span style="font-size: 0.75rem; color: var(--adm-muted); display: block; margin-top: 0.3rem;">
-                        Enviamos um código de 6 dígitos para o seu e-mail. Digite o código acima e clique novamente para confirmar sua conta.
+                           @onkeydown="HandleRegisterKeyDown"
+                           placeholder="000000" />
+                </div>
+
+                <button type="button"
+                        class="adm-btn adm-btn-primary"
+                        style="width: 100%; padding: 0.9rem; font-size: 1rem; font-weight: 800;"
+                        disabled="@(_isBusy || string.IsNullOrWhiteSpace(_regEmailOtpCode))"
+                        @onclick="HandleConfirmRegisterOtpAsync">
+                    @(_isBusy ? "Validando e Criando Conta..." : "✓ Confirmar Código e Criar Minha Conta")
+                </button>
+
+                <div style="display: flex; gap: 0.55rem; flex-wrap: wrap;">
+                    <button type="button"
+                            class="adm-btn adm-btn-outline"
+                            style="flex: 1; padding: 0.65rem; font-weight: 700;"
+                            disabled="@_isBusy"
+                            @onclick="HandleResendRegisterOtpAsync">
+                        🔄 Reenviar Código
+                    </button>
+                    <button type="button"
+                            class="adm-btn adm-btn-outline"
+                            style="flex: 1; padding: 0.65rem; font-weight: 700;"
+                            disabled="@_isBusy"
+                            @onclick="BackToRegisterFormStep">
+                        ← Alterar E-mail / Dados
+                    </button>
+                </div>
+            </div>
+        }
+        else
+        {
+            @* ETAPA 1 DE 2: FORMULÁRIO DE DADOS DA NOVA CONTA *@
+            <div style="display: flex; flex-direction: column; gap: 0.95rem;">
+                <div>
+                    <label class="adm-label">Seu Nome Completo *</label>
+                    <input type="text"
+                           class="adm-input"
+                           @bind="_regFullName"
+                           @bind:event="oninput"
+                           @onkeydown="HandleRegisterKeyDown"
+                           placeholder="Ex.: Marina Costa" />
+                </div>
+
+                <div>
+                    <label class="adm-label">Seu Nome de Usuário *</label>
+                    <input type="text"
+                           class="adm-input"
+                           @bind="_regUsername"
+                           @bind:event="oninput"
+                           @onkeydown="HandleRegisterKeyDown"
+                           placeholder="Ex.: marina" />
+                </div>
+
+                <div>
+                    <label class="adm-label">Seu Gmail / E-mail *</label>
+                    <input type="email"
+                           class="adm-input"
+                           @bind="_regEmail"
+                           @bind:event="oninput"
+                           @onkeydown="HandleRegisterKeyDown"
+                           placeholder="Ex.: seu.email@gmail.com" />
+                    <span style="font-size: 0.75rem; color: var(--adm-muted);">
+                        Enviaremos um código de 6 dígitos para confirmar que este e-mail é seu antes de criar a conta.
                     </span>
                 </div>
-            }
 
-            <label style="display: flex; align-items: center; gap: 0.5rem; font-size: 0.88rem; color: var(--adm-text); cursor: pointer; user-select: none; margin-top: 0.2rem;">
-                <input type="checkbox" @bind="_rememberMe" style="width: 17px; height: 17px; accent-color: var(--adm-accent);" />
-                <span>Continuar conectado neste dispositivo</span>
-            </label>
+                <div>
+                    <label class="adm-label">Senha de Acesso (mínimo 8 caracteres) *</label>
+                    <input type="password"
+                           class="adm-input"
+                           minlength="8"
+                           @bind="_regPassword"
+                           @bind:event="oninput"
+                           @onkeydown="HandleRegisterKeyDown"
+                           placeholder="Crie uma senha forte (mín. 8 caracteres)" />
+                </div>
 
-            <label style="display: flex; align-items: flex-start; gap: 0.5rem; font-size: 0.82rem; color: var(--adm-muted); cursor: pointer; user-select: none; line-height: 1.4;">
-                <input type="checkbox" @bind="_acceptedLegalTerms" style="width: 17px; height: 17px; margin-top: 2px; flex-shrink: 0; accent-color: var(--adm-accent);" />
-                <span>
-                    Li e concordo com os
-                    <button type="button"
-                            style="background: none; border: none; padding: 0; color: var(--adm-accent); font-weight: 700; text-decoration: underline; cursor: pointer; font-size: inherit;"
-                            @onclick='() => OpenLegalModal("terms")'>Termos de Uso</button>
-                    e a
-                    <button type="button"
-                            style="background: none; border: none; padding: 0; color: var(--adm-accent); font-weight: 700; text-decoration: underline; cursor: pointer; font-size: inherit;"
-                            @onclick='() => OpenLegalModal("privacy")'>Política de Privacidade (LGPD)</button>.
-                </span>
-            </label>
+                <div>
+                    <label class="adm-label">Confirmar Senha *</label>
+                    <input type="password"
+                           class="adm-input"
+                           @bind="_regConfirmPassword"
+                           @bind:event="oninput"
+                           @onkeydown="HandleRegisterKeyDown"
+                           placeholder="Repita a mesma senha" />
+                </div>
 
-            <button type="button"
-                    class="adm-btn adm-btn-primary"
-                    style="width: 100%; padding: 0.9rem; font-size: 1rem; font-weight: 800;"
-                    disabled="@_isBusy"
-                    @onclick="HandleRegisterAsync">
-                @(_isBusy ? "Criando Conta..." : "✨ Criar Minha Conta e Configurar Loja")
-            </button>
+                <label style="display: flex; align-items: center; gap: 0.5rem; font-size: 0.88rem; color: var(--adm-text); cursor: pointer; user-select: none; margin-top: 0.2rem;">
+                    <input type="checkbox" @bind="_rememberMe" style="width: 17px; height: 17px; accent-color: var(--adm-accent);" />
+                    <span>Continuar conectado neste dispositivo</span>
+                </label>
 
-            <!-- Botão para ir para a aba de Login -->
-            <div style="text-align: center; margin-top: 0.5rem; padding-top: 0.85rem; border-top: 1px solid var(--adm-border);">
-                <span style="font-size: 0.85rem; color: var(--adm-muted);">Já possui uma conta de acesso?</span>
+                <label style="display: flex; align-items: flex-start; gap: 0.5rem; font-size: 0.82rem; color: var(--adm-muted); cursor: pointer; user-select: none; line-height: 1.4;">
+                    <input type="checkbox" @bind="_acceptedLegalTerms" style="width: 17px; height: 17px; margin-top: 2px; flex-shrink: 0; accent-color: var(--adm-accent);" />
+                    <span>
+                        Li e concordo com os
+                        <button type="button"
+                                style="background: none; border: none; padding: 0; color: var(--adm-accent); font-weight: 700; text-decoration: underline; cursor: pointer; font-size: inherit;"
+                                @onclick='() => OpenLegalModal("terms")'>Termos de Uso</button>
+                        e a
+                        <button type="button"
+                                style="background: none; border: none; padding: 0; color: var(--adm-accent); font-weight: 700; text-decoration: underline; cursor: pointer; font-size: inherit;"
+                                @onclick='() => OpenLegalModal("privacy")'>Política de Privacidade (LGPD)</button>.
+                    </span>
+                </label>
+
                 <button type="button"
-                        class="adm-btn adm-btn-outline"
-                        style="margin-top: 0.5rem; width: 100%; padding: 0.65rem; font-weight: 700;"
-                        @onclick='() => SwitchTab("login")'>
-                    🔑 Entrar com Usuário ou E-mail
+                        class="adm-btn adm-btn-primary"
+                        style="width: 100%; padding: 0.9rem; font-size: 1rem; font-weight: 800;"
+                        disabled="@_isBusy"
+                        @onclick="HandleSendRegisterOtpStepAsync">
+                    @(_isBusy ? "Enviando código..." : "📧 Enviar Código e Verificar E-mail")
                 </button>
+
+                <!-- Botão para ir para a aba de Login -->
+                <div style="text-align: center; margin-top: 0.5rem; padding-top: 0.85rem; border-top: 1px solid var(--adm-border);">
+                    <span style="font-size: 0.85rem; color: var(--adm-muted);">Já possui uma conta de acesso?</span>
+                    <button type="button"
+                            class="adm-btn adm-btn-outline"
+                            style="margin-top: 0.5rem; width: 100%; padding: 0.65rem; font-weight: 700;"
+                            @onclick='() => SwitchTab("login")'>
+                        🔑 Entrar com Usuário ou E-mail
+                    </button>
+                </div>
             </div>
-        </div>
+        }
     }
     else
     {
@@ -705,7 +753,10 @@
     {
         if (e.Key == "Enter")
         {
-            await HandleRegisterAsync();
+            if (_requiresRegisterEmailOtp)
+                await HandleConfirmRegisterOtpAsync();
+            else
+                await HandleSendRegisterOtpStepAsync();
         }
     }
 
@@ -723,6 +774,11 @@
         _errorMessage = null;
         _successMessage = null;
         _is2FaStep = false;
+        if (tab != "register")
+        {
+            _requiresRegisterEmailOtp = false;
+            _regEmailOtpCode = string.Empty;
+        }
     }
 
     private async Task HandleLoginAsync()
@@ -798,44 +854,131 @@
         _errorMessage = null;
     }
 
-    private async Task HandleRegisterAsync()
+    private bool ValidateRegisterFormInputs()
     {
-        _errorMessage = null;
-        _successMessage = null;
-
         if (string.IsNullOrWhiteSpace(_regFullName))
         {
             _errorMessage = "Informe seu nome completo.";
-            return;
+            return false;
         }
 
         if (string.IsNullOrWhiteSpace(_regUsername))
         {
             _errorMessage = "Informe seu nome de usuário (ex.: seu.usuario).";
-            return;
+            return false;
         }
 
         if (string.IsNullOrWhiteSpace(_regEmail) || !_regEmail.Contains('@', StringComparison.Ordinal))
         {
-            _errorMessage = "Informe um endereço Gmail/e-mail válido (com @) para proteger sua recuperação de senha.";
-            return;
+            _errorMessage = "Informe um endereço Gmail/e-mail válido (com @) para confirmar sua conta.";
+            return false;
         }
 
         if (string.IsNullOrWhiteSpace(_regPassword) || _regPassword.Trim().Length < 8)
         {
             _errorMessage = "A senha deve ter no mínimo 8 caracteres.";
-            return;
+            return false;
         }
 
         if (_regPassword != _regConfirmPassword)
         {
             _errorMessage = "As senhas digitadas não coincidem.";
-            return;
+            return false;
         }
 
         if (!_acceptedLegalTerms)
         {
             _errorMessage = "Marque que você concorda com os Termos de Uso e a Política de Privacidade (LGPD) para criar sua conta.";
+            return false;
+        }
+
+        return true;
+    }
+
+    private void BackToRegisterFormStep()
+    {
+        _requiresRegisterEmailOtp = false;
+        _regEmailOtpCode = string.Empty;
+        _errorMessage = null;
+        _successMessage = null;
+    }
+
+    private async Task HandleSendRegisterOtpStepAsync()
+    {
+        if (_isBusy)
+            return;
+
+        _errorMessage = null;
+        _successMessage = null;
+        if (!ValidateRegisterFormInputs())
+            return;
+
+        _isBusy = true;
+        try
+        {
+            var sent = await Gateway.SendRegisterEmailOtpAsync(new CloudRegisterSendOtpRequest(
+                FullName: _regFullName.Trim(),
+                Email: _regEmail.Trim(),
+                Password: _regPassword,
+                Username: _regUsername.Trim()));
+
+            _requiresRegisterEmailOtp = true;
+            _regEmailOtpCode = string.Empty;
+            _successMessage = "📧 " + sent.Message;
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = ex.Message;
+        }
+        finally
+        {
+            _isBusy = false;
+        }
+    }
+
+    private async Task HandleResendRegisterOtpAsync()
+    {
+        if (_isBusy)
+            return;
+
+        _errorMessage = null;
+        _successMessage = null;
+        _isBusy = true;
+        try
+        {
+            var sent = await Gateway.SendRegisterEmailOtpAsync(new CloudRegisterSendOtpRequest(
+                FullName: _regFullName.Trim(),
+                Email: _regEmail.Trim(),
+                Password: _regPassword,
+                Username: _regUsername.Trim()));
+
+            _successMessage = "📧 " + sent.Message;
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = ex.Message;
+        }
+        finally
+        {
+            _isBusy = false;
+        }
+    }
+
+    private async Task HandleConfirmRegisterOtpAsync()
+    {
+        if (_isBusy)
+            return;
+
+        _errorMessage = null;
+        _successMessage = null;
+
+        if (!ValidateRegisterFormInputs())
+            return;
+
+        var cleanOtp = new string((_regEmailOtpCode ?? string.Empty).Where(char.IsDigit).ToArray());
+        if (cleanOtp.Length != 6)
+        {
+            _errorMessage = "Digite os 6 números do código enviado para o seu e-mail.";
             return;
         }
 
@@ -847,7 +990,10 @@
                 _regEmail.Trim(),
                 _regPassword,
                 Username: _regUsername.Trim(),
-                EmailOtpCode: string.IsNullOrWhiteSpace(_regEmailOtpCode) ? null : _regEmailOtpCode.Trim()));
+                EmailOtpCode: cleanOtp));
+
+            _requiresRegisterEmailOtp = false;
+            _regEmailOtpCode = string.Empty;
 
             // Garante que o assistente da nova loja comece 100% em branco, sem herdar dados de outra conta.
             _initStoreName = string.Empty;
@@ -872,11 +1018,6 @@
         }
         catch (Exception ex)
         {
-            if (ex.Message.Contains("plano pré-liberado", StringComparison.OrdinalIgnoreCase) ||
-                ex.Message.Contains("código de verificação", StringComparison.OrdinalIgnoreCase))
-            {
-                _requiresRegisterEmailOtp = true;
-            }
             _errorMessage = ex.Message;
         }
         finally

@@ -38,6 +38,12 @@ public sealed record RegisterUserAccountRequest(
     string? TurnstileToken = null,
     string? EmailOtpCode = null);
 
+public sealed record CloudRegisterSendOtpRequest(
+    string FullName,
+    string Email,
+    string Password,
+    string? Username = null);
+
 public sealed record LoginRequest(
     [Required(ErrorMessage = "O login é obrigatório.")]
     string Email,

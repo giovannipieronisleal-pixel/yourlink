@@ -44,54 +44,111 @@
                 </div>
             }
 
+            @if (!string.IsNullOrWhiteSpace(_info))
+            {
+                <div style="margin: 0.65rem 0; padding: 0.6rem 0.75rem; border-radius: 8px; background: rgba(22,163,74,0.12); border: 1px solid rgba(22,163,74,0.35); color: #15803D; font-size: 0.82rem; font-weight: 600;">
+                    @_info
+                </div>
+            }
+
             @if (!BuyerChat.IsAuthenticated)
             {
                 <!-- TELA DE LOGIN / CADASTRO OBRIGATÓRIO DO COMPRADOR -->
                 <div style="padding: 1rem 0.2rem; display: flex; flex-direction: column; gap: 0.85rem; overflow-y: auto;">
                     <div style="padding: 0.8rem 0.9rem; border-radius: 10px; background: var(--brand-surface-subtle, #F8FAFC); border: 1px solid var(--brand-border, #E2E8F0); font-size: 0.83rem; line-height: 1.45;">
-                        🔒 <strong>Entre ou crie sua conta rápida</strong> para conversar diretamente com <strong>@StoreName</strong> e acompanhar seus pedidos sem precisar de WhatsApp.
+                        🔒 <strong>Entre ou crie sua conta verificada</strong> para conversar diretamente com <strong>@StoreName</strong> e acompanhar seus pedidos sem precisar de WhatsApp.
                     </div>
 
                     <div style="display: flex; gap: 0.4rem;">
                         <button type="button"
                                 class="lux-btn @(_authMode == "login" ? "lux-btn-primary" : "lux-btn-outline") lux-btn-sm"
                                 style="flex: 1;"
-                                @onclick='() => { _authMode = "login"; _error = null; }'>
+                                @onclick='() => { _authMode = "login"; _buyerOtpStep = false; _error = null; _info = null; }'>
                             Já tenho conta
                         </button>
                         <button type="button"
                                 class="lux-btn @(_authMode == "register" ? "lux-btn-primary" : "lux-btn-outline") lux-btn-sm"
                                 style="flex: 1;"
-                                @onclick='() => { _authMode = "register"; _error = null; }'>
+                                @onclick='() => { _authMode = "register"; _error = null; _info = null; }'>
                             Criar conta rápida
                         </button>
                     </div>
 
-                    @if (_authMode == "register")
+                    @if (_authMode == "register" && _buyerOtpStep)
                     {
+                        <div style="padding: 0.8rem; border-radius: 10px; background: var(--brand-surface-subtle, #F8FAFC); border: 1.5px solid #2563EB; text-align: center;">
+                            <div style="font-weight: 800; font-size: 0.92rem;">📧 Verifique seu E-mail</div>
+                            <div style="font-size: 0.78rem; color: var(--brand-text-muted, #64748B); margin-top: 0.2rem;">
+                                Digite o código de 6 dígitos enviado para <strong>@_authEmail</strong>
+                            </div>
+                        </div>
+
                         <div>
-                            <label class="lux-filter-label">Seu Nome *</label>
-                            <input type="text" class="lux-input" @bind="_regName" placeholder="Ex.: Mariana Souza" />
+                            <label class="lux-filter-label" style="text-align: center; display: block;">Código de 6 dígitos *</label>
+                            <input type="text"
+                                   class="lux-input"
+                                   maxlength="6"
+                                   inputmode="numeric"
+                                   autocomplete="one-time-code"
+                                   style="font-size: 1.45rem; text-align: center; letter-spacing: 0.3em; font-weight: 800;"
+                                   @bind="_buyerOtpCode"
+                                   @bind:event="oninput"
+                                   placeholder="000000" />
+                        </div>
+
+                        <button type="button"
+                                class="lux-btn lux-btn-primary"
+                                style="width: 100%; padding: 0.8rem; font-weight: 700;"
+                                disabled="@(_busy || string.IsNullOrWhiteSpace(_buyerOtpCode))"
+                                @onclick="SubmitAuthAsync">
+                            @(_busy ? "Validando..." : "✓ Confirmar Código e Abrir Chat")
+                        </button>
+
+                        <div style="display: flex; gap: 0.45rem;">
+                            <button type="button"
+                                    class="lux-btn lux-btn-outline lux-btn-sm"
+                                    style="flex: 1;"
+                                    disabled="@_busy"
+                                    @onclick="SendBuyerOtpStepAsync">
+                                🔄 Reenviar código
+                            </button>
+                            <button type="button"
+                                    class="lux-btn lux-btn-outline lux-btn-sm"
+                                    style="flex: 1;"
+                                    disabled="@_busy"
+                                    @onclick="() => { _buyerOtpStep = false; _error = null; _info = null; }">
+                                ← Alterar e-mail
+                            </button>
                         </div>
                     }
+                    else
+                    {
+                        @if (_authMode == "register")
+                        {
+                            <div>
+                                <label class="lux-filter-label">Seu Nome *</label>
+                                <input type="text" class="lux-input" @bind="_regName" placeholder="Ex.: Mariana Souza" />
+                            </div>
+                        }
 
-                    <div>
-                        <label class="lux-filter-label">Seu E-mail *</label>
-                        <input type="email" class="lux-input" @bind="_authEmail" placeholder="voce@exemplo.com" />
-                    </div>
+                        <div>
+                            <label class="lux-filter-label">Seu E-mail *</label>
+                            <input type="email" class="lux-input" @bind="_authEmail" placeholder="voce@exemplo.com" />
+                        </div>
 
-                    <div>
-                        <label class="lux-filter-label">Senha *</label>
-                        <input type="password" class="lux-input" minlength="8" @bind="_authPassword" placeholder="@(_authMode == "register" ? "Mínimo 8 caracteres" : "Sua senha")" />
-                    </div>
+                        <div>
+                            <label class="lux-filter-label">Senha *</label>
+                            <input type="password" class="lux-input" minlength="8" @bind="_authPassword" placeholder="@(_authMode == "register" ? "Mínimo 8 caracteres" : "Sua senha")" />
+                        </div>
 
-                    <button type="button"
-                            class="lux-btn lux-btn-primary"
-                            style="width: 100%; padding: 0.8rem; font-weight: 700;"
-                            disabled="@_busy"
-                            @onclick="SubmitAuthAsync">
-                        @(_busy ? "Aguarde..." : (_authMode == "register" ? "✓ Criar Conta e Abrir Chat" : "Entrar no Chat"))
-                    </button>
+                        <button type="button"
+                                class="lux-btn lux-btn-primary"
+                                style="width: 100%; padding: 0.8rem; font-weight: 700;"
+                                disabled="@_busy"
+                                @onclick="@(_authMode == "register" ? SendBuyerOtpStepAsync : SubmitAuthAsync)">
+                            @(_busy ? "Aguarde..." : (_authMode == "register" ? "📧 Enviar Código e Verificar E-mail" : "Entrar no Chat"))
+                        </button>
+                    }
                 </div>
             }
             else
@@ -195,12 +252,15 @@
     private string _regName = string.Empty;
     private string _authEmail = string.Empty;
     private string _authPassword = string.Empty;
+    private bool _buyerOtpStep;
+    private string _buyerOtpCode = string.Empty;
 
     private ChatThreadDetailDto? _thread;
     private string _draftText = string.Empty;
     private string? _activeContextBadge;
     private bool _busy;
     private string? _error;
+    private string? _info;
 
     private ChatMessageDto? _selectedMsg;
     private Guid? _selectedMsgId;
@@ -249,22 +309,55 @@
         });
     }
 
+    private async Task SendBuyerOtpStepAsync()
+    {
+        _error = null;
+        _info = null;
+        _busy = true;
+        try
+        {
+            var sent = await BuyerChat.SendRegisterOtpAsync(new BuyerRegisterSendOtpRequest(_regName, _authEmail, _authPassword));
+            if (!sent.Sent)
+            {
+                _error = sent.Message;
+                return;
+            }
+
+            _buyerOtpStep = true;
+            _buyerOtpCode = string.Empty;
+            _info = "📧 " + sent.Message;
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
     private async Task SubmitAuthAsync()
     {
         _error = null;
+        _info = null;
         _busy = true;
         try
         {
             var result = _authMode == "register"
-                ? await BuyerChat.RegisterAsync(JS, new RegisterBuyerAccountRequest(_regName, _authEmail, _authPassword))
+                ? await BuyerChat.RegisterAsync(JS, new RegisterBuyerAccountRequest(_regName, _authEmail, _authPassword, _buyerOtpCode))
                 : await BuyerChat.LoginAsync(JS, new BuyerLoginRequest(_authEmail, _authPassword));
 
             if (!result.Success)
             {
+                if (result.RequiresEmailOtp)
+                    _buyerOtpStep = true;
                 _error = result.Message;
                 return;
             }
 
+            _buyerOtpStep = false;
+            _buyerOtpCode = string.Empty;
             _authPassword = string.Empty;
             await RefreshThreadAsync();
             StartPolling();

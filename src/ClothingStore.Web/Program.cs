@@ -1693,6 +1693,69 @@ app.MapPost("/api/cloud/accounts/email-change/send", async (
         : Results.BadRequest(new { error = otpResult.Message });
 }).DisableAntiforgery().RequireCors("YouLinkPwaCors").RequireRateLimiting("giftcard-strict");
 
+app.MapPost("/api/cloud/accounts/register/send-code", async (
+    CloudRegisterSendOtpRequest req,
+    CloudAccountRegistryService accountRegistry,
+    EmailOtpService emailOtp,
+    CancellationToken ct) =>
+{
+    if (string.IsNullOrWhiteSpace(req.FullName) ||
+        string.IsNullOrWhiteSpace(req.Email) ||
+        !req.Email.Contains('@', StringComparison.Ordinal) ||
+        string.IsNullOrWhiteSpace(req.Password) ||
+        req.Password.Trim().Length < CloudAccountRegistryService.MinimumCloudPasswordLength)
+    {
+        return Results.BadRequest(new
+        {
+            error = $"Preencha nome completo, e-mail válido e senha com pelo menos {CloudAccountRegistryService.MinimumCloudPasswordLength} caracteres."
+        });
+    }
+
+    var cleanEmail = EmailOtpService.NormalizeEmail(req.Email);
+    if (string.IsNullOrWhiteSpace(cleanEmail))
+    {
+        return Results.BadRequest(new { error = "Informe um endereço de e-mail válido." });
+    }
+
+    var cleanUser = string.IsNullOrWhiteSpace(req.Username)
+        ? cleanEmail.Split('@')[0]
+        : req.Username.Trim();
+
+    if (string.Equals(cleanUser, "admin", StringComparison.OrdinalIgnoreCase))
+    {
+        return Results.BadRequest(new { error = "O usuário 'admin' é reservado. Escolha outro nome de usuário." });
+    }
+
+    var existingAccounts = await accountRegistry.GetAllAccountsAsync(ct);
+    var matchedExisting = existingAccounts.FirstOrDefault(a =>
+        (!string.IsNullOrWhiteSpace(a.Email) && string.Equals(a.Email.Trim(), cleanEmail, StringComparison.OrdinalIgnoreCase)) ||
+        (!string.IsNullOrWhiteSpace(a.Username) && string.Equals(a.Username.Trim(), cleanUser, StringComparison.OrdinalIgnoreCase)));
+
+    if (matchedExisting is not null && matchedExisting.HasPassword)
+    {
+        return Results.Conflict(new { error = "Já existe uma conta cadastrada com este e-mail ou usuário. Faça login na aba Entrar." });
+    }
+
+    var hasPreGrantedPlan = matchedExisting is not null &&
+                            !matchedExisting.HasPassword &&
+                            !string.IsNullOrWhiteSpace(matchedExisting.PlanTier) &&
+                            !string.Equals(StoreSettings.NormalizePlanTier(matchedExisting.PlanTier), StoreSettings.PlanTierBasic, StringComparison.OrdinalIgnoreCase);
+
+    var sendRes = await emailOtp.SendOtpAsync(
+        new SendEmailOtpRequest(
+            cleanEmail,
+            "account_register",
+            hasPreGrantedPlan ? "confirmação de conta com plano YouLink" : "confirmação de nova conta YouLink"),
+        ct);
+
+    if (!sendRes.Sent)
+    {
+        return Results.BadRequest(new { error = sendRes.Message, sent = false, resendAfterSeconds = sendRes.ResendAfterSeconds });
+    }
+
+    return Results.Ok(sendRes);
+}).DisableAntiforgery().RequireCors("YouLinkPwaCors").RequireRateLimiting("giftcard-strict");
+
 app.MapPost("/api/cloud/accounts/register", async (
     HttpContext httpContext,
     RegisterUserAccountRequest req,
@@ -1992,12 +2055,73 @@ app.MapPost("/api/cloud/accounts/password-reset/confirm", async (
 // CONTAS DE COMPRADOR & CHAT INTERNO (VITRINE ↔ LOJISTA & LOJISTA ↔ SUPORTE)
 // =====================================================================
 
+app.MapPost("/api/cloud/buyers/register/send-code", async (
+    BuyerRegisterSendOtpRequest request,
+    CloudChatStoreService chatStore,
+    EmailOtpService emailOtp,
+    CancellationToken ct) =>
+{
+    var check = await chatStore.ValidateNewBuyerRegistrationAsync(request?.FullName, request?.Email, request?.Password, ct);
+    if (!check.Valid)
+    {
+        return Results.BadRequest(new SendEmailOtpResponse(
+            Sent: false,
+            ProviderConfigured: emailOtp.IsConfigured,
+            MaskedEmail: string.Empty,
+            ExpiresInSeconds: 0,
+            ResendAfterSeconds: 0,
+            Message: check.ErrorMessage ?? "Verifique os dados informados."));
+    }
+
+    var sendRes = await emailOtp.SendOtpAsync(
+        new SendEmailOtpRequest(
+            Email: check.NormalizedEmail,
+            Purpose: "buyer_register",
+            ContextLabel: "confirmação de nova conta na vitrine YouLink"),
+        ct);
+
+    return sendRes.Sent
+        ? Results.Ok(sendRes)
+        : Results.BadRequest(sendRes);
+}).DisableAntiforgery().RequireCors("YouLinkPwaCors").RequireRateLimiting("giftcard-strict");
+
 app.MapPost("/api/cloud/buyers/register", async (
     HttpContext httpContext,
     RegisterBuyerAccountRequest request,
     CloudChatStoreService chatStore,
+    EmailOtpService emailOtp,
     CancellationToken ct) =>
 {
+    var preCheck = await chatStore.ValidateNewBuyerRegistrationAsync(request?.FullName, request?.Email, request?.Password, ct);
+    if (!preCheck.Valid)
+        return Results.BadRequest(new BuyerAuthResultDto(false, preCheck.ErrorMessage ?? "Verifique os dados informados."));
+
+    if (string.IsNullOrWhiteSpace(request?.EmailOtpCode))
+    {
+        var sendRes = await emailOtp.SendOtpAsync(
+            new SendEmailOtpRequest(
+                Email: preCheck.NormalizedEmail,
+                Purpose: "buyer_register",
+                ContextLabel: "confirmação de nova conta na vitrine YouLink"),
+            ct);
+
+        var msg = sendRes.Sent
+            ? $"Enviamos um código de 6 dígitos para {sendRes.MaskedEmail}. Digite o código para ativar sua conta."
+            : sendRes.Message;
+
+        return Results.Json(
+            new BuyerAuthResultDto(false, msg, RequiresEmailOtp: true),
+            statusCode: sendRes.Sent ? StatusCodes.Status403Forbidden : StatusCodes.Status400BadRequest);
+    }
+
+    var otpVerify = emailOtp.VerifyOtp(new VerifyEmailOtpRequest(preCheck.NormalizedEmail, request.EmailOtpCode.Trim(), "buyer_register"));
+    if (!otpVerify.Verified)
+    {
+        return Results.Json(
+            new BuyerAuthResultDto(false, otpVerify.Message, RequiresEmailOtp: true),
+            statusCode: StatusCodes.Status403Forbidden);
+    }
+
     var res = await chatStore.RegisterBuyerAsync(request, ct);
     if (!res.Success)
         return Results.BadRequest(res);
