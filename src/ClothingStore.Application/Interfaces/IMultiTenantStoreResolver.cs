@@ -82,6 +82,11 @@ public interface IMultiTenantStoreResolver
         string? storeSlug,
         CancellationToken ct = default);
 
+    Task ConfirmOwnerEmailAcrossStoresAsync(
+        string verifiedOwnerEmail,
+        string? updatedNewOwnerEmail = null,
+        CancellationToken ct = default) => Task.CompletedTask;
+
     Task SaveMercadoPagoTokensAsync(
         string? storeSlug,
         string accessToken,

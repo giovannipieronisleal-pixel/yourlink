@@ -176,10 +176,10 @@ builder.Services.AddRateLimiter(options =>
 
     options.AddPolicy("chat-read", httpContext =>
         RateLimitPartition.GetFixedWindowLimiter(
-            partitionKey: ResolveRateLimitPartitionIp(httpContext),
+            partitionKey: ResolveChatReadRateLimitPartitionKey(httpContext),
             factory: _ => new FixedWindowRateLimiterOptions
             {
-                PermitLimit = 60,
+                PermitLimit = 300,
                 Window = TimeSpan.FromMinutes(1),
                 QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
                 QueueLimit = 0
@@ -1513,6 +1513,7 @@ app.MapPost("/api/cloud/accounts/upsert", async (
     CloudAccountCredentialSyncDto dto,
     CloudAccountRegistryService accountRegistry,
     EmailOtpService emailOtp,
+    MultiTenantGatewayService gateway,
     IClothingStoreRepository defaultRepository,
     CancellationToken ct) =>
 {
@@ -1532,6 +1533,19 @@ app.MapPost("/api/cloud/accounts/upsert", async (
     var res = await accountRegistry.UpsertAccountAsync(dto, hasValidSyncKey, ct, emailVerifiedByServer, callerCloudToken);
     if (res.Success)
     {
+        if (emailVerifiedByServer && !string.IsNullOrWhiteSpace(dto.Email))
+        {
+            if (!string.IsNullOrWhiteSpace(dto.PreviousEmail) &&
+                !string.Equals(dto.PreviousEmail.Trim(), dto.Email.Trim(), StringComparison.OrdinalIgnoreCase))
+            {
+                await gateway.StoreResolver.ConfirmOwnerEmailAcrossStoresAsync(dto.PreviousEmail.Trim(), dto.Email.Trim(), ct);
+            }
+            else
+            {
+                await gateway.StoreResolver.ConfirmOwnerEmailAcrossStoresAsync(dto.Email.Trim(), null, ct);
+            }
+        }
+
         await TryFlushCloudMirrorAsync(httpContext, ct);
         return Results.Ok(new
         {
@@ -1546,7 +1560,7 @@ app.MapPost("/api/cloud/accounts/upsert", async (
         error = res.Message,
         requiresEmailOtp = res.RequiresEmailVerification
     }, statusCode: res.StatusCode);
-}).DisableAntiforgery().RequireRateLimiting("auth-strict");
+}).DisableAntiforgery().RequireCors("YouLinkPwaCors").RequireRateLimiting("auth-strict");
 
 app.MapPost("/api/cloud/accounts/verify-login", async (
     LoginRequest loginRequest,
@@ -1555,7 +1569,132 @@ app.MapPost("/api/cloud/accounts/verify-login", async (
 {
     var res = await accountRegistry.VerifyLoginAsync(loginRequest, ct);
     return Results.Ok(res);
-}).DisableAntiforgery().RequireRateLimiting("auth-strict");
+}).DisableAntiforgery().RequireCors("YouLinkPwaCors").RequireRateLimiting("auth-strict");
+
+app.MapGet("/api/cloud/accounts/me-status", async (
+    HttpContext httpContext,
+    CloudAccountRegistryService accountRegistry,
+    CancellationToken ct) =>
+{
+    var rawToken = httpContext.Request.Headers["X-YouLink-Cloud-Token"].FirstOrDefault();
+    var validated = await accountRegistry.ValidateSessionTokenAsync(rawToken, ct);
+    if (!validated.Verified)
+        return Results.Unauthorized();
+
+    return Results.Ok(new CloudSessionMeStatusDto(
+        Authenticated: true,
+        Email: validated.Email,
+        Username: validated.Username,
+        StoreSlug: validated.StoreSlug,
+        IsEmailVerified: validated.IsEmailVerified));
+}).RequireCors("YouLinkPwaCors").RequireRateLimiting("cloud-accounts");
+
+app.MapPost("/api/cloud/accounts/confirm-email/send", async (
+    HttpContext httpContext,
+    CloudConfirmMyEmailSendRequest? request,
+    CloudAccountRegistryService accountRegistry,
+    EmailOtpService emailOtp,
+    CancellationToken ct) =>
+{
+    var rawToken = !string.IsNullOrWhiteSpace(request?.CloudSessionToken)
+        ? request.CloudSessionToken
+        : httpContext.Request.Headers["X-YouLink-Cloud-Token"].FirstOrDefault();
+
+    var validated = await accountRegistry.ValidateSessionTokenAsync(rawToken, ct);
+    if (!validated.Verified || string.IsNullOrWhiteSpace(validated.Email))
+        return Results.Unauthorized();
+
+    if (validated.IsEmailVerified)
+    {
+        return Results.Ok(new SendEmailOtpResponse(
+            Sent: true,
+            ProviderConfigured: emailOtp.IsConfigured,
+            MaskedEmail: EmailOtpService.MaskEmail(validated.Email),
+            ExpiresInSeconds: 0,
+            ResendAfterSeconds: 0,
+            Message: "Seu e-mail já está confirmado!"));
+    }
+
+    var otpResult = await emailOtp.SendOtpAsync(
+        new SendEmailOtpRequest(
+            Email: validated.Email.Trim(),
+            Purpose: "email_confirm",
+            ContextLabel: "confirmação do seu e-mail YouLink"),
+        ct);
+
+    return otpResult.Sent ? Results.Ok(otpResult) : Results.BadRequest(otpResult);
+}).DisableAntiforgery().RequireCors("YouLinkPwaCors").RequireRateLimiting("giftcard-strict");
+
+app.MapPost("/api/cloud/accounts/confirm-email/verify", async (
+    HttpContext httpContext,
+    CloudConfirmMyEmailVerifyRequest request,
+    CloudAccountRegistryService accountRegistry,
+    EmailOtpService emailOtp,
+    MultiTenantGatewayService gateway,
+    CancellationToken ct) =>
+{
+    var rawToken = !string.IsNullOrWhiteSpace(request?.CloudSessionToken)
+        ? request.CloudSessionToken
+        : httpContext.Request.Headers["X-YouLink-Cloud-Token"].FirstOrDefault();
+
+    var validated = await accountRegistry.ValidateSessionTokenAsync(rawToken, ct);
+    if (!validated.Verified || string.IsNullOrWhiteSpace(validated.Email))
+        return Results.Unauthorized();
+
+    var code = (request?.Code ?? string.Empty).Trim();
+    if (code.Length != 6)
+        return Results.BadRequest(new { error = "Informe o código de 6 dígitos enviado para o seu e-mail." });
+
+    var otpCheck = emailOtp.VerifyOtp(new VerifyEmailOtpRequest(validated.Email.Trim(), code, "email_confirm"));
+    if (!otpCheck.Verified)
+        return Results.BadRequest(new { error = otpCheck.Message });
+
+    var marked = await accountRegistry.MarkEmailVerifiedBySessionAsync(rawToken, ct);
+    if (!marked.Success || string.IsNullOrWhiteSpace(marked.VerifiedEmail))
+        return Results.BadRequest(new { error = marked.Message });
+
+    await gateway.StoreResolver.ConfirmOwnerEmailAcrossStoresAsync(marked.VerifiedEmail, null, ct);
+    await TryFlushCloudMirrorAsync(httpContext, ct);
+
+    return Results.Ok(new CloudConfirmMyEmailResponse(
+        Verified: true,
+        Email: marked.VerifiedEmail,
+        Message: "✓ E-mail confirmado com sucesso! Sua loja e seu acesso estão protegidos."));
+}).DisableAntiforgery().RequireCors("YouLinkPwaCors").RequireRateLimiting("giftcard-strict");
+
+app.MapPost("/api/cloud/accounts/email-change/send", async (
+    HttpContext httpContext,
+    CloudEmailChangeSendOtpRequest request,
+    CloudAccountRegistryService accountRegistry,
+    EmailOtpService emailOtp,
+    CancellationToken ct) =>
+{
+    var rawToken = !string.IsNullOrWhiteSpace(request?.CloudSessionToken)
+        ? request.CloudSessionToken
+        : httpContext.Request.Headers["X-YouLink-Cloud-Token"].FirstOrDefault();
+
+    var validated = await accountRegistry.ValidateSessionTokenAsync(rawToken, ct);
+    if (!validated.Verified || string.IsNullOrWhiteSpace(validated.Email))
+        return Results.Unauthorized();
+
+    var cleanNewEmail = EmailOtpService.NormalizeEmail(request?.NewEmail);
+    if (string.IsNullOrWhiteSpace(cleanNewEmail))
+        return Results.BadRequest(new { error = "Informe um novo endereço de e-mail válido." });
+
+    if (await accountRegistry.IsEmailUsedByAnotherAccountAsync(cleanNewEmail, validated.Email, ct))
+        return Results.Conflict(new { error = "Este e-mail já está em uso por outra conta." });
+
+    var otpResult = await emailOtp.SendOtpAsync(
+        new SendEmailOtpRequest(
+            Email: cleanNewEmail,
+            Purpose: "email_change",
+            ContextLabel: "confirmação de novo e-mail da conta YouLink"),
+        ct);
+
+    return otpResult.Sent
+        ? Results.Ok(otpResult)
+        : Results.BadRequest(new { error = otpResult.Message });
+}).DisableAntiforgery().RequireCors("YouLinkPwaCors").RequireRateLimiting("giftcard-strict");
 
 app.MapPost("/api/cloud/accounts/register", async (
     HttpContext httpContext,
@@ -2608,6 +2747,21 @@ static string ResolveRateLimitPartitionIp(HttpContext ctx)
         return cfIp;
 
     return "unknown";
+}
+
+static string ResolveChatReadRateLimitPartitionKey(HttpContext ctx)
+{
+    var ip = ResolveRateLimitPartitionIp(ctx);
+    var sessionToken = ctx.Request.Headers["X-Buyer-Token"].FirstOrDefault()
+                       ?? ctx.Request.Headers["X-YouLink-Cloud-Token"].FirstOrDefault();
+
+    if (!string.IsNullOrWhiteSpace(sessionToken))
+    {
+        var hash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(sessionToken.Trim())));
+        return $"{ip}:{hash[..16]}";
+    }
+
+    return ip;
 }
 
 static async Task<(bool Verified, string? VerifiedEmail)> ResolveVerifiedCloudOwnerEmailAsync(

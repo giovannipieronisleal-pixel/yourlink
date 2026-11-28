@@ -68,7 +68,9 @@
     storeLoaded: false,
     productDraft: null,
     requiresRegisterEmailOtp: false,
-    regDraft: { fullName: "", username: "", email: "", password: "", emailOtpCode: "" }
+    regDraft: { fullName: "", username: "", email: "", password: "", emailOtpCode: "" },
+    emailConfirmOtpSent: false,
+    emailConfirmCode: ""
   };
 
   state.productDraft = createEmptyProductDraft();
@@ -790,6 +792,29 @@
           <main class="adm-content">
             ${state.msgOk ? `<div class="banner banner-ok">${esc(state.msgOk)}</div>` : ""}
             ${state.msgErr ? `<div class="banner banner-err">${esc(state.msgErr)}</div>` : ""}
+            ${state.session && state.session.isEmailVerified === false ? `
+              <div class="adm-card" style="border:1.5px solid var(--adm-accent);margin-bottom:1rem;">
+                <div style="display:flex;align-items:center;justify-content:space-between;gap:0.75rem;flex-wrap:wrap;">
+                  <div>
+                    <strong style="font-size:0.95rem;">📧 Confirme seu e-mail (${esc(state.session.email || "")})</strong>
+                    <div style="font-size:0.83rem;color:var(--adm-muted);margin-top:0.15rem;">
+                      Confirme seu e-mail com um código de 6 dígitos para liberar sua loja e o chat em qualquer aparelho.
+                    </div>
+                  </div>
+                  <button type="button" class="adm-btn adm-btn-outline adm-btn-sm" id="send-confirm-email-btn" ${state.busy ? "disabled" : ""}>
+                    ${state.busy ? "Enviando..." : (state.emailConfirmOtpSent ? "🔄 Reenviar Código" : "📧 Enviar Código")}
+                  </button>
+                </div>
+                ${state.emailConfirmOtpSent ? `
+                  <div style="display:flex;gap:0.5rem;margin-top:0.75rem;align-items:center;flex-wrap:wrap;">
+                    <input class="input" id="confirm-email-otp-input" maxlength="6" value="${esc(state.emailConfirmCode || "")}" placeholder="Código de 6 dígitos" style="max-width:190px;font-weight:800;letter-spacing:0.18em;text-align:center;" />
+                    <button type="button" class="adm-btn adm-btn-success adm-btn-sm" id="verify-confirm-email-btn" ${state.busy ? "disabled" : ""}>
+                      ✓ Confirmar meu e-mail
+                    </button>
+                  </div>
+                ` : ""}
+              </div>
+            ` : ""}
             ${renderActiveTab()}
           </main>
         </div>
@@ -1657,7 +1682,10 @@
           if (!res?.verified || !res.account) {
             throw new Error(res?.message || "Usuário ou senha inválidos.");
           }
-          saveSession({ ...res.account, cloudSessionToken: res.cloudSessionToken || res.account.cloudSessionToken || null });
+          const isEmailVerified = !!(res.isEmailVerified ?? res.account.isEmailVerified);
+          state.emailConfirmOtpSent = false;
+          state.emailConfirmCode = "";
+          saveSession({ ...res.account, isEmailVerified, cloudSessionToken: res.cloudSessionToken || res.account.cloudSessionToken || null });
           state.activeTab = "home";
           await pullStoreFromCloud(false);
         } catch (err) {
@@ -1700,7 +1728,7 @@
           }
           state.requiresRegisterEmailOtp = false;
           state.regDraft = { fullName: "", username: "", email: "", password: "", emailOtpCode: "" };
-          saveSession({ ...res.account, cloudSessionToken: res.cloudSessionToken || res.account.cloudSessionToken || null });
+          saveSession({ ...res.account, isEmailVerified: true, cloudSessionToken: res.cloudSessionToken || res.account.cloudSessionToken || null });
           state.storeLoaded = true;
           state.products = [];
           state.categories = [];
@@ -2193,11 +2221,81 @@
     const saveSet2 = document.getElementById("save-settings-btn-bottom");
     if (saveSet1) saveSet1.onclick = () => publishStoreToCloud("⚙️ Configurações salvas e publicadas!");
     if (saveSet2) saveSet2.onclick = () => publishStoreToCloud("⚙️ Configurações salvas e publicadas!");
+
+    const sendConfirmBtn = document.getElementById("send-confirm-email-btn");
+    if (sendConfirmBtn) {
+      sendConfirmBtn.onclick = async () => {
+        state.busy = true;
+        render();
+        try {
+          const headers = state.session?.cloudSessionToken ? { "X-YouLink-Cloud-Token": state.session.cloudSessionToken } : {};
+          const res = await apiJson("/api/cloud/accounts/confirm-email/send", {
+            method: "POST",
+            headers,
+            body: JSON.stringify({ cloudSessionToken: state.session?.cloudSessionToken || null })
+          });
+          state.emailConfirmOtpSent = true;
+          setStatus(`📧 ${res?.message || "Código enviado para seu e-mail!"}`, null);
+        } catch (err) {
+          setStatus(null, err.message);
+        } finally {
+          state.busy = false;
+          render();
+        }
+      };
+    }
+
+    const confirmOtpInput = document.getElementById("confirm-email-otp-input");
+    if (confirmOtpInput) {
+      confirmOtpInput.oninput = (e) => { state.emailConfirmCode = e.target.value; };
+    }
+
+    const verifyConfirmBtn = document.getElementById("verify-confirm-email-btn");
+    if (verifyConfirmBtn) {
+      verifyConfirmBtn.onclick = async () => {
+        const code = (state.emailConfirmCode || "").trim();
+        if (code.length !== 6) { setStatus(null, "Digite o código de 6 dígitos enviado para o seu e-mail."); return; }
+        state.busy = true;
+        render();
+        try {
+          const headers = state.session?.cloudSessionToken ? { "X-YouLink-Cloud-Token": state.session.cloudSessionToken } : {};
+          const res = await apiJson("/api/cloud/accounts/confirm-email/verify", {
+            method: "POST",
+            headers,
+            body: JSON.stringify({ code, cloudSessionToken: state.session?.cloudSessionToken || null })
+          });
+          state.emailConfirmOtpSent = false;
+          state.emailConfirmCode = "";
+          saveSession({ ...state.session, isEmailVerified: true });
+          setStatus(res?.message || "✓ E-mail confirmado com sucesso!", null);
+          await pullStoreFromCloud(false);
+        } catch (err) {
+          setStatus(null, err.message);
+        } finally {
+          state.busy = false;
+          render();
+        }
+      };
+    }
+  }
+
+  async function refreshSessionEmailStatus() {
+    if (!state.session?.cloudSessionToken) return;
+    try {
+      const me = await apiJson("/api/cloud/accounts/me-status", {
+        headers: { "X-YouLink-Cloud-Token": state.session.cloudSessionToken }
+      });
+      if (me && typeof me.isEmailVerified === "boolean" && state.session.isEmailVerified !== me.isEmailVerified) {
+        saveSession({ ...state.session, isEmailVerified: me.isEmailVerified });
+        render();
+      }
+    } catch {}
   }
 
   loadPublicCatalogMeta();
   render();
   if (state.session) {
+    refreshSessionEmailStatus();
     pullStoreFromCloud(false);
   }
 })();

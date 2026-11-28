@@ -46,7 +46,7 @@
             <section class="adm-card" style="display: @(_selectedStoreThread is not null && _mobileChatFocused ? "none" : "flex"); flex-direction: column; gap: 0.55rem; max-height: 70vh; overflow-y: auto;">
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.3rem;">
                     <strong style="font-size: 0.95rem;">Conversas de Compradores</strong>
-                    <button type="button" class="adm-btn adm-btn-outline" style="padding: 0.3rem 0.6rem; font-size: 0.78rem;" disabled="@_loading" @onclick="RefreshCurrentViewAsync">
+                    <button type="button" class="adm-btn adm-btn-outline" style="padding: 0.3rem 0.6rem; font-size: 0.78rem;" disabled="@_loading" @onclick="() => RefreshCurrentViewAsync()">
                         🔄 Atualizar
                     </button>
                 </div>
@@ -145,7 +145,7 @@
                         Canal direto entre sua loja e a administração da plataforma YouLink.
                     </div>
                 </div>
-                <button type="button" class="adm-btn adm-btn-outline" style="padding: 0.35rem 0.7rem; font-size: 0.8rem;" disabled="@_loading" @onclick="RefreshCurrentViewAsync">
+                <button type="button" class="adm-btn adm-btn-outline" style="padding: 0.35rem 0.7rem; font-size: 0.8rem;" disabled="@_loading" @onclick="() => RefreshCurrentViewAsync()">
                     🔄 Atualizar
                 </button>
             </div>
@@ -277,17 +277,27 @@
         await RefreshCurrentViewAsync();
     }
 
-    private async Task RefreshCurrentViewAsync()
+    private async Task RefreshCurrentViewAsync(bool isBackgroundPoll = false)
     {
         _loading = true;
         try
         {
             if (_activeTab == "store")
             {
+                var previousUpdated = _selectedStoreThread?.Summary.UpdatedAt;
+                var previousUnread = _selectedStoreThread?.Summary.UnreadCount;
                 _storeThreads = await Gateway.GetMerchantStoreChatThreadsAsync();
                 if (_selectedStoreThread is not null)
                 {
-                    _selectedStoreThread = await Gateway.GetMerchantStoreChatThreadDetailAsync(_selectedStoreThread.Summary.ThreadId);
+                    var matchingSummary = _storeThreads.FirstOrDefault(t => t.ThreadId == _selectedStoreThread.Summary.ThreadId);
+                    if (!isBackgroundPoll ||
+                        matchingSummary is null ||
+                        matchingSummary.UpdatedAt != previousUpdated ||
+                        matchingSummary.UnreadCount > 0 ||
+                        matchingSummary.UnreadCount != previousUnread)
+                    {
+                        _selectedStoreThread = await Gateway.GetMerchantStoreChatThreadDetailAsync(_selectedStoreThread.Summary.ThreadId);
+                    }
                 }
                 else if (_storeThreads.Count > 0)
                 {
@@ -448,12 +458,12 @@
         {
             try
             {
-                using var timer = new PeriodicTimer(TimeSpan.FromSeconds(5));
+                using var timer = new PeriodicTimer(TimeSpan.FromSeconds(6));
                 while (await timer.WaitForNextTickAsync(token))
                 {
                     if (!_sending)
                     {
-                        await RefreshCurrentViewAsync();
+                        await RefreshCurrentViewAsync(isBackgroundPoll: true);
                         await InvokeAsync(StateHasChanged);
                     }
                 }

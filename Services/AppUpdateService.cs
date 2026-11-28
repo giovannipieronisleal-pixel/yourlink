@@ -710,7 +710,8 @@ public sealed class AppUpdateService
                 logPath,
                 updaterCacheRootDir: GetUpdaterCacheRoot(),
                 expectedSha256: normalizedExpectedSha,
-                requireAuthenticodeSignature: true);
+                requireAuthenticodeSignature: AppUpdateCatalog.HasConfiguredOfficialSignerThumbprint,
+                expectedSignerThumbprint: AppUpdateCatalog.OfficialWindowsSignerThumbprint);
         }
         else
         {
@@ -739,7 +740,8 @@ public sealed class AppUpdateService
                 updaterCacheRootDir: GetUpdaterCacheRoot(),
                 packageZipPath: packagePath,
                 expectedSha256: normalizedExpectedSha,
-                requireAuthenticodeSignature: true);
+                requireAuthenticodeSignature: AppUpdateCatalog.HasConfiguredOfficialSignerThumbprint,
+                expectedSignerThumbprint: AppUpdateCatalog.OfficialWindowsSignerThumbprint);
         }
 
         await File.WriteAllTextAsync(scriptPath, script, ct);

@@ -619,6 +619,191 @@ public sealed class SecurityAuditPenetrationTests
         }
     }
 
+    [TestMethod]
+    public async Task V1083_AuditFixes_PreProvisionedVipProtected_LegacyEmailConfirm_OwnerVerifiedGuard_And_StrictAuthenticode()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"youlink_pentest_v83_{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+        try
+        {
+            var hasher = new Pbkdf2PasswordHasher();
+            var registry = new CloudAccountRegistryService(tempDir, hasher);
+
+            // 1) CRÍTICO 1: Admin pré-libera plano Premium para "vitima-vip@loja.com" (ainda sem senha criada)
+            var preVip = await registry.ApplyOrCreatePlanEntitlementAsync(
+                targetEmail: "vitima-vip@loja.com",
+                targetUsername: "vitimavip",
+                storeName: "Boutique Vítima VIP",
+                storeSlug: "boutique-vitima-vip",
+                planTier: "premium",
+                durationDays: 365,
+                extendExistingDuration: false,
+                activateSite: true);
+            Assert.IsNotNull(preVip);
+            Assert.AreEqual("Premium", preVip!.PlanTier);
+
+            // Invasor pede OTP no PRÓPRIO e-mail ("invasor-otp@evil.com") e envia PreviousEmail = "vitima-vip@loja.com" tentando roubar o VIP!
+            var attackerStealViaPrevEmail = await registry.UpsertAccountAsync(new CloudAccountCredentialSyncDto(
+                FullName: "Invasor Esperto",
+                Username: "invasoresperto",
+                Email: "invasor-otp@evil.com",
+                PreviousEmail: "vitima-vip@loja.com",
+                PasswordHash: hasher.HashPassword("Invasor#2026"),
+                StoreName: "Loja Invasor",
+                StoreSlug: "loja-invasor"),
+                hasValidSyncKey: false,
+                emailVerifiedByServer: true);
+            Assert.IsTrue(attackerStealViaPrevEmail.Success);
+
+            // Verifica que o invasor NÃO ganhou o plano Premium e que a conta da vítima continua intacta com o plano Premium!
+            var allAfterAttack1 = await registry.GetAllAccountsAsync();
+            var attackerAcc = allAfterAttack1.First(a => a.Email == "invasor-otp@evil.com");
+            var victimAcc = allAfterAttack1.First(a => a.Email == "vitima-vip@loja.com");
+            Assert.IsTrue(string.IsNullOrWhiteSpace(attackerAcc.PlanTier),
+                "CRÍTICO 1: Invasor usando PreviousEmail da vítima NUNCA deve herdar plano pré-liberado.");
+            Assert.AreEqual("Premium", victimAcc.PlanTier,
+                "CRÍTICO 1: Plano pré-liberado da vítima deve permanecer intacto no e-mail da vítima.");
+            Assert.IsFalse(victimAcc.HasPassword,
+                "CRÍTICO 1: Conta pré-liberada da vítima deve continuar aguardando ativação pela própria vítima.");
+
+            // Invasor também tenta casar pelo Username "vitimavip" informando outro e-mail ("outro-invasor@evil.com")
+            var attackerStealViaUsername = await registry.UpsertAccountAsync(new CloudAccountCredentialSyncDto(
+                FullName: "Outro Invasor",
+                Username: "vitimavip",
+                Email: "outro-invasor@evil.com",
+                PreviousEmail: "vitima-vip@loja.com",
+                PasswordHash: hasher.HashPassword("Invasor#2026")),
+                hasValidSyncKey: false,
+                emailVerifiedByServer: true);
+            var allAfterAttack2 = await registry.GetAllAccountsAsync();
+            var victimStillIntact = allAfterAttack2.First(a => a.Email == "vitima-vip@loja.com");
+            Assert.AreEqual("Premium", victimStillIntact.PlanTier);
+            Assert.IsFalse(victimStillIntact.HasPassword);
+
+            // Agora a própria vítima confirma o e-mail "vitima-vip@loja.com" e cria sua senha -> assume o Premium legitimamente!
+            var legitimateClaim = await registry.UpsertAccountAsync(new CloudAccountCredentialSyncDto(
+                FullName: "Dona Boutique VIP",
+                Username: "donaboutiquevip",
+                Email: "vitima-vip@loja.com",
+                PasswordHash: hasher.HashPassword("VitimaReal#2026"),
+                StoreName: "Boutique Vítima VIP",
+                StoreSlug: "boutique-vitima-vip"),
+                hasValidSyncKey: false,
+                emailVerifiedByServer: true);
+            Assert.IsTrue(legitimateClaim.Success);
+            var victimActivated = (await registry.GetAllAccountsAsync()).First(a => a.Email == "vitima-vip@loja.com");
+            Assert.AreEqual("Premium", victimActivated.PlanTier);
+            Assert.IsTrue(victimActivated.HasPassword);
+            Assert.IsTrue(victimActivated.IsEmailVerified);
+
+            // 2) CRÍTICO 2 + 🟠 MultiTenantStoreManager linha 211:
+            // Conta antiga importada sem confirmação (IsEmailVerified = false) + loja antiga ainda não confirmada
+            var defaultRepo = new ClothingStoreRepository(hasher, Path.Combine(tempDir, "default_store.json"));
+            var storeManager = new MultiTenantStoreManager(defaultRepo, hasher, tempDir);
+
+            var legacyOwnerSync = await registry.UpsertAccountAsync(new CloudAccountCredentialSyncDto(
+                FullName: "Lojista Antigo",
+                Username: "lojistaantigo",
+                Email: "antigo@minhaloja.com",
+                PasswordHash: hasher.HashPassword("Antigo#2026"),
+                StoreName: "Loja Antiga",
+                StoreSlug: "loja-antiga"),
+                hasValidSyncKey: true,
+                emailVerifiedByServer: false);
+            Assert.IsTrue(legacyOwnerSync.Success);
+            Assert.IsFalse((await registry.ValidateSessionTokenAsync(legacyOwnerSync.CloudSessionToken)).IsEmailVerified);
+
+            // Cria a loja-antiga inicialmente sem confirmação de e-mail
+            var initialPub = await storeManager.AuthorizeAndResolvePublishRepositoryAsync(
+                requestedSlug: "loja-antiga",
+                syncKeyHeader: null,
+                publishTokenHeader: null,
+                hasValidSyncKey: false,
+                authenticatedOwnerEmail: null,
+                isOwnerEmailServerVerified: false);
+            Assert.IsTrue(initialPub.Authorized);
+            var lojaAntigaToken = initialPub.IssuedPublishToken!;
+
+            var indexPath = Path.Combine(tempDir, "tenants_index.json");
+            var rawIndex = await File.ReadAllTextAsync(indexPath);
+            rawIndex = rawIndex.Replace("\"OwnerEmail\": null", "\"OwnerEmail\": \"antigo@minhaloja.com\"");
+            await File.WriteAllTextAsync(indexPath, rawIndex);
+
+            var storeManagerReloaded = new MultiTenantStoreManager(defaultRepo, hasher, tempDir);
+            var credsBefore = await storeManagerReloaded.GetTenantCredentialsAsync("loja-antiga");
+            Assert.AreEqual("antigo@minhaloja.com", credsBefore!.OwnerEmail);
+            Assert.IsFalse(credsBefore.IsOwnerEmailVerified);
+
+            // Outro usuário com e-mail verificado ("invasor-otp@evil.com") publica usando o PublishToken:
+            // NÃO pode marcar "antigo@minhaloja.com" como verificado!
+            var otherEmailPub = await storeManagerReloaded.AuthorizeAndResolvePublishRepositoryAsync(
+                requestedSlug: "loja-antiga",
+                syncKeyHeader: null,
+                publishTokenHeader: lojaAntigaToken,
+                hasValidSyncKey: false,
+                authenticatedOwnerEmail: "invasor-otp@evil.com",
+                isOwnerEmailServerVerified: true);
+            Assert.IsTrue(otherEmailPub.Authorized);
+            var credsAfterOther = await storeManagerReloaded.GetTenantCredentialsAsync("loja-antiga");
+            Assert.AreEqual("antigo@minhaloja.com", credsAfterOther!.OwnerEmail);
+            Assert.IsFalse(credsAfterOther.IsOwnerEmailVerified,
+                "🟠 MultiTenantStoreManager linha 211: Nunca marcar dono como confirmado quando o e-mail logado é diferente de existing.OwnerEmail.");
+
+            // Agora o dono antigo usa "Confirmar meu e-mail" após o login -> conta e loja passam a IsEmailVerified = true!
+            var markedAcc = await registry.MarkEmailVerifiedBySessionAsync(legacyOwnerSync.CloudSessionToken);
+            Assert.IsTrue(markedAcc.Success);
+            Assert.AreEqual("antigo@minhaloja.com", markedAcc.VerifiedEmail);
+            await storeManagerReloaded.ConfirmOwnerEmailAcrossStoresAsync("antigo@minhaloja.com");
+
+            // Em aparelho novo (SEM PublishToken!), o dono antigo confirmado agora consegue publicar e baixar a própria loja!
+            var newDevicePublish = await storeManagerReloaded.AuthorizeAndResolvePublishRepositoryAsync(
+                requestedSlug: "loja-antiga",
+                syncKeyHeader: null,
+                publishTokenHeader: null,
+                hasValidSyncKey: false,
+                authenticatedOwnerEmail: "antigo@minhaloja.com",
+                isOwnerEmailServerVerified: true);
+            Assert.IsTrue(newDevicePublish.Authorized,
+                "CRÍTICO 2: Após confirmar o próprio e-mail, conta antiga recupera acesso total à loja mesmo em aparelho novo sem PublishToken.");
+
+            // 3) CRÍTICO 4: Assinatura digital Windows rejeita autoassinados, thumbprint vazio e certificado de terceiro
+            const string officialThumb = "A1B2C3D4E5F60718293A4B5C6D7E8F9012345678";
+            const string attackerThumb = "FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF";
+
+            Assert.IsFalse(ClothingStore.Shared.Helpers.AppUpdateCatalog.IsTrustedAuthenticodeSignature("Valid", officialThumb, ""),
+                "CRÍTICO 4: Sem thumbprint oficial configurado, a assinatura deve ser tratada como inexistente.");
+            Assert.IsFalse(ClothingStore.Shared.Helpers.AppUpdateCatalog.IsTrustedAuthenticodeSignature("UnknownError", officialThumb, officialThumb),
+                "CRÍTICO 4: Certificado autoassinado (Status != Valid) deve ser recusado mesmo que o thumbprint coincida.");
+            Assert.IsFalse(ClothingStore.Shared.Helpers.AppUpdateCatalog.IsTrustedAuthenticodeSignature("Valid", attackerThumb, officialThumb),
+                "CRÍTICO 4: Certificado válido de terceiro/invasor com thumbprint diferente deve ser recusado.");
+            Assert.IsTrue(ClothingStore.Shared.Helpers.AppUpdateCatalog.IsTrustedAuthenticodeSignature("Valid", "a1:b2:c3:d4:e5:f6:07:18:29:3a:4b:5c:6d:7e:8f:90:12:34:56:78", officialThumb),
+                "CRÍTICO 4: Certificado com Status == Valid e thumbprint oficial exato da YouLink deve ser aceito.");
+
+            var installerScript = ClothingStore.Shared.Helpers.AppUpdateCatalog.BuildWindowsInstallerUpdateScript(
+                targetProcessId: 1234,
+                setupExePath: @"C:\Temp\YouLink-Setup-x64.exe",
+                targetLauncherPath: @"C:\Program Files\YouLink\YouLink.exe",
+                logFilePath: @"C:\Temp\update.log",
+                expectedSha256: new string('a', 64),
+                requireAuthenticodeSignature: true,
+                expectedSignerThumbprint: officialThumb);
+            Assert.IsTrue(installerScript.Contains("$sig.Status -ne 'Valid' -or $actualThumb -ne $expectedThumbprint", StringComparison.Ordinal));
+            Assert.IsTrue(installerScript.Contains(officialThumb, StringComparison.Ordinal));
+
+            var repoRoot = FindRepoRoot();
+            var signPs1 = await File.ReadAllTextAsync(Path.Combine(repoRoot, "installer", "sign-windows-binaries.ps1"));
+            var buildPkgPs1 = await File.ReadAllTextAsync(Path.Combine(repoRoot, "installer", "build-windows-package.ps1"));
+            Assert.IsFalse(signPs1.Contains("New-SelfSignedCertificate", StringComparison.OrdinalIgnoreCase),
+                "CRÍTICO 4: sign-windows-binaries.ps1 nunca deve gerar certificado autoassinado descartável.");
+            Assert.IsFalse(buildPkgPs1.Contains("-FilePaths @(", StringComparison.OrdinalIgnoreCase),
+                "CRÍTICO 4: build-windows-package.ps1 deve assinar um arquivo por chamada (-FilePath) para não corromper parâmetros no powershell.exe -File.");
+        }
+        finally
+        {
+            try { Directory.Delete(tempDir, recursive: true); } catch { }
+        }
+    }
+
     private static string FindRepoRoot()
     {
         var dir = new DirectoryInfo(AppContext.BaseDirectory);

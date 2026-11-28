@@ -87,16 +87,78 @@
                     </div>
 
                     <div>
-                        <label class="adm-label">Gmail / E-mail (usado para alterar sua senha) *</label>
-                        <input type="email" class="adm-input" @bind="_profileEmail" placeholder="Ex.: seu.nome@gmail.com" />
+                        <label class="adm-label">Gmail / E-mail (usado para proteger sua loja e alterar senha) *</label>
+                        <input type="email" class="adm-input" @bind="_profileEmail" @bind:event="oninput" placeholder="Ex.: seu.nome@gmail.com" />
                     </div>
+
+                    @if (Gateway.NeedsCloudEmailVerification && !IsEmailModified)
+                    {
+                        <div style="padding: 0.85rem; border-radius: 10px; border: 1.5px solid var(--adm-accent); background: var(--adm-input-bg); display: flex; flex-direction: column; gap: 0.6rem;">
+                            <div style="font-size: 0.84rem; color: var(--adm-text); line-height: 1.4;">
+                                📧 <strong>Confirme seu e-mail atual (@Gateway.CurrentEmployee?.Email)</strong> para vincular sua loja em novos aparelhos.
+                            </div>
+                            <div style="display: flex; gap: 0.45rem; flex-wrap: wrap;">
+                                <button type="button"
+                                        class="adm-btn adm-btn-outline"
+                                        style="font-size: 0.8rem; font-weight: 700; border-color: var(--adm-accent);"
+                                        disabled="@_isBusy"
+                                        @onclick="SendConfirmCurrentEmailCodeAsync">
+                                    @(_isBusy ? "Enviando..." : "📧 Enviar Código (6 dígitos)")
+                                </button>
+                            </div>
+                            @if (_showCurrentEmailOtpInput)
+                            {
+                                <div style="display: flex; gap: 0.45rem; align-items: center;">
+                                    <input type="text"
+                                           class="adm-input"
+                                           maxlength="6"
+                                           style="flex: 1; font-family: monospace; font-weight: 800; letter-spacing: 0.2em; text-align: center;"
+                                           @bind="_currentEmailOtpCode"
+                                           @bind:event="oninput"
+                                           placeholder="000000" />
+                                    <button type="button"
+                                            class="adm-btn adm-btn-success"
+                                            style="font-weight: 700; white-space: nowrap;"
+                                            disabled="@(_isBusy || string.IsNullOrWhiteSpace(_currentEmailOtpCode))"
+                                            @onclick="VerifyCurrentEmailCodeAsync">
+                                        ✓ Confirmar
+                                    </button>
+                                </div>
+                            }
+                        </div>
+                    }
+
+                    @if (IsEmailModified)
+                    {
+                        <div style="padding: 0.85rem; border-radius: 10px; border: 1.5px solid var(--adm-accent); background: var(--adm-input-bg); display: flex; flex-direction: column; gap: 0.6rem;">
+                            <div style="font-size: 0.83rem; color: var(--adm-text); line-height: 1.4;">
+                                🔒 Para trocar o e-mail para <strong>@(_profileEmail.Trim())</strong>, envie e digite o código de 6 dígitos recebido no novo endereço:
+                            </div>
+                            <div style="display: flex; gap: 0.45rem;">
+                                <input type="text"
+                                       class="adm-input"
+                                       maxlength="6"
+                                       style="flex: 1; font-family: monospace; font-weight: 800; letter-spacing: 0.2em; text-align: center;"
+                                       @bind="_emailChangeOtpCode"
+                                       @bind:event="oninput"
+                                       placeholder="Código de 6 dígitos" />
+                                <button type="button"
+                                        class="adm-btn adm-btn-outline"
+                                        style="white-space: nowrap; font-weight: 700; border-color: var(--adm-accent);"
+                                        disabled="@_isBusy"
+                                        @onclick="SendEmailChangeCodeAsync">
+                                    @(_isBusy ? "Enviando..." : "📧 Enviar Código")
+                                </button>
+                            </div>
+                        </div>
+                    }
 
                     <button type="button"
                             class="adm-btn adm-btn-primary"
                             style="padding: 0.8rem; font-weight: 700; margin-top: 0.25rem;"
                             disabled="@_isBusy"
                             @onclick="SaveProfileAsync">
-                        @(_isBusy ? "Salvando..." : "💾 Salvar Alterações de Perfil")
+                        @(_isBusy ? "Salvando..." : (IsEmailModified ? "💾 Confirmar Código e Salvar Novo E-mail" : "💾 Salvar Alterações de Perfil"))
                     </button>
                 </div>
             }
@@ -132,8 +194,8 @@
                     </div>
 
                     <div>
-                        <label class="adm-label">Nova Senha (mínimo 4 caracteres) *</label>
-                        <input type="password" class="adm-input" @bind="_pwdNew" placeholder="Digite a nova senha" />
+                        <label class="adm-label">Nova Senha (mínimo 8 caracteres) *</label>
+                        <input type="password" class="adm-input" minlength="8" @bind="_pwdNew" placeholder="Digite a nova senha (mín. 8 caracteres)" />
                     </div>
 
                     <div>
@@ -303,6 +365,13 @@
     private string _profileFullName = string.Empty;
     private string _profileUsername = string.Empty;
     private string _profileEmail = string.Empty;
+    private string _emailChangeOtpCode = string.Empty;
+    private bool _showCurrentEmailOtpInput;
+    private string _currentEmailOtpCode = string.Empty;
+
+    private bool IsEmailModified =>
+        !string.IsNullOrWhiteSpace(_profileEmail) &&
+        !string.Equals(_profileEmail.Trim(), (Gateway.CurrentEmployee?.Email ?? string.Empty).Trim(), StringComparison.OrdinalIgnoreCase);
 
     // Senha (exclusivo via código no e-mail)
     private bool _passwordResetCodeSent;
@@ -326,6 +395,9 @@
             _profileFullName = Gateway.CurrentEmployee?.FullName ?? "";
             _profileUsername = Gateway.CurrentEmployee?.EffectiveUsername ?? "";
             _profileEmail = Gateway.CurrentEmployee?.Email ?? "";
+            _emailChangeOtpCode = string.Empty;
+            _currentEmailOtpCode = string.Empty;
+            _showCurrentEmailOtpInput = false;
         }
 
         _wasOpen = IsOpen;
@@ -370,6 +442,69 @@
         return (parts[0][0].ToString() + parts[^1][0].ToString()).ToUpperInvariant();
     }
 
+    private async Task SendConfirmCurrentEmailCodeAsync()
+    {
+        _error = null;
+        _success = null;
+        _isBusy = true;
+        try
+        {
+            var msg = await Gateway.SendConfirmMyEmailOtpAsync();
+            _showCurrentEmailOtpInput = true;
+            _success = "📧 " + msg;
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _isBusy = false;
+        }
+    }
+
+    private async Task VerifyCurrentEmailCodeAsync()
+    {
+        _error = null;
+        _success = null;
+        _isBusy = true;
+        try
+        {
+            var msg = await Gateway.VerifyConfirmMyEmailOtpAsync(_currentEmailOtpCode);
+            _currentEmailOtpCode = string.Empty;
+            _showCurrentEmailOtpInput = false;
+            _success = msg;
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _isBusy = false;
+        }
+    }
+
+    private async Task SendEmailChangeCodeAsync()
+    {
+        _error = null;
+        _success = null;
+        _isBusy = true;
+        try
+        {
+            var msg = await Gateway.SendEmailChangeOtpAsync(_profileEmail);
+            _success = "📧 " + msg;
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _isBusy = false;
+        }
+    }
+
     private async Task SaveProfileAsync()
     {
         _error = null;
@@ -377,8 +512,14 @@
         _isBusy = true;
         try
         {
-            await Gateway.UpdateUserProfileAsync(new UpdateUserProfileRequest(_profileFullName, _profileEmail, null, _profileUsername));
-            _success = "✓ Dados de perfil atualizados com sucesso!";
+            await Gateway.UpdateUserProfileAsync(new UpdateUserProfileRequest(
+                _profileFullName,
+                _profileEmail,
+                null,
+                _profileUsername,
+                IsEmailModified ? _emailChangeOtpCode.Trim() : null));
+            _emailChangeOtpCode = string.Empty;
+            _success = "✓ Dados de perfil atualizados e sincronizados na nuvem com sucesso!";
         }
         catch (Exception ex)
         {
@@ -426,9 +567,9 @@
             return;
         }
 
-        if (string.IsNullOrWhiteSpace(_pwdNew) || _pwdNew.Length < 4)
+        if (string.IsNullOrWhiteSpace(_pwdNew) || _pwdNew.Trim().Length < 8)
         {
-            _error = "A nova senha deve ter no mínimo 4 caracteres.";
+            _error = "A nova senha deve ter no mínimo 8 caracteres.";
             return;
         }
 

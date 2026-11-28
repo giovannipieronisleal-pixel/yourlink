@@ -81,7 +81,10 @@ public sealed class CloudAccountRegistryService
             CloudAccountEntry? existing = null;
             if (!string.IsNullOrWhiteSpace(prevEmail))
             {
+                // Segurança crítica (Item 1): PreviousEmail NUNCA pode localizar uma conta sem senha (direito pré-liberado);
+                // só localiza contas que já possuem senha definida (e que exigirão CloudSessionToken válido).
                 existing = _state.Accounts.FirstOrDefault(a =>
+                    !string.IsNullOrWhiteSpace(a.PasswordHash) &&
                     string.Equals(NormalizeIdentifier(a.Email), prevEmail, StringComparison.OrdinalIgnoreCase));
             }
 
@@ -140,6 +143,17 @@ public sealed class CloudAccountRegistryService
 
                 if (isClaimingUnregisteredEntitlement)
                 {
+                    // Segurança crítica (Item 1): em conta sem senha que já possui e-mail definido,
+                    // exige que o Email enviado seja idêntico ao e-mail titular (ignorando qualquer tentativa de troca).
+                    if (!string.IsNullOrWhiteSpace(existing.Email) &&
+                        !string.Equals(NormalizeIdentifier(existing.Email), email, StringComparison.OrdinalIgnoreCase))
+                    {
+                        return new CloudAccountUpsertResult(
+                            Success: false,
+                            StatusCode: 403,
+                            Message: "Não é permitido alterar o e-mail de um plano pré-liberado antes de ativar a conta com o próprio e-mail titular.");
+                    }
+
                     // Segurança crítica (Item A): todo cadastro/assunção de conta exige confirmação
                     // prévia de posse do e-mail (OTP 6 dígitos) antes de gravar senha ou assumir plano.
                     if (!hasValidSyncKey && !emailVerifiedByServer)
@@ -324,6 +338,77 @@ public sealed class CloudAccountRegistryService
                 !string.IsNullOrWhiteSpace(a.Email) &&
                 string.Equals(NormalizeIdentifier(a.Email), normalized, StringComparison.OrdinalIgnoreCase));
             return match?.IsEmailVerified == true;
+        }
+        finally
+        {
+            _lock.Release();
+        }
+    }
+
+    public async Task<bool> IsEmailUsedByAnotherAccountAsync(
+        string? candidateEmail,
+        string? currentEmail,
+        CancellationToken ct = default)
+    {
+        var normCandidate = NormalizeIdentifier(candidateEmail);
+        var normCurrent = NormalizeIdentifier(currentEmail);
+        if (string.IsNullOrWhiteSpace(normCandidate))
+            return false;
+
+        await _lock.WaitAsync(ct);
+        try
+        {
+            RefreshFromDiskIfModifiedUnsafe();
+            return _state.Accounts.Any(a =>
+                !string.IsNullOrWhiteSpace(a.Email) &&
+                string.Equals(NormalizeIdentifier(a.Email), normCandidate, StringComparison.OrdinalIgnoreCase) &&
+                !string.Equals(NormalizeIdentifier(a.Email), normCurrent, StringComparison.OrdinalIgnoreCase));
+        }
+        finally
+        {
+            _lock.Release();
+        }
+    }
+
+    public async Task<(bool Success, string? VerifiedEmail, string Message)> MarkEmailVerifiedBySessionAsync(
+        string? rawToken,
+        CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(rawToken))
+            return (false, null, "Sessão na nuvem ausente ou inválida.");
+
+        var tokenHash = HashSessionTokenSha256(rawToken.Trim());
+        var tokenHashBytes = Encoding.ASCII.GetBytes(tokenHash);
+        var now = DateTimeOffset.UtcNow;
+
+        await _lock.WaitAsync(ct);
+        try
+        {
+            RefreshFromDiskIfModifiedUnsafe();
+            foreach (var acc in _state.Accounts)
+            {
+                if (acc.Sessions is null || acc.Sessions.Count == 0)
+                    continue;
+
+                foreach (var session in acc.Sessions)
+                {
+                    if (session.ExpiresAt <= now || string.IsNullOrWhiteSpace(session.TokenHash))
+                        continue;
+
+                    var storedBytes = Encoding.ASCII.GetBytes(session.TokenHash);
+                    if (storedBytes.Length == tokenHashBytes.Length &&
+                        System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(storedBytes, tokenHashBytes))
+                    {
+                        acc.IsEmailVerified = true;
+                        acc.EmailVerifiedAt ??= now;
+                        acc.UpdatedAt = now;
+                        SaveToDiskUnsafe();
+                        return (true, acc.Email, "✓ Seu e-mail foi confirmado com sucesso!");
+                    }
+                }
+            }
+
+            return (false, null, "Sessão expirada. Saia e entre novamente na sua conta.");
         }
         finally
         {

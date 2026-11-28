@@ -52,7 +52,8 @@ services:
         value: "https://youlink-edge-accelerator.youlink-edge.workers.dev"
       - key: YOULINK_GLOBAL_BANNER
         sync: false
-      # Opcional: Envio automático de código OTP por E-mail (configure Resend, Brevo OU SMTP)
+      # OBRIGATÓRIO em produção: Envio automático de código OTP de 6 dígitos por E-mail
+      # (necessário para cadastro de conta, confirmação de e-mail, troca de e-mail e recuperação de senha — configure Brevo, Resend OU SMTP):
       - key: RESEND_API_KEY
         sync: false
       - key: BREVO_API_KEY

@@ -33,7 +33,7 @@ public sealed record AppUpdateReleaseInfo(
 /// </summary>
 public static class AppUpdateCatalog
 {
-    public const string CurrentAppVersion = "1.0.82";
+    public const string CurrentAppVersion = "1.0.83";
     public const string DefaultCentralPlatformServerUrl = "https://youlink-loja.onrender.com";
     public const string DefaultCloudflareEdgeOrigin = "https://youlink-edge-accelerator.youlink-edge.workers.dev";
     public const string DefaultCloudPanelUrl = DefaultCloudflareEdgeOrigin + "/painel/index.html";
@@ -50,6 +50,16 @@ public static class AppUpdateCatalog
     public const string AndroidAssetName = "YouLink-Android.apk";
     public const string WindowsLauncherName = "YouLink.exe";
     public const string WindowsExecutableName = "appmaui.blazor.exe";
+
+    /// <summary>
+    /// Thumbprint SHA-1 (40 hex) fixo do certificado oficial de Code Signing da YouLink.
+    /// Quando vazio (sem certificado comercial OV/EV configurado), a assinatura é tratada
+    /// como inexistente — certificados autoassinados ou de terceiros NUNCA são aceitos.
+    /// </summary>
+    public const string OfficialWindowsSignerThumbprint = "";
+
+    public static bool HasConfiguredOfficialSignerThumbprint
+        => NormalizeCertificateThumbprint(OfficialWindowsSignerThumbprint) is not null;
 
     public static string NormalizeVersion(string? rawVersion)
     {
@@ -597,7 +607,8 @@ public static class AppUpdateCatalog
         string? updaterCacheRootDir = null,
         string? packageZipPath = null,
         string? expectedSha256 = null,
-        bool requireAuthenticodeSignature = false)
+        bool requireAuthenticodeSignature = false,
+        string? expectedSignerThumbprint = null)
     {
         var effectiveDisplay = string.IsNullOrWhiteSpace(appDisplayName) ? "YouLink" : appDisplayName.Trim();
         var effectiveLauncher = string.IsNullOrWhiteSpace(launcherFileName) ? WindowsLauncherName : launcherFileName.Trim();
@@ -606,6 +617,7 @@ public static class AppUpdateCatalog
             : updaterCacheRootDir.TrimEnd('\\', '/');
         var normalizedZipPath = packageZipPath?.Trim() ?? string.Empty;
         var normalizedSha256 = NormalizeSha256Hex(expectedSha256) ?? string.Empty;
+        var normalizedThumbprint = NormalizeCertificateThumbprint(expectedSignerThumbprint) ?? string.Empty;
 
         var sb = new StringBuilder();
         sb.AppendLine("$ErrorActionPreference = 'Stop'");
@@ -616,6 +628,7 @@ public static class AppUpdateCatalog
         sb.AppendLine($"$launcherName = '{EscapePowerShellSingleQuoted(effectiveLauncher)}'");
         sb.AppendLine($"$packageZip = '{EscapePowerShellSingleQuoted(normalizedZipPath)}'");
         sb.AppendLine($"$expectedSha256 = '{EscapePowerShellSingleQuoted(normalizedSha256)}'");
+        sb.AppendLine($"$expectedThumbprint = '{EscapePowerShellSingleQuoted(normalizedThumbprint)}'");
         sb.AppendLine($"$requireAuthenticode = ${(requireAuthenticodeSignature ? "true" : "false")}");
         sb.AppendLine($"$logPath = '{EscapePowerShellSingleQuoted(logFilePath)}'");
         sb.AppendLine($"$updaterRootDir = '{EscapePowerShellSingleQuoted(normalizedCacheRoot)}'");
@@ -638,11 +651,16 @@ public static class AppUpdateCatalog
         sb.AppendLine("    }");
         sb.AppendLine("}");
         sb.AppendLine("if ($requireAuthenticode) {");
+        sb.AppendLine("    if (-not $expectedThumbprint -or $expectedThumbprint.Length -ne 40) {");
+        sb.AppendLine("        Write-Log 'ERRO CRÍTICO: Thumbprint oficial da YouLink ausente; assinatura tratada como inexistente.'");
+        sb.AppendLine("        throw 'Certificado oficial da YouLink não configurado para validar assinatura digital. Instalação abortada.'");
+        sb.AppendLine("    }");
         sb.AppendLine("    $candidateExe = Join-Path $sourceDir $exeName");
         sb.AppendLine("    $sigExe = Get-AuthenticodeSignature -FilePath $candidateExe");
-        sb.AppendLine("    if ($null -eq $sigExe.SignerCertificate -or $sigExe.Status -in @('NotSigned', 'HashMismatch')) {");
-        sb.AppendLine("        Write-Log \"ERRO CRÍTICO: Executável sem assinatura digital válida ($($sigExe.Status)).\"");
-        sb.AppendLine("        throw 'Executável da atualização não possui assinatura digital Authenticode íntegra.'");
+        sb.AppendLine("    $actualExeThumb = if ($null -ne $sigExe.SignerCertificate -and $sigExe.SignerCertificate.Thumbprint) { ($sigExe.SignerCertificate.Thumbprint -replace '[^0-9A-Fa-f]', '').ToUpperInvariant() } else { '' }");
+        sb.AppendLine("    if ($sigExe.Status -ne 'Valid' -or $actualExeThumb -ne $expectedThumbprint) {");
+        sb.AppendLine("        Write-Log \"ERRO CRÍTICO: Assinatura Authenticode recusada em $candidateExe (Status=$($sigExe.Status), Thumbprint=$actualExeThumb, Esperado=$expectedThumbprint).\"");
+        sb.AppendLine("        throw 'Executável da atualização não possui assinatura digital válida do certificado oficial da YouLink.'");
         sb.AppendLine("    }");
         sb.AppendLine("}");
         sb.AppendLine("for ($i = 0; $i -lt 40; $i++) {");
@@ -776,6 +794,55 @@ public static class AppUpdateCatalog
         }
     }
 
+    public static string? NormalizeCertificateThumbprint(string? raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw))
+            return null;
+
+        var sb = new StringBuilder(40);
+        foreach (var ch in raw)
+        {
+            if (char.IsWhiteSpace(ch) || ch == ':' || ch == '-')
+                continue;
+
+            var isHex = (ch >= '0' && ch <= '9') || (ch >= 'a' && ch <= 'f') || (ch >= 'A' && ch <= 'F');
+            if (!isHex)
+                return null;
+
+            sb.Append(char.ToUpperInvariant(ch));
+        }
+
+        return sb.Length == 40 ? sb.ToString() : null;
+    }
+
+    /// <summary>
+    /// Valida estritamente a assinatura Authenticode do Windows:
+    /// - Sem thumbprint oficial configurado (40 hex), a assinatura é tratada como inexistente (false).
+    /// - Exige Status == "Valid" (rejeita autoassinados UnknownError, NotTrusted, HashMismatch, NotSigned).
+    /// - Exige correspondência exata e em tempo constante com o thumbprint oficial da YouLink.
+    /// </summary>
+    public static bool IsTrustedAuthenticodeSignature(
+        string? signatureStatus,
+        string? actualSignerThumbprint,
+        string? expectedSignerThumbprint)
+    {
+        var normalizedExpected = NormalizeCertificateThumbprint(expectedSignerThumbprint);
+        if (string.IsNullOrWhiteSpace(normalizedExpected))
+            return false;
+
+        if (!string.Equals(signatureStatus?.Trim(), "Valid", StringComparison.OrdinalIgnoreCase))
+            return false;
+
+        var normalizedActual = NormalizeCertificateThumbprint(actualSignerThumbprint);
+        if (string.IsNullOrWhiteSpace(normalizedActual))
+            return false;
+
+        var actualBytes = Encoding.ASCII.GetBytes(normalizedActual);
+        var expectedBytes = Encoding.ASCII.GetBytes(normalizedExpected);
+        return actualBytes.Length == expectedBytes.Length &&
+               CryptographicOperations.FixedTimeEquals(actualBytes, expectedBytes);
+    }
+
     public static string BuildWindowsInstallerUpdateScript(
         int targetProcessId,
         string setupExePath,
@@ -784,7 +851,8 @@ public static class AppUpdateCatalog
         string? appDisplayName = null,
         string? updaterCacheRootDir = null,
         string? expectedSha256 = null,
-        bool requireAuthenticodeSignature = true)
+        bool requireAuthenticodeSignature = false,
+        string? expectedSignerThumbprint = null)
     {
         var effectiveDisplay = string.IsNullOrWhiteSpace(appDisplayName) ? "YouLink" : appDisplayName.Trim();
         var setupName = Path.GetFileName(setupExePath);
@@ -792,12 +860,14 @@ public static class AppUpdateCatalog
             ? string.Empty
             : updaterCacheRootDir.TrimEnd('\\', '/');
         var normalizedSha256 = NormalizeSha256Hex(expectedSha256) ?? string.Empty;
+        var normalizedThumbprint = NormalizeCertificateThumbprint(expectedSignerThumbprint) ?? string.Empty;
 
         var sb = new StringBuilder();
         sb.AppendLine("$ErrorActionPreference = 'Stop'");
         sb.AppendLine($"$targetPid = {targetProcessId}");
         sb.AppendLine($"$setupExe = '{EscapePowerShellSingleQuoted(setupExePath)}'");
         sb.AppendLine($"$expectedSha256 = '{EscapePowerShellSingleQuoted(normalizedSha256)}'");
+        sb.AppendLine($"$expectedThumbprint = '{EscapePowerShellSingleQuoted(normalizedThumbprint)}'");
         sb.AppendLine($"$requireAuthenticode = ${(requireAuthenticodeSignature ? "true" : "false")}");
         sb.AppendLine($"$launchExe = '{EscapePowerShellSingleQuoted(targetLauncherPath)}'");
         sb.AppendLine($"$logPath = '{EscapePowerShellSingleQuoted(logFilePath)}'");
@@ -818,13 +888,19 @@ public static class AppUpdateCatalog
         sb.AppendLine("}");
         sb.AppendLine("Write-Log \"Integridade SHA-256 validada: $actualSha256\"");
         sb.AppendLine("if ($requireAuthenticode) {");
-        sb.AppendLine("    $sig = Get-AuthenticodeSignature -FilePath $setupExe");
-        sb.AppendLine("    if ($null -eq $sig.SignerCertificate -or $sig.Status -in @('NotSigned', 'HashMismatch')) {");
-        sb.AppendLine("        Write-Log \"ERRO CRÍTICO: Instalador sem assinatura digital Authenticode íntegra ($($sig.Status)).\"");
+        sb.AppendLine("    if (-not $expectedThumbprint -or $expectedThumbprint.Length -ne 40) {");
+        sb.AppendLine("        Write-Log 'ERRO CRÍTICO: Thumbprint oficial da YouLink não configurado; assinatura tratada como inexistente.'");
         sb.AppendLine("        Remove-Item -Path $setupExe -Force -ErrorAction SilentlyContinue");
-        sb.AppendLine("        throw 'Instalador não possui assinatura digital Authenticode válida. Instalação abortada.'");
+        sb.AppendLine("        throw 'Certificado oficial da YouLink não configurado para validar assinatura digital. Instalação abortada.'");
         sb.AppendLine("    }");
-        sb.AppendLine("    Write-Log \"Assinatura digital Authenticode presente: $($sig.SignerCertificate.Subject) ($($sig.Status))\"");
+        sb.AppendLine("    $sig = Get-AuthenticodeSignature -FilePath $setupExe");
+        sb.AppendLine("    $actualThumb = if ($null -ne $sig.SignerCertificate -and $sig.SignerCertificate.Thumbprint) { ($sig.SignerCertificate.Thumbprint -replace '[^0-9A-Fa-f]', '').ToUpperInvariant() } else { '' }");
+        sb.AppendLine("    if ($sig.Status -ne 'Valid' -or $actualThumb -ne $expectedThumbprint) {");
+        sb.AppendLine("        Write-Log \"ERRO CRÍTICO: Instalador recusado (Status=$($sig.Status), Thumbprint=$actualThumb, Esperado=$expectedThumbprint).\"");
+        sb.AppendLine("        Remove-Item -Path $setupExe -Force -ErrorAction SilentlyContinue");
+        sb.AppendLine("        throw 'Instalador não possui assinatura digital Authenticode válida da YouLink. Instalação abortada.'");
+        sb.AppendLine("    }");
+        sb.AppendLine("    Write-Log \"Assinatura digital oficial YouLink validada: $($sig.SignerCertificate.Subject) ($actualThumb)\"");
         sb.AppendLine("}");
         sb.AppendLine("for ($i = 0; $i -lt 40; $i++) {");
         sb.AppendLine("    $proc = Get-Process -Id $targetPid -ErrorAction SilentlyContinue");

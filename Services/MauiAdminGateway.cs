@@ -61,6 +61,59 @@ public sealed class MauiAdminGateway
     private DateTimeOffset _lastCloudPlanSyncAt = DateTimeOffset.MinValue;
     private DateTimeOffset _lastBackgroundStorePullAt = DateTimeOffset.MinValue;
     private readonly SemaphoreSlim _cloudPlanSyncLock = new(1, 1);
+    private bool _cloudEmailVerifiedKnown;
+    private bool _isCloudEmailVerified = true;
+
+    public bool NeedsCloudEmailVerification =>
+        IsAuthenticated &&
+        !HasCustomServerUrl &&
+        _cloudEmailVerifiedKnown &&
+        !_isCloudEmailVerified &&
+        !string.IsNullOrWhiteSpace(CurrentEmployee?.Email) &&
+        CurrentEmployee.Email.Contains('@', StringComparison.Ordinal);
+
+    private void SetCachedCloudEmailVerified(bool isVerified)
+    {
+        _cloudEmailVerifiedKnown = true;
+        _isCloudEmailVerified = isVerified;
+        try
+        {
+            var ws = string.IsNullOrWhiteSpace(CurrentWorkspaceId) ? "default" : CurrentWorkspaceId;
+            Preferences.Default.Set($"youlink_cloud_email_verified_{ws}", isVerified ? "1" : "0");
+        }
+        catch
+        {
+        }
+    }
+
+    private void LoadCachedCloudEmailVerifiedForCurrentWorkspace()
+    {
+        try
+        {
+            var ws = string.IsNullOrWhiteSpace(CurrentWorkspaceId) ? "default" : CurrentWorkspaceId;
+            var raw = Preferences.Default.Get($"youlink_cloud_email_verified_{ws}", string.Empty);
+            if (raw == "1")
+            {
+                _cloudEmailVerifiedKnown = true;
+                _isCloudEmailVerified = true;
+            }
+            else if (raw == "0")
+            {
+                _cloudEmailVerifiedKnown = true;
+                _isCloudEmailVerified = false;
+            }
+            else
+            {
+                _cloudEmailVerifiedKnown = false;
+                _isCloudEmailVerified = true;
+            }
+        }
+        catch
+        {
+            _cloudEmailVerifiedKnown = false;
+            _isCloudEmailVerified = true;
+        }
+    }
 
     // Cache leve em memória para trocar de aba sem sumir/piscar dados na tela
     public DashboardSummaryDto? CachedDashboardSummary { get; private set; }
@@ -908,6 +961,8 @@ public sealed class MauiAdminGateway
     {
         AccessToken = null;
         CurrentEmployee = null;
+        _cloudEmailVerifiedKnown = false;
+        _isCloudEmailVerified = true;
         _lastCloudPlanSyncAt = DateTimeOffset.MinValue;
         _shownSessionPopupSignatures.Clear();
         ActivePlanPopupNotice = null;
@@ -931,7 +986,7 @@ public sealed class MauiAdminGateway
 
         try
         {
-            using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(12) };
+            using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(18) };
             using var resp = await client.PostAsJsonAsync(
                 $"{centralUrl.TrimEnd('/')}/api/cloud/accounts/register",
                 request,
@@ -944,19 +999,25 @@ public sealed class MauiAdminGateway
                 throw new DomainException(errMsg);
             }
 
-            if (resp.StatusCode == System.Net.HttpStatusCode.Forbidden ||
-                resp.StatusCode == System.Net.HttpStatusCode.BadRequest)
+            if ((int)resp.StatusCode == 429)
             {
                 var errMsg = await TryReadErrorMessageAsync(resp, ct)
-                    ?? "Verifique os dados informados para criar a conta.";
+                    ?? "Muitas tentativas em sequência. Aguarde um minuto e tente novamente.";
                 throw new DomainException(errMsg);
             }
 
-            if (resp.IsSuccessStatusCode)
+            if (!resp.IsSuccessStatusCode)
             {
-                var verified = await resp.Content.ReadFromJsonAsync<CloudVerifyLoginResponseDto>(cancellationToken: ct);
-                return verified?.CloudSessionToken ?? verified?.Account?.CloudSessionToken;
+                var errMsg = await TryReadErrorMessageAsync(resp, ct)
+                    ?? ((int)resp.StatusCode >= 500
+                        ? "O servidor YouLink está temporariamente indisponível para confirmar seu e-mail por código de 6 dígitos. Tente novamente em alguns segundos."
+                        : "Verifique os dados informados para criar a conta.");
+                throw new DomainException(errMsg);
             }
+
+            var verified = await resp.Content.ReadFromJsonAsync<CloudVerifyLoginResponseDto>(cancellationToken: ct);
+            SetCachedCloudEmailVerified(true);
+            return verified?.CloudSessionToken ?? verified?.Account?.CloudSessionToken;
         }
         catch (DomainException)
         {
@@ -964,10 +1025,10 @@ public sealed class MauiAdminGateway
         }
         catch
         {
-            // Sem internet no momento: prossegue com validação local entre workspaces do dispositivo.
+            // Segurança: nunca cria conta apenas no aparelho sem confirmar o código OTP na nuvem.
+            throw new DomainException(
+                "Não foi possível conectar ao servidor YouLink para enviar ou confirmar o código de 6 dígitos do seu e-mail. Verifique sua conexão com a internet e tente novamente.");
         }
-
-        return null;
     }
 
     private async Task TryAcquireCloudSessionTokenBestEffortAsync(LoginRequest cleanRequest, CancellationToken ct = default)
@@ -982,7 +1043,7 @@ public sealed class MauiAdminGateway
         try
         {
             using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-            timeoutCts.CancelAfter(TimeSpan.FromSeconds(6));
+            timeoutCts.CancelAfter(TimeSpan.FromSeconds(8));
             using var content = System.Net.Http.Json.JsonContent.Create(cleanRequest);
             using var response = await RemotePlatformBillingHttpClient.PostAsync(
                 $"{centralUrl.TrimEnd('/')}/api/cloud/accounts/verify-login",
@@ -995,12 +1056,156 @@ public sealed class MauiAdminGateway
                 if (!string.IsNullOrWhiteSpace(tok))
                 {
                     GoogleCloudSyncService.SaveCachedCloudSessionToken(tok, CurrentWorkspaceId);
+                    SetCachedCloudEmailVerified(res?.IsEmailVerified == true || res?.Account?.IsEmailVerified == true);
                 }
             }
         }
         catch
         {
         }
+    }
+
+    public async Task RefreshCloudSessionVerificationStatusAsync(CancellationToken ct = default)
+    {
+        if (!IsAuthenticated || HasCustomServerUrl)
+            return;
+
+        LoadCachedCloudEmailVerifiedForCurrentWorkspace();
+
+        var cloudToken = GoogleCloudSyncService.GetCachedCloudSessionToken(CurrentWorkspaceId);
+        if (string.IsNullOrWhiteSpace(cloudToken))
+            return;
+
+        var centralUrl = ResolveCentralBillingServerUrl(null, allowDefaultFallback: true);
+        if (string.IsNullOrWhiteSpace(centralUrl))
+            return;
+
+        try
+        {
+            using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            timeoutCts.CancelAfter(TimeSpan.FromSeconds(8));
+            using var req = new HttpRequestMessage(HttpMethod.Get, $"{centralUrl.TrimEnd('/')}/api/cloud/accounts/me-status");
+            req.Headers.TryAddWithoutValidation("X-YouLink-Cloud-Token", cloudToken);
+            using var resp = await RemotePlatformBillingHttpClient.SendAsync(req, timeoutCts.Token);
+            if (resp.IsSuccessStatusCode)
+            {
+                var me = await resp.Content.ReadFromJsonAsync<CloudSessionMeStatusDto>(cancellationToken: timeoutCts.Token);
+                if (me is not null)
+                {
+                    var prev = NeedsCloudEmailVerification;
+                    SetCachedCloudEmailVerified(me.IsEmailVerified);
+                    if (prev != NeedsCloudEmailVerification)
+                        AuthStateChanged?.Invoke();
+                }
+            }
+        }
+        catch
+        {
+        }
+    }
+
+    public async Task<string> SendConfirmMyEmailOtpAsync(CancellationToken ct = default)
+    {
+        EnsureAuthenticated();
+        var cloudToken = GoogleCloudSyncService.GetCachedCloudSessionToken(CurrentWorkspaceId);
+        if (string.IsNullOrWhiteSpace(cloudToken))
+            throw new DomainException("Saia e entre novamente na sua conta para iniciar a confirmação de e-mail.");
+
+        var centralUrl = WhatsAppLinkBuilder.NormalizePublicServerUrl(LatestAdminCentralServerUrl);
+        if (string.IsNullOrWhiteSpace(centralUrl))
+            centralUrl = AppUpdateCatalog.DefaultCentralPlatformServerUrl;
+
+        using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(18) };
+        using var req = new HttpRequestMessage(HttpMethod.Post, $"{centralUrl.TrimEnd('/')}/api/cloud/accounts/confirm-email/send")
+        {
+            Content = System.Net.Http.Json.JsonContent.Create(new CloudConfirmMyEmailSendRequest(cloudToken))
+        };
+        req.Headers.TryAddWithoutValidation("X-YouLink-Cloud-Token", cloudToken);
+
+        using var resp = await client.SendAsync(req, ct);
+        if (!resp.IsSuccessStatusCode)
+        {
+            var err = await TryReadErrorMessageAsync(resp, ct)
+                      ?? "Não foi possível enviar o código de verificação agora. Aguarde alguns segundos e tente novamente.";
+            throw new DomainException(err);
+        }
+
+        var body = await resp.Content.ReadFromJsonAsync<SendEmailOtpResponse>(cancellationToken: ct);
+        if (body is not null && body.ExpiresInSeconds == 0 && body.Sent)
+        {
+            SetCachedCloudEmailVerified(true);
+            AuthStateChanged?.Invoke();
+        }
+        return body?.Message ?? "Enviamos um código de 6 dígitos para o seu e-mail.";
+    }
+
+    public async Task<string> VerifyConfirmMyEmailOtpAsync(string code, CancellationToken ct = default)
+    {
+        EnsureAuthenticated();
+        var cleanCode = (code ?? string.Empty).Trim();
+        if (cleanCode.Length != 6)
+            throw new DomainException("Digite o código de 6 dígitos recebido no seu e-mail.");
+
+        var cloudToken = GoogleCloudSyncService.GetCachedCloudSessionToken(CurrentWorkspaceId);
+        if (string.IsNullOrWhiteSpace(cloudToken))
+            throw new DomainException("Saia e entre novamente na sua conta para confirmar seu e-mail.");
+
+        var centralUrl = WhatsAppLinkBuilder.NormalizePublicServerUrl(LatestAdminCentralServerUrl);
+        if (string.IsNullOrWhiteSpace(centralUrl))
+            centralUrl = AppUpdateCatalog.DefaultCentralPlatformServerUrl;
+
+        using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(18) };
+        using var req = new HttpRequestMessage(HttpMethod.Post, $"{centralUrl.TrimEnd('/')}/api/cloud/accounts/confirm-email/verify")
+        {
+            Content = System.Net.Http.Json.JsonContent.Create(new CloudConfirmMyEmailVerifyRequest(cleanCode, cloudToken))
+        };
+        req.Headers.TryAddWithoutValidation("X-YouLink-Cloud-Token", cloudToken);
+
+        using var resp = await client.SendAsync(req, ct);
+        if (!resp.IsSuccessStatusCode)
+        {
+            var err = await TryReadErrorMessageAsync(resp, ct) ?? "Código inválido ou expirado.";
+            throw new DomainException(err);
+        }
+
+        var body = await resp.Content.ReadFromJsonAsync<CloudConfirmMyEmailResponse>(cancellationToken: ct);
+        SetCachedCloudEmailVerified(true);
+        AuthStateChanged?.Invoke();
+        return body?.Message ?? "✓ E-mail confirmado com sucesso!";
+    }
+
+    public async Task<string> SendEmailChangeOtpAsync(string newEmail, CancellationToken ct = default)
+    {
+        EnsureAuthenticated();
+        var cleanNewEmail = (newEmail ?? string.Empty).Trim();
+        if (string.IsNullOrWhiteSpace(cleanNewEmail) || !cleanNewEmail.Contains('@', StringComparison.Ordinal))
+            throw new DomainException("Informe um novo endereço de e-mail válido.");
+
+        var cloudToken = GoogleCloudSyncService.GetCachedCloudSessionToken(CurrentWorkspaceId);
+        if (string.IsNullOrWhiteSpace(cloudToken))
+            throw new DomainException("Saia e entre novamente na sua conta antes de alterar o e-mail.");
+
+        var centralUrl = WhatsAppLinkBuilder.NormalizePublicServerUrl(LatestAdminCentralServerUrl);
+        if (string.IsNullOrWhiteSpace(centralUrl))
+            centralUrl = AppUpdateCatalog.DefaultCentralPlatformServerUrl;
+
+        using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(18) };
+        using var req = new HttpRequestMessage(HttpMethod.Post, $"{centralUrl.TrimEnd('/')}/api/cloud/accounts/email-change/send")
+        {
+            Content = System.Net.Http.Json.JsonContent.Create(new CloudEmailChangeSendOtpRequest(cleanNewEmail, cloudToken))
+        };
+        req.Headers.TryAddWithoutValidation("X-YouLink-Cloud-Token", cloudToken);
+
+        using var resp = await client.SendAsync(req, ct);
+        if (!resp.IsSuccessStatusCode)
+        {
+            var err = await TryReadErrorMessageAsync(resp, ct)
+                      ?? "Não foi possível enviar o código para o novo e-mail.";
+            throw new DomainException(err);
+        }
+
+        var body = await resp.Content.ReadFromJsonAsync<SendEmailOtpResponse>(cancellationToken: ct);
+        return body?.Message ?? $"Enviamos um código de 6 dígitos para {cleanNewEmail}.";
     }
 
     private static async Task<string?> TryReadErrorMessageAsync(HttpResponseMessage resp, CancellationToken ct)
@@ -1195,6 +1400,86 @@ public sealed class MauiAdminGateway
             : null;
         var previousHash = previousUser?.PasswordHash;
         var previousEmail = previousUser?.Email ?? CurrentEmployee.Email;
+        var cleanNextEmail = (request.Email ?? string.Empty).Trim();
+        var isEmailChanged = !string.IsNullOrWhiteSpace(previousEmail) &&
+                             !string.Equals(cleanNextEmail, previousEmail.Trim(), StringComparison.OrdinalIgnoreCase);
+
+        // Segurança crítica (Item 3): se o lojista estiver alterando o e-mail no modo nuvem,
+        // valida o código OTP de 6 dígitos e confirma na nuvem ANTES de gravar localmente,
+        // impedindo divergência silenciosa entre aparelho e servidor.
+        if (isEmailChanged && !HasCustomServerUrl && _workspaceRepository is not null)
+        {
+            if (string.IsNullOrWhiteSpace(cleanNextEmail) || !cleanNextEmail.Contains('@', StringComparison.Ordinal))
+                throw new DomainException("Informe um novo endereço de e-mail válido.");
+
+            var cloudToken = GoogleCloudSyncService.GetCachedCloudSessionToken(CurrentWorkspaceId);
+            if (string.IsNullOrWhiteSpace(cloudToken))
+                throw new DomainException("Saia e entre novamente na sua conta antes de alterar o e-mail.");
+
+            if (string.IsNullOrWhiteSpace(request.EmailOtpCode) || request.EmailOtpCode.Trim().Length != 6)
+            {
+                var sentMsg = await SendEmailChangeOtpAsync(cleanNextEmail);
+                throw new DomainException($"📧 {sentMsg} Digite o código de 6 dígitos no campo acima e clique novamente para confirmar a troca.");
+            }
+
+            if (string.IsNullOrWhiteSpace(previousHash))
+                throw new DomainException("Credenciais locais indisponíveis para sincronizar a troca de e-mail.");
+
+            var settings = await _workspaceRepository.GetStoreSettingsAsync();
+            var centralUrl = WhatsAppLinkBuilder.NormalizePublicServerUrl(LatestAdminCentralServerUrl);
+            if (string.IsNullOrWhiteSpace(centralUrl))
+                centralUrl = AppUpdateCatalog.DefaultCentralPlatformServerUrl;
+
+            var syncDto = new CloudAccountCredentialSyncDto(
+                FullName: string.IsNullOrWhiteSpace(request.FullName) ? CurrentEmployee.FullName : request.FullName.Trim(),
+                Username: string.IsNullOrWhiteSpace(request.Username) ? CurrentEmployee.EffectiveUsername : request.Username.Trim(),
+                Email: cleanNextEmail,
+                PasswordHash: previousHash,
+                Phone: request.Phone ?? CurrentEmployee.Phone,
+                StoreName: !string.Equals(settings.StoreName?.Trim(), "Minha Loja", StringComparison.OrdinalIgnoreCase) ? settings.StoreName?.Trim() : null,
+                StoreSlug: !string.Equals(settings.StoreSlug?.Trim(), "minha-loja", StringComparison.OrdinalIgnoreCase) ? settings.StoreSlug?.Trim() : null,
+                PreviousEmail: previousEmail.Trim(),
+                CloudSessionToken: cloudToken,
+                EmailOtpCode: request.EmailOtpCode.Trim(),
+                IsEmailVerified: true);
+
+            try
+            {
+                using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(18) };
+                using var httpReq = new HttpRequestMessage(HttpMethod.Post, $"{centralUrl.TrimEnd('/')}/api/cloud/accounts/upsert")
+                {
+                    Content = System.Net.Http.Json.JsonContent.Create(syncDto)
+                };
+                httpReq.Headers.TryAddWithoutValidation("X-YouLink-Cloud-Token", cloudToken);
+
+                using var resp = await client.SendAsync(httpReq);
+                if (!resp.IsSuccessStatusCode)
+                {
+                    var err = await TryReadErrorMessageAsync(resp, CancellationToken.None)
+                              ?? "Não foi possível confirmar o novo e-mail no servidor. Verifique o código informado.";
+                    throw new DomainException(err);
+                }
+
+                var rawUpsert = await resp.Content.ReadAsStringAsync();
+                using var doc = JsonDocument.Parse(rawUpsert);
+                if (doc.RootElement.TryGetProperty("cloudSessionToken", out var tokProp) &&
+                    tokProp.ValueKind == JsonValueKind.String &&
+                    !string.IsNullOrWhiteSpace(tokProp.GetString()))
+                {
+                    GoogleCloudSyncService.SaveCachedCloudSessionToken(tokProp.GetString(), CurrentWorkspaceId);
+                }
+                SetCachedCloudEmailVerified(true);
+            }
+            catch (DomainException)
+            {
+                throw;
+            }
+            catch
+            {
+                throw new DomainException(
+                    "Sem conexão com o servidor YouLink no momento. A troca de e-mail exige confirmação online e não foi aplicada para evitar divergência na sua conta.");
+            }
+        }
 
         var updated = await _authService.UpdateUserProfileAsync(userId, request);
         if (_workspaceRepository is not null)
@@ -1212,14 +1497,15 @@ public sealed class MauiAdminGateway
         {
             await PersistSessionAsync(
                 new LoginResponse(AccessToken ?? string.Empty, DateTimeOffset.UtcNow.AddDays(30), updated),
-                rememberMe: true);
+                rememberMe: true,
+                deferBackgroundCloudSync: isEmailChanged);
         }
         else
         {
             AuthStateChanged?.Invoke();
         }
 
-        if (!HasCustomServerUrl && _workspaceRepository is not null)
+        if (!isEmailChanged && !HasCustomServerUrl && _workspaceRepository is not null)
         {
             _ = SyncAccountByUserIdToCloudAsync(userId, previousEmail, previousHash);
         }
@@ -3313,6 +3599,7 @@ public sealed class MauiAdminGateway
                             {
                                 GoogleCloudSyncService.SaveCachedCloudSessionToken(sessionTok, CurrentWorkspaceId);
                             }
+                            SetCachedCloudEmailVerified(result.IsEmailVerified || result.Account.IsEmailVerified);
                         }
                         return hydrated;
                     }

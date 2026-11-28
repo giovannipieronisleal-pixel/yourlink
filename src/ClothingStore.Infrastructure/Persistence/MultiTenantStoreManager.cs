@@ -204,11 +204,20 @@ public sealed class MultiTenantStoreManager : IMultiTenantStoreResolver
                     existing.PublishTokenHash = HashToken(rotatedToken);
                 }
 
+                // Segurança: só marca IsOwnerEmailVerified = true se a loja ainda não tinha dono definido
+                // OU se o e-mail logado e verificado for exatamente igual ao OwnerEmail da loja.
                 if (isOwnerEmailServerVerified && !string.IsNullOrWhiteSpace(authenticatedOwnerEmail))
                 {
+                    var normAuthOwner = NormalizeEmail(authenticatedOwnerEmail);
                     if (string.IsNullOrWhiteSpace(existing.OwnerEmail))
-                        existing.OwnerEmail = NormalizeEmail(authenticatedOwnerEmail);
-                    existing.IsOwnerEmailVerified = true;
+                    {
+                        existing.OwnerEmail = normAuthOwner;
+                        existing.IsOwnerEmailVerified = !string.IsNullOrWhiteSpace(normAuthOwner);
+                    }
+                    else if (string.Equals(existing.OwnerEmail, normAuthOwner, StringComparison.OrdinalIgnoreCase))
+                    {
+                        existing.IsOwnerEmailVerified = true;
+                    }
                 }
 
                 existing.UpdatedAt = DateTimeOffset.UtcNow;
@@ -330,6 +339,55 @@ public sealed class MultiTenantStoreManager : IMultiTenantStoreResolver
         {
             var index = LoadIndexUnsafe();
             return index.Tenants.ContainsKey(normalized);
+        }
+        finally
+        {
+            _indexLock.Release();
+        }
+    }
+
+    public async Task ConfirmOwnerEmailAcrossStoresAsync(
+        string verifiedOwnerEmail,
+        string? updatedNewOwnerEmail = null,
+        CancellationToken ct = default)
+    {
+        var normVerified = NormalizeEmail(verifiedOwnerEmail);
+        var normUpdated = NormalizeEmail(updatedNewOwnerEmail);
+        if (string.IsNullOrWhiteSpace(normVerified))
+            return;
+
+        await _indexLock.WaitAsync(ct);
+        try
+        {
+            var index = LoadIndexUnsafe();
+            var changed = false;
+            var now = DateTimeOffset.UtcNow;
+
+            foreach (var entry in index.Tenants.Values)
+            {
+                if (string.IsNullOrWhiteSpace(entry.OwnerEmail) ||
+                    !string.Equals(NormalizeEmail(entry.OwnerEmail), normVerified, StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                if (!string.IsNullOrWhiteSpace(normUpdated) && entry.IsOwnerEmailVerified)
+                {
+                    entry.OwnerEmail = normUpdated;
+                    entry.IsOwnerEmailVerified = true;
+                    entry.UpdatedAt = now;
+                    changed = true;
+                }
+                else if (string.IsNullOrWhiteSpace(normUpdated) && !entry.IsOwnerEmailVerified)
+                {
+                    entry.IsOwnerEmailVerified = true;
+                    entry.UpdatedAt = now;
+                    changed = true;
+                }
+            }
+
+            if (changed)
+                SaveIndexUnsafe(index);
         }
         finally
         {

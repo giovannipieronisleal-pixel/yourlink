@@ -107,7 +107,8 @@ public sealed record UpdateUserProfileRequest(
     string Email,
 
     string? Phone = null,
-    string? Username = null);
+    string? Username = null,
+    string? EmailOtpCode = null);
 
 public sealed record SetSecurityPinRequest(
     [Required(ErrorMessage = "Informe sua senha atual.")]
@@ -267,6 +268,29 @@ public sealed record CloudVerifyLoginResponseDto(
     string? CloudSessionToken = null,
     DateTimeOffset? CloudSessionExpiresAt = null,
     bool IsEmailVerified = false);
+
+public sealed record CloudConfirmMyEmailSendRequest(
+    string? CloudSessionToken = null);
+
+public sealed record CloudConfirmMyEmailVerifyRequest(
+    string Code,
+    string? CloudSessionToken = null);
+
+public sealed record CloudConfirmMyEmailResponse(
+    bool Verified,
+    string Email,
+    string Message);
+
+public sealed record CloudEmailChangeSendOtpRequest(
+    string NewEmail,
+    string? CloudSessionToken = null);
+
+public sealed record CloudSessionMeStatusDto(
+    bool Authenticated,
+    string? Email,
+    string? Username,
+    string? StoreSlug,
+    bool IsEmailVerified);
 
 public sealed record CloudPlanStatusDto(
     string PlanTier,

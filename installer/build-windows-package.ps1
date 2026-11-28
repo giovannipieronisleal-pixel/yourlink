@@ -110,10 +110,12 @@ if ($LASTEXITCODE -ne 0 -or -not (Test-Path $launcherExeOut)) {
 
 $signScript = Join-Path $PSScriptRoot "sign-windows-binaries.ps1"
 $mainAppExe = Join-Path $appDir "appmaui.blazor.exe"
-Write-Host "Assinando executáveis principais (appmaui.blazor.exe + YouLink.exe)..."
-& powershell.exe -NoProfile -ExecutionPolicy Bypass -File $signScript -FilePaths @($mainAppExe, $launcherExeOut)
-if ($LASTEXITCODE -ne 0) {
-    throw "Falha ao assinar executáveis Windows (código $LASTEXITCODE)."
+Write-Host "Processando assinatura digital dos executáveis principais (1 arquivo por chamada)..."
+foreach ($exeToSign in @($mainAppExe, $launcherExeOut)) {
+    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $signScript -FilePath $exeToSign
+    if ($LASTEXITCODE -ne 0) {
+        throw "Falha ao assinar executável Windows '$exeToSign' (código $LASTEXITCODE)."
+    }
 }
 
 $readmeTxt = @"
@@ -177,8 +179,8 @@ if ($BuildInstaller -or $RequireInstaller) {
         }
         $generatedSetupExe = Join-Path $resolvedInstallerDir "YouLink-Setup-x64.exe"
         if (Test-Path $generatedSetupExe) {
-            Write-Host "Assinando instalador Windows (YouLink-Setup-x64.exe)..."
-            & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $signScript -FilePaths @($generatedSetupExe)
+            Write-Host "Processando assinatura digital do instalador Windows (YouLink-Setup-x64.exe)..."
+            & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $signScript -FilePath $generatedSetupExe
             if ($LASTEXITCODE -ne 0) {
                 throw "Falha ao assinar YouLink-Setup-x64.exe (código $LASTEXITCODE)."
             }

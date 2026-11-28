@@ -146,6 +146,66 @@
                     </div>
                 }
 
+                @if (Gateway.IsAuthenticated && Gateway.NeedsCloudEmailVerification && !string.IsNullOrWhiteSpace(Gateway.CurrentEmployee?.Email))
+                {
+                    <div class="adm-compat-banner" role="alert" style="display: flex; flex-direction: column; gap: 0.5rem; padding: 0.75rem 1rem; background: rgba(217, 119, 6, 0.14); border-bottom: 1px solid rgba(217, 119, 6, 0.38); font-size: 0.83rem;">
+                        <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.65rem; flex-wrap: wrap;">
+                            <span>
+                                📧 <strong>Confirme seu e-mail (@Gateway.CurrentEmployee.Email)</strong> — contas sem confirmação precisam validar o código uma única vez para publicar a loja, baixar dados em outro aparelho e acessar o chat.
+                            </span>
+                            <div style="display: flex; gap: 0.45rem; align-items: center; flex-wrap: wrap;">
+                                <button type="button"
+                                        class="adm-btn adm-btn-primary"
+                                        style="padding: 0.34rem 0.72rem; font-size: 0.78rem;"
+                                        disabled="@_layoutEmailBusy"
+                                        @onclick="SendLayoutConfirmEmailOtpAsync">
+                                    @(_layoutEmailBusy && !_layoutEmailOtpSent ? "Enviando..." : _layoutEmailOtpSent ? "↻ Reenviar código" : "📨 Confirmar meu e-mail")
+                                </button>
+                                @if (!_layoutEmailOtpSent)
+                                {
+                                    <button type="button"
+                                            class="adm-btn adm-btn-outline"
+                                            style="padding: 0.34rem 0.62rem; font-size: 0.76rem;"
+                                            disabled="@_layoutEmailBusy"
+                                            @onclick="() => _layoutEmailOtpSent = true">
+                                        Já tenho um código
+                                    </button>
+                                }
+                            </div>
+                        </div>
+
+                        @if (_layoutEmailOtpSent)
+                        {
+                            <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+                                <input type="text"
+                                       class="adm-input"
+                                       maxlength="6"
+                                       inputmode="numeric"
+                                       placeholder="Código de 6 dígitos"
+                                       style="max-width: 175px; padding: 0.36rem 0.65rem; font-size: 0.85rem; letter-spacing: 0.14em; font-weight: 700;"
+                                       @bind="_layoutEmailOtpCode"
+                                       @bind:event="oninput" />
+                                <button type="button"
+                                        class="adm-btn adm-btn-accent"
+                                        style="padding: 0.36rem 0.8rem; font-size: 0.8rem;"
+                                        disabled="@(_layoutEmailBusy || string.IsNullOrWhiteSpace(_layoutEmailOtpCode))"
+                                        @onclick="VerifyLayoutConfirmEmailOtpAsync">
+                                    @(_layoutEmailBusy ? "Validando..." : "✓ Validar código")
+                                </button>
+                            </div>
+                        }
+
+                        @if (!string.IsNullOrWhiteSpace(_layoutEmailError))
+                        {
+                            <div style="color: var(--adm-danger, #ef4444); font-weight: 600; font-size: 0.79rem;">⚠️ @_layoutEmailError</div>
+                        }
+                        else if (!string.IsNullOrWhiteSpace(_layoutEmailFeedback))
+                        {
+                            <div style="color: var(--adm-success, #16a34a); font-weight: 600; font-size: 0.79rem;">✓ @_layoutEmailFeedback</div>
+                        }
+                    </div>
+                }
+
                 <main class="adm-content">
                     @Body
                 </main>
@@ -165,6 +225,11 @@
     private ApiCompatibilityStatusDto? _compatibilityStatus;
     private bool _dismissedUpdateBanner;
     private bool _dismissedRemoteBanner;
+    private bool _layoutEmailBusy;
+    private bool _layoutEmailOtpSent;
+    private string _layoutEmailOtpCode = string.Empty;
+    private string? _layoutEmailFeedback;
+    private string? _layoutEmailError;
     private CancellationTokenSource? _pendingPlanMonitorCts;
     private CancellationTokenSource? _cloudPlanMonitorCts;
 
@@ -219,6 +284,7 @@
     {
         await TryDeliverPendingPlanQuietlyAsync();
         await RefreshCloudPlanStatusQuietlyAsync(forceRefresh: true);
+        await RefreshSessionEmailStatusQuietlyAsync();
         EnsurePendingPlanBackgroundMonitor();
         EnsureCloudPlanBackgroundMonitor();
         _ = Gateway.FetchRemoteFeatureConfigBestEffortAsync();
@@ -230,6 +296,73 @@
         }
         catch
         {
+        }
+    }
+
+    private async Task RefreshSessionEmailStatusQuietlyAsync()
+    {
+        if (!Gateway.IsAuthenticated)
+            return;
+
+        try
+        {
+            await Gateway.RefreshCloudSessionVerificationStatusAsync();
+            await InvokeAsync(StateHasChanged);
+        }
+        catch
+        {
+        }
+    }
+
+    private async Task SendLayoutConfirmEmailOtpAsync()
+    {
+        if (_layoutEmailBusy)
+            return;
+
+        _layoutEmailBusy = true;
+        _layoutEmailError = null;
+        _layoutEmailFeedback = null;
+        try
+        {
+            var message = await Gateway.SendConfirmMyEmailOtpAsync();
+            _layoutEmailOtpSent = Gateway.NeedsCloudEmailVerification;
+            _layoutEmailFeedback = message;
+        }
+        catch (Exception ex)
+        {
+            _layoutEmailError = ex.Message;
+        }
+        finally
+        {
+            _layoutEmailBusy = false;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private async Task VerifyLayoutConfirmEmailOtpAsync()
+    {
+        if (_layoutEmailBusy || string.IsNullOrWhiteSpace(_layoutEmailOtpCode))
+            return;
+
+        _layoutEmailBusy = true;
+        _layoutEmailError = null;
+        _layoutEmailFeedback = null;
+        try
+        {
+            var message = await Gateway.VerifyConfirmMyEmailOtpAsync(_layoutEmailOtpCode);
+            _layoutEmailOtpSent = false;
+            _layoutEmailOtpCode = string.Empty;
+            _layoutEmailFeedback = message;
+            await RefreshStoreInfoAsync();
+        }
+        catch (Exception ex)
+        {
+            _layoutEmailError = ex.Message;
+        }
+        finally
+        {
+            _layoutEmailBusy = false;
+            await InvokeAsync(StateHasChanged);
         }
     }
 
@@ -421,6 +554,10 @@
             {
                 StopPendingPlanBackgroundMonitor();
                 StopCloudPlanBackgroundMonitor();
+                _layoutEmailOtpSent = false;
+                _layoutEmailOtpCode = string.Empty;
+                _layoutEmailFeedback = null;
+                _layoutEmailError = null;
             }
 
             await InvokeAsync(StateHasChanged);
@@ -430,6 +567,7 @@
             if (Gateway.IsAuthenticated)
             {
                 _ = RefreshCloudPlanStatusQuietlyAsync(forceRefresh: false);
+                _ = RefreshSessionEmailStatusQuietlyAsync();
                 EnsureCloudPlanBackgroundMonitor();
             }
             EnsurePendingPlanBackgroundMonitor();
