@@ -176,7 +176,7 @@ builder.Services.AddRateLimiter(options =>
 
     options.AddPolicy("chat-read", httpContext =>
         RateLimitPartition.GetFixedWindowLimiter(
-            partitionKey: ResolveChatReadRateLimitPartitionKey(httpContext),
+            partitionKey: ResolveRateLimitPartitionIp(httpContext),
             factory: _ => new FixedWindowRateLimiterOptions
             {
                 PermitLimit = 300,
@@ -1535,15 +1535,12 @@ app.MapPost("/api/cloud/accounts/upsert", async (
     {
         if (emailVerifiedByServer && !string.IsNullOrWhiteSpace(dto.Email))
         {
-            if (!string.IsNullOrWhiteSpace(dto.PreviousEmail) &&
-                !string.Equals(dto.PreviousEmail.Trim(), dto.Email.Trim(), StringComparison.OrdinalIgnoreCase))
+            if (!string.IsNullOrWhiteSpace(res.ReplacedEmail))
             {
-                await gateway.StoreResolver.ConfirmOwnerEmailAcrossStoresAsync(dto.PreviousEmail.Trim(), dto.Email.Trim(), ct);
+                await gateway.StoreResolver.ConfirmOwnerEmailAcrossStoresAsync(res.ReplacedEmail, dto.Email.Trim(), ct);
             }
-            else
-            {
-                await gateway.StoreResolver.ConfirmOwnerEmailAcrossStoresAsync(dto.Email.Trim(), null, ct);
-            }
+
+            await gateway.StoreResolver.ConfirmOwnerEmailAcrossStoresAsync(dto.Email.Trim(), null, ct);
         }
 
         await TryFlushCloudMirrorAsync(httpContext, ct);
@@ -1702,6 +1699,7 @@ app.MapPost("/api/cloud/accounts/register", async (
     CloudAccountRegistryService accountRegistry,
     EmailOtpService emailOtp,
     IPasswordHasher passwordHasher,
+    MultiTenantGatewayService gateway,
     CancellationToken ct) =>
 {
     if (string.IsNullOrWhiteSpace(req.FullName) ||
@@ -1797,6 +1795,7 @@ app.MapPost("/api/cloud/accounts/register", async (
     if (!upsert.Success)
         return Results.Json(new { error = upsert.Message, requiresEmailOtp = upsert.RequiresEmailVerification }, statusCode: upsert.StatusCode);
 
+    await gateway.StoreResolver.ConfirmOwnerEmailAcrossStoresAsync(cleanEmail, null, ct);
     await TryFlushCloudMirrorAsync(httpContext, ct);
     var verified = await accountRegistry.VerifyLoginAsync(new LoginRequest(cleanEmail, req.Password), ct);
     return Results.Ok(verified);
@@ -1908,6 +1907,7 @@ app.MapPost("/api/cloud/accounts/password-reset/confirm", async (
     CloudAccountRegistryService accountRegistry,
     EmailOtpService emailOtp,
     IPasswordHasher passwordHasher,
+    MultiTenantGatewayService gateway,
     CancellationToken ct) =>
 {
     var id = (request.Identifier ?? string.Empty).Trim();
@@ -1979,6 +1979,7 @@ app.MapPost("/api/cloud/accounts/password-reset/confirm", async (
             Message: upsert.Message), statusCode: upsert.StatusCode);
     }
 
+    await gateway.StoreResolver.ConfirmOwnerEmailAcrossStoresAsync(account.Email.Trim(), null, ct);
     await TryFlushCloudMirrorAsync(httpContext, ct);
     return Results.Ok(new CloudPasswordResetConfirmResponse(
         Success: true,
@@ -2747,21 +2748,6 @@ static string ResolveRateLimitPartitionIp(HttpContext ctx)
         return cfIp;
 
     return "unknown";
-}
-
-static string ResolveChatReadRateLimitPartitionKey(HttpContext ctx)
-{
-    var ip = ResolveRateLimitPartitionIp(ctx);
-    var sessionToken = ctx.Request.Headers["X-Buyer-Token"].FirstOrDefault()
-                       ?? ctx.Request.Headers["X-YouLink-Cloud-Token"].FirstOrDefault();
-
-    if (!string.IsNullOrWhiteSpace(sessionToken))
-    {
-        var hash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(sessionToken.Trim())));
-        return $"{ip}:{hash[..16]}";
-    }
-
-    return ip;
 }
 
 static async Task<(bool Verified, string? VerifiedEmail)> ResolveVerifiedCloudOwnerEmailAsync(

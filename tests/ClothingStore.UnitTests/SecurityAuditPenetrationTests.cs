@@ -804,6 +804,133 @@ public sealed class SecurityAuditPenetrationTests
         }
     }
 
+    [TestMethod]
+    public async Task V1084_OrphanedStoreHijackBlocked_ReplacedEmailTransferWorks_And_RegisterAndResetConfirmStores()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"youlink_pentest_v84_{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+        try
+        {
+            var hasher = new Pbkdf2PasswordHasher();
+            var registry = new CloudAccountRegistryService(tempDir, hasher);
+            var defaultRepo = new ClothingStoreRepository(hasher, Path.Combine(tempDir, "default_store.json"));
+            var storeManager = new MultiTenantStoreManager(defaultRepo, hasher, tempDir);
+
+            // 1) Cria loja "loja-orfa" confirmada em nome de "orfao@loja.com" (cujo dono não possui mais conta em CloudAccountRegistry)
+            var orphanInit = await storeManager.AuthorizeAndResolvePublishRepositoryAsync(
+                requestedSlug: "loja-orfa",
+                syncKeyHeader: null,
+                publishTokenHeader: null,
+                hasValidSyncKey: false,
+                authenticatedOwnerEmail: "orfao@loja.com",
+                isOwnerEmailServerVerified: true);
+            Assert.IsTrue(orphanInit.Authorized);
+
+            var credsBefore = await storeManager.GetTenantCredentialsAsync("loja-orfa");
+            Assert.IsNotNull(credsBefore);
+            Assert.AreEqual("orfao@loja.com", credsBefore!.OwnerEmail);
+            Assert.IsTrue(credsBefore.IsOwnerEmailVerified);
+
+            // 2) CRÍTICO (Lojas órfãs): Invasor cadastra o próprio e-mail com OTP válido ("invasor@atacante.com")
+            // enviando PreviousEmail = "orfao@loja.com" na tentativa de sequestrar "loja-orfa"!
+            var attackerSignup = await registry.UpsertAccountAsync(new CloudAccountCredentialSyncDto(
+                FullName: "Invasor Órfã",
+                Username: "invasororfa",
+                Email: "invasor@atacante.com",
+                PreviousEmail: "orfao@loja.com",
+                PasswordHash: hasher.HashPassword("Invasor#2026"),
+                StoreName: "Loja Atacante",
+                StoreSlug: "loja-atacante"),
+                hasValidSyncKey: false,
+                emailVerifiedByServer: true);
+            Assert.IsTrue(attackerSignup.Success);
+            Assert.IsNull(attackerSignup.ReplacedEmail,
+                "CRÍTICO v1.0.84: Cadastro novo NUNCA pode preencher ReplacedEmail a partir de PreviousEmail arbitrário.");
+
+            // Executa exatamente o fluxo pós-upsert do Program.cs (usando apenas res.ReplacedEmail, nunca dto.PreviousEmail)
+            if (!string.IsNullOrWhiteSpace(attackerSignup.ReplacedEmail))
+            {
+                await storeManager.ConfirmOwnerEmailAcrossStoresAsync(attackerSignup.ReplacedEmail, "invasor@atacante.com");
+            }
+            await storeManager.ConfirmOwnerEmailAcrossStoresAsync("invasor@atacante.com", null);
+
+            // Confere que o dono da "loja-orfa" NÃO mudou e que o invasor continua bloqueado nela!
+            var credsAfterAttack = await storeManager.GetTenantCredentialsAsync("loja-orfa");
+            Assert.AreEqual("orfao@loja.com", credsAfterAttack!.OwnerEmail,
+                "CRÍTICO v1.0.84: PreviousEmail de loja sem conta jamais deve transferir a posse da loja para o invasor.");
+
+            var attackerPublishAttempt = await storeManager.AuthorizeAndResolvePublishRepositoryAsync(
+                requestedSlug: "loja-orfa",
+                syncKeyHeader: null,
+                publishTokenHeader: null,
+                hasValidSyncKey: false,
+                authenticatedOwnerEmail: "invasor@atacante.com",
+                isOwnerEmailServerVerified: true);
+            Assert.IsFalse(attackerPublishAttempt.Authorized,
+                "CRÍTICO v1.0.84: Invasor não pode publicar na loja órfã.");
+
+            // 3) Fluxo legítimo: dono real com conta ativa e sessão válida troca seu próprio e-mail com OTP confirmado
+            var realOwnerSignup = await registry.UpsertAccountAsync(new CloudAccountCredentialSyncDto(
+                FullName: "Dono Legítimo",
+                Username: "donolegitimo",
+                Email: "dono1@minhaloja.com",
+                PasswordHash: hasher.HashPassword("DonoReal#2026")),
+                hasValidSyncKey: false,
+                emailVerifiedByServer: true);
+            Assert.IsTrue(realOwnerSignup.Success);
+
+            var legitStoreInit = await storeManager.AuthorizeAndResolvePublishRepositoryAsync(
+                requestedSlug: "loja-legitima",
+                syncKeyHeader: null,
+                publishTokenHeader: null,
+                hasValidSyncKey: false,
+                authenticatedOwnerEmail: "dono1@minhaloja.com",
+                isOwnerEmailServerVerified: true);
+            Assert.IsTrue(legitStoreInit.Authorized);
+
+            var legitEmailSwap = await registry.UpsertAccountAsync(new CloudAccountCredentialSyncDto(
+                FullName: "Dono Legítimo",
+                Username: "donolegitimo",
+                Email: "dono2@minhaloja.com",
+                PreviousEmail: "dono1@minhaloja.com",
+                PasswordHash: hasher.HashPassword("DonoReal#2026"),
+                CloudSessionToken: realOwnerSignup.CloudSessionToken),
+                hasValidSyncKey: false,
+                emailVerifiedByServer: true,
+                callerCloudSessionToken: realOwnerSignup.CloudSessionToken);
+            Assert.IsTrue(legitEmailSwap.Success);
+            Assert.AreEqual("dono1@minhaloja.com", legitEmailSwap.ReplacedEmail);
+
+            await storeManager.ConfirmOwnerEmailAcrossStoresAsync(legitEmailSwap.ReplacedEmail!, "dono2@minhaloja.com");
+            await storeManager.ConfirmOwnerEmailAcrossStoresAsync("dono2@minhaloja.com", null);
+
+            var legitCredsAfterSwap = await storeManager.GetTenantCredentialsAsync("loja-legitima");
+            Assert.AreEqual("dono2@minhaloja.com", legitCredsAfterSwap!.OwnerEmail);
+            Assert.IsTrue(legitCredsAfterSwap.IsOwnerEmailVerified);
+
+            // 4) Confere no código-fonte de Program.cs:
+            // - Nunca usa dto.PreviousEmail em ConfirmOwnerEmailAcrossStoresAsync
+            // - Chama ConfirmOwnerEmailAcrossStoresAsync no cadastro (/register) e na redefinição de senha (/password-reset/confirm)
+            // - Limite de chat-read usa apenas ResolveRateLimitPartitionIp (sem token não validado)
+            var repoRoot = FindRepoRoot();
+            var programCs = await File.ReadAllTextAsync(Path.Combine(repoRoot, "src", "ClothingStore.Web", "Program.cs"));
+            Assert.IsFalse(programCs.Contains("ConfirmOwnerEmailAcrossStoresAsync(dto.PreviousEmail", StringComparison.Ordinal),
+                "CRÍTICO v1.0.84: Program.cs nunca deve passar dto.PreviousEmail para ConfirmOwnerEmailAcrossStoresAsync.");
+            Assert.IsTrue(programCs.Contains("ConfirmOwnerEmailAcrossStoresAsync(res.ReplacedEmail", StringComparison.Ordinal),
+                "CRÍTICO v1.0.84: Program.cs deve usar res.ReplacedEmail para transferir lojas na troca legítima de e-mail.");
+            Assert.IsTrue(programCs.Contains("ConfirmOwnerEmailAcrossStoresAsync(cleanEmail, null, ct);", StringComparison.Ordinal),
+                "🟠 v1.0.84: /api/cloud/accounts/register deve confirmar as lojas do e-mail recém-confirmado.");
+            Assert.IsTrue(programCs.Contains("ConfirmOwnerEmailAcrossStoresAsync(account.Email.Trim(), null, ct);", StringComparison.Ordinal),
+                "🟠 v1.0.84: /api/cloud/accounts/password-reset/confirm deve confirmar as lojas do e-mail redefinido.");
+            Assert.IsFalse(programCs.Contains("ResolveChatReadRateLimitPartitionKey", StringComparison.Ordinal),
+                "🟠 v1.0.84: chat-read deve usar apenas o IP para evitar bypass trocando cabeçalho não validado.");
+        }
+        finally
+        {
+            try { Directory.Delete(tempDir, recursive: true); } catch { }
+        }
+    }
+
     private static string FindRepoRoot()
     {
         var dir = new DirectoryInfo(AppContext.BaseDirectory);

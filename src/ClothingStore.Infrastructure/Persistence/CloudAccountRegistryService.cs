@@ -134,6 +134,7 @@ public sealed class CloudAccountRegistryService
             var now = DateTimeOffset.UtcNow;
             string? issuedToken = null;
             DateTimeOffset? issuedExpiresAt = null;
+            string? replacedEmail = null;
 
             if (existing is not null)
             {
@@ -196,6 +197,10 @@ public sealed class CloudAccountRegistryService
                 }
 
                 var passwordChanged = !string.Equals(existing.PasswordHash, passwordHash, StringComparison.Ordinal);
+                if (isEmailChange)
+                {
+                    replacedEmail = existing.Email;
+                }
                 existing.Email = email;
                 existing.Username = username;
                 existing.FullName = fullName;
@@ -274,7 +279,8 @@ public sealed class CloudAccountRegistryService
                 StatusCode: 200,
                 Message: "Conta sincronizada na nuvem com sucesso.",
                 CloudSessionToken: issuedToken,
-                CloudSessionExpiresAt: issuedExpiresAt);
+                CloudSessionExpiresAt: issuedExpiresAt,
+                ReplacedEmail: replacedEmail);
         }
         finally
         {
@@ -1228,7 +1234,8 @@ public sealed record CloudAccountUpsertResult(
     string Message,
     string? CloudSessionToken = null,
     DateTimeOffset? CloudSessionExpiresAt = null,
-    bool RequiresEmailVerification = false);
+    bool RequiresEmailVerification = false,
+    string? ReplacedEmail = null);
 
 public sealed record CloudAccountSummary(
     string FullName,
